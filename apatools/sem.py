@@ -80,7 +80,7 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
 
 def sem_plot(
     stats,
-    save_to_file,
+    save_to_file=None,
     plot_covs=True,
     std_ests=True,
     show_stars=False,
@@ -181,7 +181,7 @@ def semopy_plot(
                 format_pval
                 if callable(format_pval)
                 else lambda x: format_p(
-                    x, use_letter=False, keep_spaces=False, no_equals=True
+                    x, keep_spaces=False, no_equals=False
                 )
             )
         )

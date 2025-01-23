@@ -31,7 +31,7 @@ def test_sem():
 
     fig = semopy_plot(
         stats,
-        save_to_file="fig.png",
+        save_to_file="fig1.png",
         plot_covs=True,
         std_ests=True,
         plot_ests=True,
@@ -47,7 +47,7 @@ def test_sem():
     
     fig = sem_plot(
         stats,
-        save_to_file="fig.png",
+        save_to_file="fig2.png",
         plot_covs=True,
         std_ests=True,
         show_stars=True,
