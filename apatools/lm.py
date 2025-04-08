@@ -117,8 +117,8 @@ def r_sq(results):
     df_resid = max(int(results.df_resid), nobs - df_model)  # technical correction
     fitted = results.fittedvalues
     observed = resid + fitted
-    SSe = np.sum((weights * resid) ** 2)
-    SSt = np.sum((weights * (observed - np.mean(weights * observed))) ** 2)
+    SSe = np.sum(weights * resid ** 2)
+    SSt = np.sum(weights * (observed - np.sum(weights * observed) / np.sum(weights)) ** 2)
     r_sq = getattr(
         results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
     )
