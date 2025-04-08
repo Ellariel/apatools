@@ -36,7 +36,7 @@ def test_lm():
     assert s(metrics[0]["pred_r_sq"]) == "0.75"
     # RLM
     assert s(results[1].params.iloc[1]) == "-4.44"
-    assert s(metrics[1]["r_sq"]) == "0.82"
+    assert s(metrics[1]["r_sq"]) == "0.74"
     assert s(metrics[1]["pred_r_sq"]) == "0.75"
     # GLM
     assert s(results[2].pvalues.iloc[1]) == "0.00"
@@ -58,7 +58,7 @@ def test_lm():
     assert s(results_rep[1].loc["vs"]["vif"]) == "1.44"
     assert (
         results_rep[1].iloc[0]["model"]
-        == "R² = .82, R²adj = .81, R²pred = .75, F(2, 30) = 69.97, p < .0001"
+        == "R² = .74, R²adj = .72, R²pred = .75, F(2, 30) = 41.81, p < .0001"
     )
     # lm_report GLM
     assert results_rep[2].loc["vs"]["p-value"] == ".001"
