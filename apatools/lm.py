@@ -124,12 +124,24 @@ def r_sq(results):
     # denominator = (weight * (y_true - np.average(
     #     y_true, axis=0, weights=sample_weight)) ** 2).sum(axis=0,
     #                                                       dtype=np.float64)
-    SSe = np.sum(weights * resid ** 2) / np.sum(weights)
+    rho = results.model.M.rho
+    print(rho)
+    
+    
+    SSe = np.sum(weights * resid ** 2)
     SSt = np.sum(weights * (observed - np.sum(weights * observed) / np.sum(weights)) ** 2)
     print('SSe sklearn', SSe)
     print('SSt sklearn', SSt)  
     print('r=', 1 - SSe / SSt)  
     
+    
+    SSe = np.sum(rho(resid))
+    SSt = np.sum(rho(observed - np.sum(observed))) 
+    print('SSe rho', SSe)
+    print('SSt rho', SSt)  
+    print('r=', 1 - SSe / SSt)  
+    
+    '''
     # https://web.maths.unsw.edu.au/~adelle/Garvan/Assays/GoodnessOfFit.html
     SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
     print('SSe good', SSe)
@@ -147,6 +159,7 @@ def r_sq(results):
     print('SSekagle',SSe)
     print('SStkagle',SSt) 
     print('r=', 1 - SSe / SSt)
+    '''
     
     r_sq = getattr(
         results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
