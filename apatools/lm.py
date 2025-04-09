@@ -117,8 +117,37 @@ def r_sq(results):
     df_resid = max(int(results.df_resid), nobs - df_model)  # technical correction
     fitted = results.fittedvalues
     observed = resid + fitted
-    SSe = np.sum(weights * resid ** 2)
+    # https://github.com/scikit-learn/scikit-learn/blob/51a765a/sklearn/metrics/regression.py#L370
+    # avg = sum(a * weights) / sum(weights)
+    # numerator = (weight * (y_true - y_pred) ** 2).sum(axis=0,
+    #                                                   dtype=np.float64)
+    # denominator = (weight * (y_true - np.average(
+    #     y_true, axis=0, weights=sample_weight)) ** 2).sum(axis=0,
+    #                                                       dtype=np.float64)
+    SSe = np.sum(weights * resid ** 2) / np.sum(weights)
+    SSt = np.sum(weights * (observed - np.sum(weights * observed) / np.sum(weights)) ** 2)
+    print('SSe sklearn', SSe)
+    print('SSt sklearn', SSt)  
+    print('r=', 1 - SSe / SSt)  
+    
+    # https://web.maths.unsw.edu.au/~adelle/Garvan/Assays/GoodnessOfFit.html
     SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
+    print('SSe good', SSe)
+    print('SSt good', SSt) 
+    print('r=', 1 - SSe / SSt) 
+    
+    # https://stats.stackexchange.com/a/375752
+    SSt = np.sum((observed - np.mean(observed)) ** 2)
+    print('SSe',SSe)
+    print('SSt',SSt) 
+    print('r=', 1 - SSe / SSt)
+    
+    
+    SSt = np.sum(weights * observed ** 2)
+    print('SSekagle',SSe)
+    print('SStkagle',SSt) 
+    print('r=', 1 - SSe / SSt)
+    
     r_sq = getattr(
         results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
     )

@@ -4,6 +4,7 @@
 uv.lock
 *.png
 *.pdf
+*.csv
 
 __pycache__/
 .venv
