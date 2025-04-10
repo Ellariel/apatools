@@ -166,7 +166,7 @@ def semopy_plot(
     import shutil
     import tempfile
     import graphviz
-    # it uses graphviz. for windows, use https://graphviz.gitlab.io/download/
+    # It uses graphviz. For windows, use https://graphviz.gitlab.io/download/
 
     np.random.seed(seed)
     stats = stats.copy()
