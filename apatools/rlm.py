@@ -22,7 +22,7 @@ def test_lm():
         test_data,
         y,
         x,
-        model=["rlm", "ols", "glm"],
+        model=["rlm"],#, "ols", "glm"],
         verbose=True,
         constant=False,
         standardized=True,

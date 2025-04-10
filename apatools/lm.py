@@ -75,7 +75,7 @@ def pred_r_sq(model, Y, X, **kwargs):
 
     https://stats.stackexchange.com/questions/592653/how-to-get-predicted-r-square-from-statmodels
     """
-    res = {}
+    results = {}
     errors = []
     kwargs["verbose"] = False
     for train_index, test_index in LeaveOneOut().split(X):
@@ -83,19 +83,16 @@ def pred_r_sq(model, Y, X, **kwargs):
         y_train, y_test = Y.iloc[train_index], Y.iloc[test_index]
         try:
             for idx, r in enumerate(fit_model(model, y_train, x_train, **kwargs)):
-                res.setdefault(idx, [])
-                res[idx].append(*(y_test - r.predict(x_test)))
+                results.setdefault(idx, [])
+                results[idx].append(*(y_test - r.predict(x_test)))
         except Exception as e:
             errors.append(str(e))
     if len(errors):
         print(
             f"Some attempts to calculate R²pred have been unsuccessful ({len(errors)}): {set(errors)}"
         )
-    return np.clip(
-        [1 - np.sum(np.square(i)) / np.var(Y) / Y.size for _, i in res.items()],
-        -1.0,
-        1.0,
-    )
+    return np.clip([1 - np.sum(np.square(i)) / np.var(Y) / Y.size 
+                        for _, i in results.items()], -1.0, 1.0)
 
 
 def r_sq(results):
@@ -107,7 +104,7 @@ def r_sq(results):
     https://stats.stackexchange.com/questions/55236/prove-f-test-is-equal-to-t-test-squared
     """
 
-    weights = getattr(results, "weights", 1)
+    outputs = {}    
     resid = getattr(results, "resid", getattr(results, "resid_working", None))
     nobs = int(results.nobs)
     n_pred = len(
@@ -128,35 +125,23 @@ def r_sq(results):
     # https://web.maths.unsw.edu.au/~adelle/Garvan/Assays/GoodnessOfFit.html
     # SSe = np.sum(weights * resid ** 2)
     # SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
-  
 
-    
-    SSe = np.sum(weights * resid ** 2)
-    SSt = np.sum((observed - np.mean(observed)) ** 2)
-
-    if not isinstance(weights, int):
-        SSe = np.sum(weights * resid ** 2)
-        SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
-        print('SSe good', SSe)
-        print('SSt good', SSt) 
-        print('r=', 1 - SSe / SSt)
-
-    M = getattr(results.model, 'M', False)
+    M = getattr(results.model, 'M', False) #r_sq_pseudo
     if M and callable(M.rho):
         SSe = np.sum(M.rho(resid))
-        SSt = np.sum(M.rho(observed - np.median(observed))) 
-        print('SSe rho', SSe)
-        print('SSt rho', SSt)  
-        print('r=', 1 - SSe / SSt) 
+        SSt = np.sum(M.rho(observed - np.mean(observed)))
+        outputs.update({"r_sq_pseudo": 1 - SSe / SSt})
+
+    weights = getattr(results, "weights", 1)
+    SSe = np.sum(weights * resid ** 2)
+    SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
     
     r_sq = getattr(
         results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
     )
     r_sq = r_sq() if callable(r_sq) else r_sq
-
     # https://www.statsmodels.org/dev/generated/statsmodels.regression.linear_model.OLSResults.rsquared_adj.html
     r_sq_adj = getattr(results, "rsquared_adj", 1 - (1 - r_sq) * nobs / df_resid)
-
     # https://www.slideshare.net/slideshow/multiple-regressionppt-252604177/252604177#8
     f_stat = getattr(
         results, "fvalue", (r_sq / df_model) / ((1 - r_sq) / df_resid)
@@ -164,15 +149,15 @@ def r_sq(results):
     f_pvalue = getattr(
         results, "f_pvalue", scipy.stats.f.sf(f_stat, df_model, df_resid)
     )
-
-    return {
+    outputs.update({
         "r_sq": r_sq,
         "r_sq_adj": r_sq_adj,
         "df_model": df_model,
         "df_resid": df_resid,
         "f_stat": f_stat,
         "f_pvalue": f_pvalue,
-    }
+    })
+    return outputs
 
 
 def lm(data, y, x, model="ols", **kwargs):

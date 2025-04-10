@@ -30,6 +30,7 @@ def test_lm():
         glm_model_family=sm.families.Gaussian(),
     )
     # OLS
+    print(metrics[1])
     assert s(results[0].fvalue) == "40.58"
     assert s(results[0].params.iloc[1]) == "-4.44"
     assert s(metrics[0]["r_sq"]) == "0.80"
