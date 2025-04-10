@@ -15,7 +15,6 @@ def test_lm():
     x = ["cult_dist2"]
     
     #test_data = sm.datasets.get_rdataset("mtcars", "datasets", cache=True).data
-    # assert len(test_data) == 32
     #y = "mpg"
     #x = ["wt", "vs"]
     
@@ -23,7 +22,7 @@ def test_lm():
         test_data,
         y,
         x,
-        model=["rlm", "ols"],
+        model=["rlm", "ols", "glm"],
         verbose=True,
         constant=False,
         standardized=True,
