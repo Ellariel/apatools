@@ -20,4 +20,4 @@ def gini_coefficient(values, drop_zeros=False, tolerance=0.0000001):
     n = x.shape[0] # number of array elements
     x = np.sort(x) # values must be sorted
     idx = np.arange(1, n + 1) # index per array element
-    return ((np.sum((2 * idx - n  - 1) * x)) / (n * np.sum(x))) # Gini coefficient
+    return np.sum((2 * idx - n  - 1) * x) / (n * np.sum(x)) # Gini coefficient
