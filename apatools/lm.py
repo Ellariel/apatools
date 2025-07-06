@@ -7,7 +7,16 @@ from pandas import read_html, DataFrame
 from sklearn.model_selection import LeaveOneOut
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
+from .citation import Citation
 from .format import format_r, format_p, get_stars
+
+
+# https://www.statsmodels.org/stable/index.html
+CITATION = Citation(APA='Skipper, S., & Perktold, J. (2010). \
+statsmodels: Econometric and Statistical Modeling with Python. \
+9th Python in Science Conference (pp. 57-61), \
+Austin, Texas, United States. \
+https://doi.org/10.25080/Majora-92bf1922-011')
 
 
 def vif(results, sort=False, decimal=2):

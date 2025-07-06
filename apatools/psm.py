@@ -2,15 +2,12 @@ import numpy as np
 import pandas as pd
 from psmpy import PsmPy
 from psmpy.functions import cohenD
-from typing import NamedTuple
+
+from .citation import Citation
 
 
 # https://pypi.org/project/psmpy/
 # https://github.com/adriennekline/psmpy
-
-class Citation(NamedTuple):
-    APA: str
-
 CITATION = Citation(APA='Kline, A., & Luo, Y. (2022). \
 PsmPy: A Package for Retrospective Cohort Matching in Python. \
 2022 44th Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) (pp. 1354-1357), \

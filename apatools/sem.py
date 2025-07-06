@@ -1,9 +1,10 @@
-from typing import NamedTuple
 import numpy as np
 import pandas as pd
 import semopy
 
+from .citation import Citation
 from .format import format_p, get_stars
+
 
 # https://arxiv.org/pdf/2106.01140.pdf
 # https://semopy.com/cite.html
@@ -17,13 +18,9 @@ from .format import format_p, get_stars
 # eta1 =~ y1 + y2 + y3
 # eta1 ~ x1
 # """
-
-class Citation(NamedTuple):
-    APA: str
-
 CITATION = Citation(APA='Igolkina, A. A., & Meshcheryakov, G. (2020). \
 semopy: A Python Package for Structural Equation Modeling. \
-Structural Equation Modeling: A Multidisciplinary Journal, 27(6), 952–963. \
+Structural Equation Modeling: A Multidisciplinary Journal, 27(6), 952-963. \
 https://doi.org/10.1080/10705511.2019.1704289')
 
 

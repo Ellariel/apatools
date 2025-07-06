@@ -143,5 +143,13 @@ s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
 * [factor-analyzer](https://pypi.org/project/factor-analyzer/) (GPL-2.0 License)
 * [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
 * [semopy](https://pypi.org/project/semopy/) (MIT License)
+* [psmpy](https://pypi.org/project/psmpy/) (MIT License)
 * [scipy](https://pypi.org/project/scipy/) (BSD License)
+
+Note that APA citations of the original packages can be imported from each specific implementation as follows:
+```python
+# e.g., for psmpy
+from apatools.psm import CITATION
+print(CITATION.APA) 
+```
 
