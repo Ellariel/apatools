@@ -12,6 +12,7 @@ pip install git+https://github.com/ellariel/apatools.git
 * ***apatools.calc*** - *a basic module for statistical conversions and bootstrapping*
 * ***apatools.lm*** - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
 * ***apatools.sem*** - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
+* ***apatools.psm*** - *a module for performing propensity score matching, complete with effect sizes reporting*
 * ***apatools.format*** - *simple APA-compliant formatting functions for numerical results*
 
 ### *apatools.calc*
@@ -104,6 +105,24 @@ fig = sem_plot(
         return_fig=True,
     )
 ```
+
+
+### *apatools.psm*
+Propensity score matching implemented with *psmpy*. The module provides modeling function `psm()` and `psm_effect_size()` to report differences.
+
+```python
+from apatools.psm import psm, psm_effect_size
+results, model = psm(
+        data,
+        treatment_variable='vs',
+        include_vars=['age', 'gender'],
+        balance=True,
+        replacement=True,
+        return_model=True,
+    )
+print(psm_effect_size(model))
+```
+
 
 ### *apatools.format*
 Simple APA-compliant functions for formatting numeric results, such as formatting R and r values, p-values, etc.
