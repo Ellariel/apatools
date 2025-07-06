@@ -47,10 +47,10 @@ def log_transform(values):
     """Pseudo log-transformation, keeping sign"""
 
     x = np.array(list(values)).astype('float64').flatten()
-    return np.sign(x) * np.log(1 + np.abs(x))
+    return np.sign(x) * np.log10(1 + np.abs(x))
 
 
-def z_transform(values, return_params_tuple=False):
+def z_transform(values, return_params=False):
     """z-transformation or standardization"""
 
     x = np.array(list(values)).astype('float64').flatten()
@@ -60,7 +60,7 @@ def z_transform(values, return_params_tuple=False):
 
     z = (x - m) / s
 
-    if return_params_tuple:
+    if return_params:
         return z, m, s
     return z
 

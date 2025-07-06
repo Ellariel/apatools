@@ -1,6 +1,6 @@
 import semopy
 
-from apatools.sem import sem, sem_report, semopy_plot, sem_plot
+from apatools.sem import sem, sem_report, semopy_plot, sem_plot, CITATION
 
 
 def test_sem():
@@ -8,6 +8,8 @@ def test_sem():
     data = semopy.examples.political_democracy.get_data()
     formula = semopy.examples.political_democracy.get_model()
     assert len(data) == 75
+
+    print(CITATION.APA)
 
     stats, metrics, model = sem(
         data,
