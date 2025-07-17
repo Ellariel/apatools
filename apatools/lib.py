@@ -50,13 +50,13 @@ def log_transform(values):
     return np.sign(x) * np.log10(1 + np.abs(x))
 
 
-def z_transform(values, return_params=False):
+def z_transform(values, return_params=False, ignore_errors=True):
     """z-transformation or standardization"""
 
     x = np.array(list(values)).astype('float64').flatten()
-    m, s = np.mean(x), np.std(x)
-    if s == 0:
-        raise ValueError("Standard deviation is zero. Z-transformation is not defined.")
+    m, s = np.nanmean(x), np.nanstd(x)
+    if not s and not ignore_errors:
+          raise ValueError("Standard deviation is zero or undefined. Z-transformation is not defined.")
 
     z = (x - m) / s
 
