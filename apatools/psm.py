@@ -39,6 +39,9 @@ def psm(
     index_variable=None,
     balance=True,
     replacement=True,
+    drop_unmatched=True,
+    return_coupled=False,
+    coupled_suffix='_',
     return_model=False,
     seed=13,
 ):
@@ -63,14 +66,19 @@ def psm(
                 exclude=list(all_vars))
     model.logistic_ps(balance=balance)
     model.knn_matched(matcher='propensity_logit', 
-                    replacement=replacement, 
                     caliper=None, 
-                    drop_unmatched=True)
-    df = pd.concat([pd.merge(model.matched_ids[[index_variable]], df, 
-                    how='left', on=index_variable),
-        pd.merge(model.matched_ids[['matched_ID']]\
+                    replacement=replacement, 
+                    drop_unmatched=drop_unmatched)
+    a = pd.merge(model.matched_ids[[index_variable]], df, 
+                    how='left', on=index_variable)
+    b = pd.merge(model.matched_ids[['matched_ID']]\
                     .rename(columns={'matched_ID': index_variable}), df, 
-                        how='left', on=index_variable)])
+                        how='left', on=index_variable)
+    if return_coupled:
+        b.columns = [i+coupled_suffix if i in a else i for i in b.columns]
+        df = pd.concat([a, b], axis=1)
+    else:
+        df = pd.concat([a, b], axis=0)
     if return_model:
         return df, model
     return df
