@@ -9,17 +9,23 @@ def read_zip(zip_file_path,
              use_file_index=0, 
              print_file_names=False,
              **kwargs):
+    fname = None
     zf = zipfile.ZipFile(zip_file_path)
     if use_file_name is not None:
         for f in zf.infolist():
             f = f.filename
             if print_file_names:
                 print(f)
-        if use_file_name in f:
-            return pd.read_csv(zf.open(f), **kwargs)
+            if use_file_name in f:
+                fname = f
+                break
     else:
-        f = zf.infolist()[use_file_index].filename
+        fname = zf.infolist()[use_file_index].filename
         if print_file_names:
-            print(f)
-        return pd.read_csv(zf.open(f), **kwargs)
+            print(fname)
+    if fname is not None:
+        if '.xls' in fname.lower():
+            return pd.read_excel(zf.open(fname), **kwargs)
+        return pd.read_csv(zf.open(fname), **kwargs)
+
 
