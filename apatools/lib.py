@@ -67,9 +67,16 @@ def z_transform(values, return_params=False, ignore_errors=True):
     return z
 
 
-def fleiss_kappa(df, return_per_item_agreement=False):
+def fleiss_kappa(df, return_per_item_agreement=False, method="two-tailed"):
     """
     Compute Fleiss' kappa, z-score, and p-value, per-item agreement
+    Null Hypothesis Kappa = 0	Agreement is due to chance
+    0.01-0.02	Slight agreement
+    0.21-0.40	Fair Agreement
+    0.41-0.60	Moderate Agreement
+    0.61-0.80	Substantial Agreement
+    0.81-1.00	Almost Perfect Agreement
+    Negative (Kappa<0)	Agreement less than that expected by chance
     """
     # https://en.wikipedia.org/wiki/Fleiss%27s_kappa
     # https://www.statsmodels.org/dev/generated/statsmodels.stats.inter_rater.aggregate_raters.html
@@ -81,22 +88,22 @@ def fleiss_kappa(df, return_per_item_agreement=False):
     P_e = np.sum(P_j**2) # Expected agreement
     kappa = (np.mean(P_i) - P_e) / (1 - P_e) if (1 - P_e) != 0 else np.nan # Fleiss' kappa
 
-    # Variance of kappa (approximation)
+    # variance of kappa (approximation)
     term1 = np.sum(P_j**2 * (1 - P_j)**2)
     term2 = (1 - P_e) * (np.sum(P_j**3) - P_e * np.sum(P_j**2))
     var_kappa = (term1 - term2) / (n_items * n_raters * (n_raters - 1) * (1 - P_e)**2)
 
     # z-score and p-value
+    z, p = np.nan, np.nan
     if var_kappa > 0:
         z = kappa / np.sqrt(var_kappa)
-        p_value = 2 * (1 - norm.cdf(np.abs(z)))
-    else:
-        z, p_value = np.nan, np.nan
+        p = norm.sf(np.abs(z)) # one-sided
+        p = p * 2 if method == "two-tailed" else p
 
     if return_per_item_agreement:
-        return kappa, z, p_value, pd.Series(P_i, index=df.index, 
+        return kappa, z, p, pd.Series(P_i, index=df.index, 
                                             name="per_item_agreement"), 
 
-    return kappa, z, p_value
+    return kappa, z, p
 
 
