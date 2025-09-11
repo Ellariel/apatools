@@ -16,6 +16,7 @@ dependencies = [
     "semopy>=2.3.11",
     "statsmodels>=0.14.4",
     "factor-analyzer>=0.5.1",
+    "krippendorff",
 ]
 
 [dependency-groups]
