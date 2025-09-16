@@ -130,7 +130,7 @@ def krippendorffs_alpha(df, measurement="nominal",
     # https://github.com/pln-fing-udelar/fast-krippendorff
     
     df = df.astype(str) # be careful about NaNs, they are transformed to a category via .astype(str)
-    m = aggregate_raters(df, n_cat=None)[0][:,:-1]
+    m = aggregate_raters(df, n_cat=None)[0]#[:,:-1]
     alpha = krippendorff.alpha(value_counts=m, 
                                level_of_measurement=measurement)
     
@@ -141,7 +141,7 @@ def krippendorffs_alpha(df, measurement="nominal",
         null_dist = []
         for _ in range(n_iter_for_bootstrap):
             m = aggregate_raters(df.apply(np.random.permutation, axis=0), 
-                                 n_cat=None)[0][:,:-1]
+                                 n_cat=None)[0]#[:,:-1]
             null_alpha = krippendorff.alpha(value_counts=m, 
                                level_of_measurement=measurement)
             null_dist.append(null_alpha)
