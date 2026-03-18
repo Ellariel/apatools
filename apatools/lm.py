@@ -1,3 +1,4 @@
+import warnings
 import scipy
 import numpy as np
 from io import StringIO
@@ -7,7 +8,6 @@ from pandas import read_html, DataFrame
 from sklearn.model_selection import LeaveOneOut
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
-from statsmodels.robust.robust_linear_model import RLMResultsWrapper
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
@@ -101,9 +101,11 @@ def pred_r_sq(model, Y, X, **kwargs):
         except Exception as e:
             errors.append(str(e))
     if len(errors):
-        print(
-            f"Some attempts to calculate R²pred have been unsuccessful ({len(errors)}): {set(errors)}"
+        warnings.warn(
+            f"Some attempts to calculate R²pred have been unsuccessful ({len(errors)}): {set(errors)}",
+            UserWarning,
         )
+
     return np.clip(
         [1 - np.sum(np.square(i)) / np.var(Y) / Y.size for _, i in results.items()],
         -1.0,
@@ -111,23 +113,63 @@ def pred_r_sq(model, Y, X, **kwargs):
     )
 
 
+def mlm_icc(results):
+    """
+    the Intraclass Correlation Coefficient (ICC)
+    """
+    var_random = 0.0  # Random effects variance
+    if results.cov_re.shape[0] > 0:
+        var_random += np.sum(np.diag(results.cov_re))
+    var_resid = results.scale  # Residual variance
+    if results.cov_re.shape != (1, 1):
+        warnings.warn(
+            "ICC is only well-defined for random-intercept models.",
+            UserWarning,
+        )
+    return var_random / (var_random + var_resid)
+
+
+def mlm_r_sq(results):
+    # Fixed effects variance
+    var_fixed = np.var(np.dot(results.model.exog, results.fe_params.values))
+    var_random = 0.0  # Random effects variance
+    if results.cov_re.shape[0] > 0:
+        var_random += np.sum(np.diag(results.cov_re))
+    # Add variance components
+    if hasattr(results, "vcomp") and results.vcomp is not None:
+        var_random += sum(results.vcomp)
+    var_resid = results.scale  # Residual variance
+    # Marginal R² (r2_m) → variance explained by fixed effects only
+    r2_m = var_fixed / (var_fixed + var_random + var_resid)
+    # Conditional R² (r2_c) → variance explained by fixed + random effects
+    r2_c = (var_fixed + var_random) / (var_fixed + var_random + var_resid)
+    return r2_m, r2_c
+
+
 def r_sq(results):
     """
-    Calculating/retrieving R²/R²pseudo, R²adj, R²pred
-    for OLS, RLM, GLM from statsmodels fitting results
+    Calculating/retrieving R²/R²pseudo, R²adj
+    for OLS, RLM, GLM, MLM from statsmodels fitting results
 
     https://stats.stackexchange.com/questions/83826/is-a-weighted-r2-in-robust-linear-model-meaningful-for-goodness-of-fit-analys
     https://stats.stackexchange.com/questions/55236/prove-f-test-is-equal-to-t-test-squared
     """
 
     outputs = {}
-    resid = getattr(results, "resid", getattr(results, "resid_working", None))
     nobs = int(results.nobs)
-    n_pred = len(
-        set(results.params.index) - set(["const"])
-    )  # number of predictors, without intercept
-    df_model = max(int(results.df_model), n_pred)  # technical correction
-    df_resid = max(int(results.df_resid), nobs - df_model)  # technical correction
+    params = set(results.params.index)
+    n_params = getattr(
+        results, "k_fe", len(params)
+    )  # k_fe counts only fixed effects in MLM
+    if "const" in params or "Intercept" in params:
+        n_params -= 1  # number of predictors, without intercept/const
+
+    df_model = max(getattr(results, "df_model", 0), n_params)  # technical correction
+    df_resid = max(
+        getattr(results, "df_resid", 0), nobs - df_model
+    )  # technical correction
+
+    resid = getattr(results, "resid", getattr(results, "resid_working", None))
     fitted = results.fittedvalues
     observed = resid + fitted
 
@@ -152,9 +194,19 @@ def r_sq(results):
     SSe = np.sum(weights * resid**2)
     SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
 
-    r_sq = getattr(
-        results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
-    )
+    if isinstance(results, MixedLMResultsWrapper):
+        r_sq_m, r_sq_c = mlm_r_sq(results)
+        outputs.update(
+            {
+                "r_sq_c": r_sq_c,
+                "r_sq_m": r_sq_m,
+            }
+        )
+        r_sq = r_sq_c
+    else:
+        r_sq = getattr(
+            results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
+        )
     r_sq = r_sq() if callable(r_sq) else r_sq
     # https://www.statsmodels.org/dev/generated/statsmodels.regression.linear_model.OLSResults.rsquared_adj.html
     r_sq_adj = getattr(results, "rsquared_adj", 1 - (1 - r_sq) * nobs / df_resid)
@@ -200,15 +252,18 @@ def lm(data, y, x, model="ols", **kwargs):
     add_pred_r_sq = kwargs.pop("pred_r_sq", False)
     calc_vif = kwargs.pop("vif", False)
 
-    if verbose and constant and standardized:
-        print(
-            "Having constant=True and standardized=True at the same time does not make sense and can lead to errors."
+    if constant and standardized:
+        warnings.warn(
+            "Having constant=True and standardized=True at the same time does not make sense and can lead to errors.",
+            UserWarning,
         )
 
     df = data[[y] + x].dropna()
-    if verbose and len(df) != len(data):
-        print(f"N={len(data)}")
-        print("Rows with NAs were dropped!")
+    if len(df) != len(data):
+        warnings.warn(
+            f"Rows with NAs were dropped! Ntotal={len(data)}",
+            UserWarning,
+        )
 
     if standardized:
         df = df.select_dtypes(include=[np.number, "bool"]).apply(scipy.stats.zscore)
@@ -260,7 +315,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
         s = ", ".join(s)
         if isinstance(r, MixedLMResultsWrapper):
             params = r.summary().tables[1]
-        elif isinstance(r, RLMResultsWrapper):
+        else:
             params = read_html(
                 StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
             )[0]
