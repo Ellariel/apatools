@@ -6,17 +6,21 @@ from itertools import zip_longest
 from pandas import read_html, DataFrame
 from sklearn.model_selection import LeaveOneOut
 from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
+from statsmodels.robust.robust_linear_model import RLMResultsWrapper
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
 
 
 # https://www.statsmodels.org/stable/index.html
-CITATION = Citation(APA='Skipper, S., & Perktold, J. (2010). \
+CITATION = Citation(
+    APA="Skipper, S., & Perktold, J. (2010). \
 statsmodels: Econometric and Statistical Modeling with Python. \
 9th Python in Science Conference (pp. 57-61), \
 Austin, Texas, United States. \
-https://doi.org/10.25080/Majora-92bf1922-011')
+https://doi.org/10.25080/Majora-92bf1922-011"
+)
 
 
 def vif(results, sort=False, decimal=2):
@@ -100,8 +104,11 @@ def pred_r_sq(model, Y, X, **kwargs):
         print(
             f"Some attempts to calculate R²pred have been unsuccessful ({len(errors)}): {set(errors)}"
         )
-    return np.clip([1 - np.sum(np.square(i)) / np.var(Y) / Y.size 
-                        for _, i in results.items()], -1.0, 1.0)
+    return np.clip(
+        [1 - np.sum(np.square(i)) / np.var(Y) / Y.size for _, i in results.items()],
+        -1.0,
+        1.0,
+    )
 
 
 def r_sq(results):
@@ -113,7 +120,7 @@ def r_sq(results):
     https://stats.stackexchange.com/questions/55236/prove-f-test-is-equal-to-t-test-squared
     """
 
-    outputs = {}    
+    outputs = {}
     resid = getattr(results, "resid", getattr(results, "resid_working", None))
     nobs = int(results.nobs)
     n_pred = len(
@@ -129,22 +136,22 @@ def r_sq(results):
     # https://github.com/scikit-learn/scikit-learn/blob/51a765a/sklearn/metrics/regression.py#L370
     # SSe = np.sum(weights * resid ** 2)
     # SSt = np.sum(weights * (observed - np.sum(weights * observed) / np.sum(weights)) ** 2)
-    
+
     # https://stats.stackexchange.com/a/375752
     # https://web.maths.unsw.edu.au/~adelle/Garvan/Assays/GoodnessOfFit.html
     # SSe = np.sum(weights * resid ** 2)
     # SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
 
-    M = getattr(results.model, 'M', False) #r_sq_pseudo
+    M = getattr(results.model, "M", False)  # r_sq_pseudo
     if M and callable(M.rho):
         SSe = np.sum(M.rho(resid))
         SSt = np.sum(M.rho(observed - np.mean(observed)))
         outputs.update({"r_sq_pseudo": 1 - SSe / SSt})
 
     weights = getattr(results, "weights", 1)
-    SSe = np.sum(weights * resid ** 2)
+    SSe = np.sum(weights * resid**2)
     SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
-    
+
     r_sq = getattr(
         results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
     )
@@ -158,14 +165,16 @@ def r_sq(results):
     f_pvalue = getattr(
         results, "f_pvalue", scipy.stats.f.sf(f_stat, df_model, df_resid)
     )
-    outputs.update({
-        "r_sq": r_sq,
-        "r_sq_adj": r_sq_adj,
-        "df_model": df_model,
-        "df_resid": df_resid,
-        "f_stat": f_stat,
-        "f_pvalue": f_pvalue,
-    })
+    outputs.update(
+        {
+            "r_sq": r_sq,
+            "r_sq_adj": r_sq_adj,
+            "df_model": df_model,
+            "df_resid": df_resid,
+            "f_stat": f_stat,
+            "f_pvalue": f_pvalue,
+        }
+    )
     return outputs
 
 
@@ -244,19 +253,27 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"R²adj {format_r(i['r_sq_adj'], use_letter=False)}")
         if "pred_r_sq" in i:
             s.append(f"R²pred {format_r(i['pred_r_sq'], use_letter=False)}")
-        s.append(
-            f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
-        )
+        if "df_model" in i:
+            s.append(
+                f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
+            )
         s = ", ".join(s)
-        params = read_html(
-            StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
-        )[0].rename(
+        if isinstance(r, MixedLMResultsWrapper):
+            params = r.summary().tables[1]
+        elif isinstance(r, RLMResultsWrapper):
+            params = read_html(
+                StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
+            )[0]
+        params.rename(
             columns={
+                "Coef.": "coef",
                 "P>|z|": "p-value",
                 "std err": "se",
+                "Std.Err.": "se",
                 "[0.025": "cil",
                 "0.975]": "cir",
-            }
+            },
+            inplace=True,
         )
         if decimal:
             for c in ["coef", "se", "cil", "cir"]:

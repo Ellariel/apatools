@@ -5,7 +5,7 @@ description = "A Toolbox for Meta-Analysis and APA-Compliant Reporting."
 authors = [{ name = "Danila Valko", email = "danila.valko@proton.me" }]
 requires-python = ">=3.9"
 keywords = ["apatools", "reporting", "regression", "statsmodels", 
-            "SEM", "EFA", "CFA", "RLM", "APA"]
+            "SEM", "EFA", "CFA", "RLM", "MLM", "APA"]
 readme = "README.md"
 dependencies = [
     "numpy>=2.0.2",
