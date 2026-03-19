@@ -156,7 +156,7 @@ def r_sq(results):
     """
 
     outputs = {}
-    nobs = int(results.nobs)
+    n_obs = int(results.nobs)
     params = set(results.params.index)
     n_params = getattr(
         results, "k_fe", len(params)
@@ -166,7 +166,7 @@ def r_sq(results):
 
     df_model = max(getattr(results, "df_model", 0), n_params)  # technical correction
     df_resid = max(
-        getattr(results, "df_resid", 0), nobs - df_model
+        getattr(results, "df_resid", 0), n_obs - df_model
     )  # technical correction
 
     resid = getattr(results, "resid", getattr(results, "resid_working", None))
@@ -209,7 +209,7 @@ def r_sq(results):
         )
     r_sq = r_sq() if callable(r_sq) else r_sq
     # https://www.statsmodels.org/dev/generated/statsmodels.regression.linear_model.OLSResults.rsquared_adj.html
-    r_sq_adj = getattr(results, "rsquared_adj", 1 - (1 - r_sq) * nobs / df_resid)
+    r_sq_adj = getattr(results, "rsquared_adj", 1 - (1 - r_sq) * n_obs / df_resid)
     # https://www.slideshare.net/slideshow/multiple-regressionppt-252604177/252604177#8
     f_stat = getattr(
         results, "fvalue", (r_sq / df_model) / ((1 - r_sq) / df_resid)
@@ -217,6 +217,19 @@ def r_sq(results):
     f_pvalue = getattr(
         results, "f_pvalue", scipy.stats.f.sf(f_stat, df_model, df_resid)
     )
+    # AIC & BIC and others
+    if hasattr(results, "aic"):
+        outputs.update(
+            {
+                "aic": results.aic,
+            }
+        )
+    if hasattr(results, "bic"):
+        outputs.update(
+            {
+                "bic": results.bic,
+            }
+        )
     outputs.update(
         {
             "r_sq": r_sq,
@@ -225,6 +238,8 @@ def r_sq(results):
             "df_resid": df_resid,
             "f_stat": f_stat,
             "f_pvalue": f_pvalue,
+            "n_obs": n_obs,
+            "n_params": n_params,
         }
     )
     return outputs
