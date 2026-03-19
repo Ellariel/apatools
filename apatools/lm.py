@@ -230,6 +230,12 @@ def r_sq(results):
                 "bic": results.bic,
             }
         )
+    if hasattr(results, "llf"):
+        outputs.update(
+            {
+                "llf": results.llf,
+            }
+        )
     outputs.update(
         {
             "r_sq": r_sq,
@@ -327,6 +333,12 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(
                 f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
             )
+        if "aic" in i:
+            s.append(f"AIC = {i['aic']:.1f}")
+        if "bic" in i:
+            s.append(f"BIC = {i['bic']:.1f}")
+        if "llf" in i:
+            s.append(f"LL = {i['llf']:.1f}")
         s = ", ".join(s)
         if isinstance(r, MixedLMResultsWrapper):
             params = r.summary().tables[1]
