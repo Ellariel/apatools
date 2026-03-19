@@ -352,7 +352,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             params = read_html(
                 StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
             )[0]
-        params.rename(
+        params = params.astype(np.float64).rename(
             columns={
                 "Coef.": "coef",
                 "P>|z|": "p-value",
@@ -361,7 +361,6 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
                 "[0.025": "cil",
                 "0.975]": "cir",
             },
-            inplace=True,
         )
         if decimal:
             for c in ["coef", "se", "cil", "cir"]:
