@@ -352,7 +352,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             params = read_html(
                 StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
             )[0]
-        params = params.apply(to_numeric, errors="ignore").rename(
+        params = params.apply(to_numeric, errors="coerce").rename(
             columns={
                 "Coef.": "coef",
                 "P>|z|": "p-value",
