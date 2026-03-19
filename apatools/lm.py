@@ -218,27 +218,30 @@ def r_sq(results):
         results, "f_pvalue", scipy.stats.f.sf(f_stat, df_model, df_resid)
     )
     # AIC & BIC and others
-    if hasattr(results, "aic"):
-        outputs.update(
-            {
-                "aic": results.aic,
-            }
-        )
-    if hasattr(results, "bic"):
-        outputs.update(
-            {
-                "bic": results.bic,
-            }
-        )
-    if hasattr(results, "llf"):
-        try:
+    try:
+        if hasattr(results, "aic"):
+            outputs.update(
+                {
+                    "aic": results.aic,
+                }
+            )
+        if hasattr(results, "bic"):
+            outputs.update(
+                {
+                    "bic": results.bic,
+                }
+            )
+    except NotImplementedError:
+        pass
+    try:
+        if hasattr(results, "llf"):
             outputs.update(
                 {
                     "llf": results.llf,
                 }
             )
-        except NotImplementedError:
-            pass
+    except NotImplementedError:
+        pass
     outputs.update(
         {
             "r_sq": r_sq,
