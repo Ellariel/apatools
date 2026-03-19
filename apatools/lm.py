@@ -4,7 +4,7 @@ import numpy as np
 from io import StringIO
 import statsmodels.api as sm
 from itertools import zip_longest
-from pandas import read_html, DataFrame
+from pandas import read_html, to_numeric, DataFrame
 from sklearn.model_selection import LeaveOneOut
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
@@ -352,7 +352,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             params = read_html(
                 StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
             )[0]
-        params = params.astype(np.float64).rename(
+        params = to_numeric(params, errors="coerce").rename(
             columns={
                 "Coef.": "coef",
                 "P>|z|": "p-value",
