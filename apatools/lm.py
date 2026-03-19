@@ -15,7 +15,7 @@ from .format import format_r, format_p, get_stars
 
 # https://www.statsmodels.org/stable/index.html
 CITATION = Citation(
-    APA="Skipper, S., & Perktold, J. (2010). \
+    APA="Seabold, S., & Perktold, J. (2010). \
 statsmodels: Econometric and Statistical Modeling with Python. \
 9th Python in Science Conference (pp. 57-61), \
 Austin, Texas, United States. \
