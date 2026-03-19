@@ -231,11 +231,14 @@ def r_sq(results):
             }
         )
     if hasattr(results, "llf"):
-        outputs.update(
-            {
-                "llf": results.llf,
-            }
-        )
+        try:
+            outputs.update(
+                {
+                    "llf": results.llf,
+                }
+            )
+        except NotImplementedError:
+            pass
     outputs.update(
         {
             "r_sq": r_sq,
