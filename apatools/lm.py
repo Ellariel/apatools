@@ -356,6 +356,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             columns={
                 "Coef.": "coef",
                 "P>|z|": "p-value",
+                "P>|t|": "p-value",
                 "std err": "se",
                 "Std.Err.": "se",
                 "[0.025": "cil",
