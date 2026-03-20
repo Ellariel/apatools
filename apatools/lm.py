@@ -82,40 +82,46 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
         yield model(Y, X, **model_kwargs).fit(**fit_kwargs)
 
 
-def pred_r_sq(model, Y, X, **kwargs):
+def pred_metrics(model, Y, X, **kwargs):
     """
     Calculating R²pred for statsmodels
 
     https://stats.stackexchange.com/questions/592653/how-to-get-predicted-r-square-from-statmodels
     """
-    results = {}
-    errors = []
+    errors = {}
+    fit_fails = []
     kwargs["verbose"] = False
     for train_index, test_index in LeaveOneOut().split(X):
         x_train, x_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = Y.iloc[train_index], Y.iloc[test_index]
         try:
             for idx, r in enumerate(fit_model(model, y_train, x_train, **kwargs)):
-                results.setdefault(idx, [])
-                results[idx].append(*(y_test - r.predict(x_test)))
+                errors.setdefault(idx, [])
+                errors[idx].append(y_test.iloc[0] - r.predict(x_test).iloc[0])
         except Exception as e:
-            errors.append(str(e))
-    if len(errors):
+            fit_fails.append(str(e))
+    if len(fit_fails):
         warnings.warn(
-            f"Some attempts to calculate R²pred have been unsuccessful ({len(errors)}): {set(errors)}",
+            f"Some attempts to calculate R²pred have been unsuccessful ({len(fit_fails)}): {set(fit_fails)}",
             UserWarning,
         )
-
-    return np.clip(
-        [1 - np.sum(np.square(i)) / np.var(Y) / Y.size for _, i in results.items()],
-        -1.0,
-        1.0,
-    )
+    return [
+        {
+            "pred_r_sq": np.clip(
+                1 - np.sum(np.square(err)) / (np.var(Y) * Y.size),
+                -1.0,
+                1.0,
+            ),
+            "pred_mae": np.mean(np.abs(err)),
+            "pred_mad": np.median(np.abs(np.asarray(err) - np.median(err))),
+        }
+        for err in errors.values()
+    ]
 
 
 def mlm_icc(results):
     """
-    the Intraclass Correlation Coefficient (ICC)
+    the Intraclass Correlation Coefficient (ICC) (approx.)
     """
     var_random = 0.0  # Random effects variance
     if results.cov_re.shape[0] > 0:
@@ -146,7 +152,7 @@ def mlm_r_sq(results):
     return r2_m, r2_c
 
 
-def r_sq(results):
+def base_metrics(results):
     """
     Calculating/retrieving R²/R²pseudo, R²adj
     for OLS, RLM, GLM, MLM from statsmodels fitting results
@@ -156,7 +162,7 @@ def r_sq(results):
     """
 
     outputs = {}
-    n_obs = int(results.nobs)
+    n_obs = results.nobs
     params = set(results.params.index)
     n_params = getattr(
         results, "k_fe", len(params)
@@ -246,12 +252,12 @@ def r_sq(results):
         {
             "r_sq": r_sq,
             "r_sq_adj": r_sq_adj,
-            "df_model": df_model,
-            "df_resid": df_resid,
+            "df_model": int(df_model),
+            "df_resid": int(df_resid),
             "f_stat": f_stat,
             "f_pvalue": f_pvalue,
-            "n_obs": n_obs,
-            "n_params": n_params,
+            "n_obs": int(n_obs),
+            "n_params": int(n_params),
         }
     )
     return outputs
@@ -265,9 +271,9 @@ def lm(data, y, x, model="ols", **kwargs):
                     verbose=True,
                     constant=True,
                     standardized=False, # keeps np.number columns only
-                    r_sq = True,
+                    base_metrics = True,
+                    pred_metrics = True,
                     vif = False,
-                    pred_r_sq = True,
                     ols_fit_cov_type='HC1',
                     rlm_model_M=sm.robust.norms.RamsayE())
     """
@@ -275,8 +281,8 @@ def lm(data, y, x, model="ols", **kwargs):
     verbose = kwargs.get("verbose", True)
     constant = kwargs.pop("constant", True)
     standardized = kwargs.pop("standardized", False)
-    add_r_sq = kwargs.pop("r_sq", False)
-    add_pred_r_sq = kwargs.pop("pred_r_sq", False)
+    add_base_metrics = kwargs.pop("base_metrics", False)
+    add_pred_metrics = kwargs.pop("pred_metrics", False)
     calc_vif = kwargs.pop("vif", False)
 
     if constant and standardized:
@@ -310,12 +316,15 @@ def lm(data, y, x, model="ols", **kwargs):
             print(r.summary())
 
     metrics = []
-    if add_r_sq or add_pred_r_sq:
-        metrics = [r_sq(r) for r in results]
-        if add_pred_r_sq:
+    if add_base_metrics or add_pred_metrics:
+        metrics = [base_metrics(r) for r in results]
+        if add_pred_metrics:
             metrics = [
-                {**r, **{"pred_r_sq": rr}}
-                for r, rr in zip(metrics, pred_r_sq(model, Y, X, **kwargs))
+                {
+                    **r,
+                    **m,
+                }
+                for r, m in zip(metrics, pred_metrics(model, Y, X, **kwargs))
             ]
     if calc_vif:
         metrics = [{**i, **{"vif": vif(r)}} for i, r in zip(metrics, results)]
@@ -345,6 +354,10 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"BIC = {i['bic']:.1f}")
         if "llf" in i:
             s.append(f"LL = {i['llf']:.1f}")
+        if "pred_mae" in i:
+            s.append(f"MAEpred = {i['pred_mae']:.2f}")
+        if "pred_mad" in i:
+            s.append(f"MADpred = {i['pred_mad']:.2f}")
         s = ", ".join(s)
         if isinstance(r, MixedLMResultsWrapper):
             params = r.summary().tables[1]
