@@ -358,6 +358,10 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"BIC = {i['bic']:.1f}")
         if "llf" in i:
             s.append(f"LL = {i['llf']:.1f}")
+        if "mae" in i:
+            s.append(f"MAE = {i['mae']:.3f}")
+        if "mad" in i:
+            s.append(f"MAD = {i['mad']:.3f}")
         if "pred_loo_mae" in i:
             s.append(f"MAEpred = {i['pred_loo_mae']:.3f}")
         if "pred_loo_mad" in i:
