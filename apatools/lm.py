@@ -89,6 +89,7 @@ def pred_metrics(model, Y, X, **kwargs):
     https://stats.stackexchange.com/questions/592653/how-to-get-predicted-r-square-from-statmodels
     """
     errors = {}
+    outputs = {}
     fit_fails = []
     kwargs["verbose"] = False
     for train_index, test_index in LeaveOneOut().split(X):
@@ -102,21 +103,22 @@ def pred_metrics(model, Y, X, **kwargs):
             fit_fails.append(str(e))
     if len(fit_fails):
         warnings.warn(
-            f"Some attempts to calculate R²pred have been unsuccessful ({len(fit_fails)}): {set(fit_fails)}",
+            f"Some attempts to calculate LeaveOneOut metrics failed ({len(fit_fails)}): {set(fit_fails)}",
             UserWarning,
         )
-    return [
+    outputs.update(
         {
-            "pred_r_sq": np.clip(
+            "pred_loo_r_sq": np.clip(
                 1 - np.sum(np.square(err)) / (np.var(Y) * Y.size),
                 -1.0,
                 1.0,
             ),
-            "pred_mae": np.mean(np.abs(err)),
-            "pred_mad": np.median(np.abs(np.asarray(err) - np.median(err))),
+            "pred_loo_mae": np.mean(np.abs(err)),
+            "pred_loo_mad": np.median(np.abs(np.asarray(err) - np.median(err))),
         }
         for err in errors.values()
-    ]
+    )
+    return outputs
 
 
 def mlm_icc(results):
@@ -258,6 +260,8 @@ def base_metrics(results):
             "f_pvalue": f_pvalue,
             "n_obs": int(n_obs),
             "n_params": int(n_params),
+            "mae": np.mean(np.abs(resid)),
+            "mad": np.median(np.abs(resid) - np.median(resid)),
         }
     )
     return outputs
@@ -272,7 +276,7 @@ def lm(data, y, x, model="ols", **kwargs):
                     constant=True,
                     standardized=False, # keeps np.number columns only
                     base_metrics = True,
-                    pred_metrics = True,
+                    pred_metrics = False,
                     vif = False,
                     ols_fit_cov_type='HC1',
                     rlm_model_M=sm.robust.norms.RamsayE())
@@ -281,7 +285,7 @@ def lm(data, y, x, model="ols", **kwargs):
     verbose = kwargs.get("verbose", True)
     constant = kwargs.pop("constant", True)
     standardized = kwargs.pop("standardized", False)
-    add_base_metrics = kwargs.pop("base_metrics", False)
+    add_base_metrics = kwargs.pop("base_metrics", True)
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     calc_vif = kwargs.pop("vif", False)
 
@@ -327,7 +331,7 @@ def lm(data, y, x, model="ols", **kwargs):
                 for r, m in zip(metrics, pred_metrics(model, Y, X, **kwargs))
             ]
     if calc_vif:
-        metrics = [{**i, **{"vif": vif(r)}} for i, r in zip(metrics, results)]
+        metrics = [{**i, "vif": vif(r)} for i, r in zip(metrics, results)]
 
     return results, metrics
 
@@ -342,8 +346,8 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"R² {format_r(i['r_sq'], use_letter=False)}")
         if "r_sq_adj" in i:
             s.append(f"R²adj {format_r(i['r_sq_adj'], use_letter=False)}")
-        if "pred_r_sq" in i:
-            s.append(f"R²pred {format_r(i['pred_r_sq'], use_letter=False)}")
+        if "pred_loo_r_sq" in i:
+            s.append(f"R²pred {format_r(i['pred_loo_r_sq'], use_letter=False)}")
         if "df_model" in i:
             s.append(
                 f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
@@ -354,10 +358,10 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"BIC = {i['bic']:.1f}")
         if "llf" in i:
             s.append(f"LL = {i['llf']:.1f}")
-        if "pred_mae" in i:
-            s.append(f"MAEpred = {i['pred_mae']:.2f}")
-        if "pred_mad" in i:
-            s.append(f"MADpred = {i['pred_mad']:.2f}")
+        if "pred_loo_mae" in i:
+            s.append(f"MAEpred = {i['pred_loo_mae']:.3f}")
+        if "pred_loo_mad" in i:
+            s.append(f"MADpred = {i['pred_loo_mad']:.3f}")
         s = ", ".join(s)
         if isinstance(r, MixedLMResultsWrapper):
             params = r.summary().tables[1]
