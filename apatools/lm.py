@@ -203,6 +203,12 @@ def base_metrics(results):
     SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
 
     if isinstance(results, MixedLMResultsWrapper):
+        if hasattr(results.model, "n_groups"):
+            outputs.update(
+                {
+                    "n_groups": int(results.model.n_groups),
+                }
+            )
         r_sq_m, r_sq_c = mlm_r_sq(results)
         outputs.update(
             {
@@ -225,7 +231,7 @@ def base_metrics(results):
     f_pvalue = getattr(
         results, "f_pvalue", scipy.stats.f.sf(f_stat, df_model, df_resid)
     )
-    # AIC & BIC and others
+    # LL, AIC & BIC and others
     try:
         if hasattr(results, "aic"):
             outputs.update(
@@ -366,6 +372,11 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"MAEpred = {i['pred_loo_mae']:.3f}")
         if "pred_loo_mad" in i:
             s.append(f"MADpred = {i['pred_loo_mad']:.3f}")
+        if "n_obs" in i:
+            s.append(f"N = {i['n_obs']}")
+        if "n_groups" in i:
+            s.append(f"G = {i['n_groups']}")
+
         s = ", ".join(s)
         if isinstance(r, MixedLMResultsWrapper):
             params = r.summary().tables[1]
