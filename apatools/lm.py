@@ -299,6 +299,9 @@ def lm(data, y, x, model="ols", **kwargs):
                     base_metrics = True,
                     pred_metrics = False,
                     vif = False,
+                    qlm_fit_q=0.5,
+                    qlm_fit_cov_type='boot',
+                    qlm_fit_cov_kwds={'n_boot': 100},
                     ols_fit_cov_type='HC1',
                     rlm_model_M=sm.robust.norms.RamsayE())
     """
