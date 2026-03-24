@@ -52,9 +52,11 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
             yield next(fit_model(sm.RLM, Y, X, **kwargs))
         elif model == "glm":
             yield next(fit_model(sm.GLM, Y, X, **kwargs))
+        elif model == "qlm":
+            yield next(fit_model(sm.QuantReg, Y, X, **kwargs))
         else:
             raise NotImplementedError(
-                f"{model} is not implemented, try 'ols', 'rlm' or 'glm'."
+                f"{model} is not implemented, try 'ols', 'rlm', 'glm' or 'qlm'."
             )
     else:
         verbose = kwargs.get("verbose", False)
@@ -70,6 +72,10 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
             if verbose:
                 print("model: GLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("glm_")}
+        elif model == sm.QuantReg:
+            if verbose:
+                print("model: QLM")
+            _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("qlm_")}
         else:
             _kwargs = kwargs
         model_kwargs = {k[6:]: v for k, v in _kwargs.items() if k.startswith("model_")}
