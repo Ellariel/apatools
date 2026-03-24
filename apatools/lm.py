@@ -234,27 +234,33 @@ def base_metrics(results):
     # https://www.statsmodels.org/dev/generated/statsmodels.regression.linear_model.OLSResults.rsquared_adj.html
     if not np.isfinite(r_sq):
         r_sq = r_sq_def
+
     r_sq_adj_def = 1 - (1 - r_sq) * n_obs / df_resid
     r_sq_adj = getattr(results, "rsquared_adj", r_sq_adj_def)
     if not np.isfinite(r_sq_adj):
         r_sq_adj = r_sq_adj_def
 
     # https://www.slideshare.net/slideshow/multiple-regressionppt-252604177/252604177#8
-    f_stat = getattr(
-        results, "fvalue", (r_sq / df_model) / ((1 - r_sq) / df_resid)
+    f_stat_def = (r_sq / df_model) / (
+        (1 - r_sq) / df_resid
     )  # (SSt / df_model) / (SSe / df_resid)
-    f_pvalue = getattr(
-        results, "f_pvalue", scipy.stats.f.sf(f_stat, df_model, df_resid)
-    )
+    f_stat = getattr(results, "fvalue", f_stat_def)
+    if not np.isfinite(f_stat):
+        f_stat = f_stat_def
+
+    f_pvalue_def = scipy.stats.f.sf(f_stat, df_model, df_resid)
+    f_pvalue = getattr(results, "f_pvalue", f_pvalue_def)
+    if not np.isfinite(f_pvalue):
+        f_pvalue = f_pvalue_def
     # LL, AIC & BIC and others
     try:
-        if hasattr(results, "aic"):
+        if hasattr(results, "aic") and np.isfinite(results.aic):
             outputs.update(
                 {
                     "aic": results.aic,
                 }
             )
-        if hasattr(results, "bic"):
+        if hasattr(results, "bic") and np.isfinite(results.bic):
             outputs.update(
                 {
                     "bic": results.bic,
@@ -263,7 +269,7 @@ def base_metrics(results):
     except NotImplementedError:
         pass
     try:
-        if hasattr(results, "llf"):
+        if hasattr(results, "llf") and np.isfinite(results.llf):
             outputs.update(
                 {
                     "llf": results.llf,
