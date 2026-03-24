@@ -202,6 +202,7 @@ def base_metrics(results):
     SSe = np.sum(weights * resid**2)
     SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
 
+    r_sq_def = 1 - SSe / SSt
     if isinstance(results, MixedLMResultsWrapper):
         if hasattr(results.model, "n_groups"):
             outputs.update(
@@ -219,11 +220,19 @@ def base_metrics(results):
         r_sq = r_sq_c
     else:
         r_sq = getattr(
-            results, "rsquared", getattr(results, "pseudo_rsquared", 1 - SSe / SSt)
+            results,
+            "pseudo_rsquared",
+            getattr(results, "prsquared", getattr(results, "rsquared", r_sq_def)),
         )
     r_sq = r_sq() if callable(r_sq) else r_sq
     # https://www.statsmodels.org/dev/generated/statsmodels.regression.linear_model.OLSResults.rsquared_adj.html
-    r_sq_adj = getattr(results, "rsquared_adj", 1 - (1 - r_sq) * n_obs / df_resid)
+    if not np.isfinite(r_sq):
+        r_sq = r_sq_def
+    r_sq_adj_def = 1 - (1 - r_sq) * n_obs / df_resid
+    r_sq_adj = getattr(results, "rsquared_adj", r_sq_adj_def)
+    if not np.isfinite(r_sq_adj):
+        r_sq_adj = r_sq_adj_def
+
     # https://www.slideshare.net/slideshow/multiple-regressionppt-252604177/252604177#8
     f_stat = getattr(
         results, "fvalue", (r_sq / df_model) / ((1 - r_sq) / df_resid)
