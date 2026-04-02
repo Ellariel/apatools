@@ -95,7 +95,6 @@ def pred_metrics(model, Y, X, **kwargs):
     https://stats.stackexchange.com/questions/592653/how-to-get-predicted-r-square-from-statmodels
     """
     errors = {}
-    outputs = {}
     fit_fails = []
     kwargs["verbose"] = False
     for train_index, test_index in LeaveOneOut().split(X):
@@ -112,8 +111,7 @@ def pred_metrics(model, Y, X, **kwargs):
             f"Some attempts to calculate LeaveOneOut metrics failed ({len(fit_fails)}): {set(fit_fails)}",
             UserWarning,
         )
-    outputs.update(
-        {
+    return [{
             "pred_loo_r_sq": np.clip(
                 1 - np.sum(np.square(err)) / (np.var(Y) * Y.size),
                 -1.0,
@@ -123,8 +121,7 @@ def pred_metrics(model, Y, X, **kwargs):
             "pred_loo_mad": np.median(np.abs(np.asarray(err) - np.median(err))),
         }
         for err in errors.values()
-    )
-    return outputs
+    ]
 
 
 def mlm_icc(results):
