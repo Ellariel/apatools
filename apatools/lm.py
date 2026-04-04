@@ -363,7 +363,9 @@ def lm(data, y, x, model="ols", **kwargs):
     return results, metrics
 
 
-def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=None):
+def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=None, add_vif=True,
+              add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
+              add_pred_loo_mae=True, add_pred_loo_mad=True, add_n_obs=True, add_n_groups=True):
     # R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009
 
     output = []
@@ -379,23 +381,23 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(
                 f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
             )
-        if "aic" in i:
+        if add_aic and "aic" in i:
             s.append(f"AIC = {i['aic']:.1f}")
-        if "bic" in i:
+        if add_bic and "bic" in i:
             s.append(f"BIC = {i['bic']:.1f}")
-        if "llf" in i:
+        if add_llf and "llf" in i:
             s.append(f"LL = {i['llf']:.1f}")
-        if "mae" in i:
+        if add_mae and "mae" in i:
             s.append(f"MAE = {i['mae']:.3f}")
-        if "mad" in i:
+        if add_mad and "mad" in i:
             s.append(f"MAD = {i['mad']:.3f}")
-        if "pred_loo_mae" in i:
+        if add_pred_loo_mae and "pred_loo_mae" in i:
             s.append(f"MAEpred = {i['pred_loo_mae']:.3f}")
-        if "pred_loo_mad" in i:
+        if add_pred_loo_mad and "pred_loo_mad" in i:
             s.append(f"MADpred = {i['pred_loo_mad']:.3f}")
-        if "n_obs" in i:
+        if add_n_obs and "n_obs" in i:
             s.append(f"N = {i['n_obs']}")
-        if "n_groups" in i:
+        if add_n_groups and "n_groups" in i:
             s.append(f"G = {i['n_groups']}")
 
         s = ", ".join(s)
@@ -433,7 +435,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
                 )
             )
             params["p-value"] = [format_pval(c) for c in params["p-value"]]
-        if "vif" in i:
+        if add_vif and "vif" in i:
             params = params.join(i["vif"])
         if len(i):
             params.loc[params.index[0], "model"] = s
