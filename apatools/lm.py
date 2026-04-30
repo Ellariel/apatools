@@ -6,6 +6,7 @@ import statsmodels.api as sm
 from itertools import zip_longest
 from pandas import read_html, to_numeric, DataFrame
 from sklearn.model_selection import LeaveOneOut
+from statsmodels.formula.formulatools import handle_formula_data
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
 
@@ -23,22 +24,65 @@ https://doi.org/10.25080/Majora-92bf1922-011"
 )
 
 
+def _intercept(df): # play around intercept
+        if 'const' in df.columns:
+            return 'const'
+        elif "Intercept" in df.columns:
+            return 'Intercept'
+        else:
+            return None
+    
+    
+def standardize(data, func='z'):
+    df = data.select_dtypes(include=[np.number, "bool"])
+    const_name = _intercept(df)
+   
+    if const_name is not None: # rem const
+        if df.shape[1] == 1: # only const in the data frame
+            return df
+        const_pos = df.columns.get_loc(const_name)
+        const = df[const_name].copy()
+        df.drop(const_name, axis=1, inplace=True) 
+
+    if callable(func):
+        df = df.apply(func)
+    elif func == 'z' or (isinstance(func, bool) and func):
+        df = df.apply(scipy.stats.zscore)
+    else:
+        raise NotImplementedError(
+                f"Func '{func}' is not implemented as an option, try apply-compatible method or 'z'."
+            )
+ 
+    if const_name is not None: # insert const back
+        df.insert(const_pos, const_name, const) 
+
+    return df
+        
+    
+
 def vif(results, sort=False, decimal=2):
     """
     VIF, the variance inflation factor, is a measure of multicollinearity.
     VIF > 5 for a variable indicates that it is highly collinear with the
     other input variables.
     """
-    vif_df = DataFrame()
-    vif_df["vif"] = [
-        variance_inflation_factor(results.model.exog, i)
-        for i in range(results.model.exog.shape[1])
-    ]
-    vif_df.index = results.model.exog_names
-    vif_df = vif_df if not sort else vif_df.sort_values("vif")
-    if decimal:
-        vif_df = vif_df.round(decimal)
-    return vif_df
+    try:
+        vif_df = DataFrame()
+        vif_df["vif"] = [
+            variance_inflation_factor(results.model.exog, i)
+            for i in range(results.model.exog.shape[1])
+        ]
+        vif_df.index = results.model.exog_names
+        vif_df = vif_df if not sort else vif_df.sort_values("vif")
+        if decimal:
+            vif_df = vif_df.round(decimal)
+        return vif_df
+    except Exception as e:
+        warnings.warn(
+            f"Some attempts to calculate VIF failed ({str(e)}).",
+            UserWarning,
+        )
+        return None   
 
 
 def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
@@ -56,7 +100,7 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
             yield next(fit_model(sm.QuantReg, Y, X, **kwargs))
         else:
             raise NotImplementedError(
-                f"{model} is not implemented, try 'ols', 'rlm', 'glm' or 'qlm'."
+                f"'{model}' is not implemented, try 'ols', 'rlm', 'glm' or 'qlm'."
             )
     else:
         verbose = kwargs.get("verbose", False)
@@ -174,8 +218,14 @@ def base_metrics(results):
     )  # k_fe counts only fixed effects in MLM
     if "const" in params or "Intercept" in params:
         n_params -= 1  # number of predictors, without intercept/const
-
+    n_params = max(n_params, 0)
     df_model = max(getattr(results, "df_model", 0), n_params)  # technical correction
+    if df_model == 0 or n_params == 0:
+        warnings.warn(
+                "A model has no parameters or zero degrees or freedom.",
+                UserWarning,
+            )
+        
     df_resid = max(
         getattr(results, "df_resid", 0), n_obs - df_model
     )  # technical correction
@@ -240,7 +290,7 @@ def base_metrics(results):
     # https://www.slideshare.net/slideshow/multiple-regressionppt-252604177/252604177#8
     f_stat_def = (r_sq / df_model) / (
         (1 - r_sq) / df_resid
-    )  # (SSt / df_model) / (SSe / df_resid)
+    ) if df_model and df_resid else np.nan # (SSt / df_model) / (SSe / df_resid)
     f_stat = getattr(results, "fvalue", f_stat_def)
     if not np.isfinite(f_stat):
         f_stat = f_stat_def
@@ -257,7 +307,13 @@ def base_metrics(results):
                     "aic": results.aic,
                 }
             )
-        if hasattr(results, "bic") and np.isfinite(results.bic):
+        if hasattr(results, "bic_llf") and np.isfinite(results.bic_llf):
+            outputs.update(
+                {
+                    "bic": results.bic_llf,
+                }
+            )
+        elif hasattr(results, "bic") and np.isfinite(results.bic):
             outputs.update(
                 {
                     "bic": results.bic,
@@ -291,14 +347,14 @@ def base_metrics(results):
     return outputs
 
 
-def lm(data, y, x, model="ols", **kwargs):
+def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     """
     Fitting OLS, RLM, GLM from statsmodels
 
     lm(test_data, Y, X, model=['ols', 'rlm'],
                     verbose=True,
-                    constant=True,
-                    standardized=False, # keeps np.number columns only
+                    constant=True, # ignored when formula is defined
+                    standardized='z' # keeps np.number or bool columns only
                     base_metrics = True,
                     pred_metrics = False,
                     vif = False,
@@ -316,36 +372,52 @@ def lm(data, y, x, model="ols", **kwargs):
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     calc_vif = kwargs.pop("vif", False)
 
-    if constant and standardized:
+    if formula is None:
+        if x is None or y is None or len(x) == 0:
+            raise ValueError(
+                "Either formula or x,y have to be defined."
+            )
+        
+        df = data[[y] + x].dropna()
+        if len(df) != len(data):
+            warnings.warn(
+                f"Rows with NAs were dropped! Ntotal={len(data)}",
+                UserWarning,
+            )
+
+        if standardized:
+            df = standardize(df, func=standardized)
+
+        X, Y = df[x], df[y]
+
+        if verbose:
+            print(f"N={len(Y)}")
+            print(f"formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
+
+        if constant:
+            X = sm.add_constant(X)
+    else:
+        if verbose:
+           (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
+           print(f"N={len(Y)}")
+           print(f"formula: {formula}")
+           
+        if standardized: # need a test
+            X = standardize(X, func=standardized)
+            Y = standardize(Y, func=standardized)
+
+    if (constant or _intercept(X)) and standardized:
         warnings.warn(
-            "Having constant=True and standardized=True at the same time does not make sense and can lead to errors.",
+            "Having constant=True and standardized=True at the same time may not make sense, especially for z-transform.",
             UserWarning,
         )
-
-    df = data[[y] + x].dropna()
-    if len(df) != len(data):
-        warnings.warn(
-            f"Rows with NAs were dropped! Ntotal={len(data)}",
-            UserWarning,
-        )
-
-    if standardized:
-        df = df.select_dtypes(include=[np.number, "bool"]).apply(scipy.stats.zscore)
-    X, Y = df[x], df[y]
-
-    if verbose:
-        print(f"N={len(Y)}")
-        print(f"formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
-
-    if constant:
-        X = sm.add_constant(X)
 
     results = []
     for r in fit_model(model, Y, X, **kwargs):
         results.append(r)
         if verbose:
             print(r.summary())
-
+    
     metrics = []
     if add_base_metrics or add_pred_metrics:
         metrics = [base_metrics(r) for r in results]
@@ -435,7 +507,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
                 )
             )
             params["p-value"] = [format_pval(c) for c in params["p-value"]]
-        if add_vif and "vif" in i:
+        if add_vif and "vif" in i and i["vif"] is not None:
             params = params.join(i["vif"])
         if len(i):
             params.loc[params.index[0], "model"] = s

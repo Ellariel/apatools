@@ -66,9 +66,77 @@ def test_lm():
     assert s(results_rep[2].loc["vs"]["vif"]) == "1.44"
     assert (
         results_rep[2].iloc[0]["model"]
-        == "R² = .97, R²adj = .97, R²pred = .75, F(2, 30) = 563.42, p < .0001, AIC = 159.1, BIC = 123.6, LL = -76.5, MAE = 2.179, MAD = 2.317, MAEpred = 2.413, MADpred = 2.090, N = 32"
+        == "R² = .97, R²adj = .97, R²pred = .75, F(2, 30) = 563.42, p < .0001, AIC = 159.1, BIC = 163.5, LL = -76.5, MAE = 2.179, MAD = 2.317, MAEpred = 2.413, MADpred = 2.090, N = 32"
+    )
+    
+    # test the formula param
+    results, metrics = lm(
+        test_data,
+        formula = "mpg ~ 1", # UserWarning: A model has no parameters or zero degrees or freedom.
+        model=["ols"],
+        verbose=True,
+        constant=True,
+        standardized=False,
+        vif=False,
+        base_metrics=True,
+        pred_metrics=True,
+        ols_fit_cov_type="HC1",
+        rlm_model_M=sm.robust.norms.RamsayE(),
+        glm_fit_cov_type="HC1",
+        glm_model_family=sm.families.Gaussian(),
     )
 
+    # OLS
+    print(metrics[0])
+    assert s(results[0].aic) == "206.76"
+    
+    results, metrics = lm(
+        test_data,
+        formula = "mpg ~ 1 + wt + vs",
+        model=["ols"],
+        verbose=True,
+        constant=True,
+        standardized=False,
+        vif=True,
+        base_metrics=True,
+        pred_metrics=True,
+        ols_fit_cov_type="HC1",
+        rlm_model_M=sm.robust.norms.RamsayE(),
+        glm_fit_cov_type="HC1",
+        glm_model_family=sm.families.Gaussian(),
+    )
+
+    # OLS
+    print(metrics[0])
+    assert s(results[0].aic) == "159.09"
+    assert s(results[0].fvalue) == "40.58"
+    assert s(results[0].params.iloc[1]) == "-4.44"
+    assert s(metrics[0]["r_sq"]) == "0.80"
+    assert s(metrics[0]["pred_loo_r_sq"]) == "0.75"
+    
+    # test for standardazed and const options
+    results, metrics = lm(
+        test_data,
+        formula = "mpg ~ 1 + wt",
+        model=["ols"],
+        verbose=True,
+        constant=False,
+        standardized=True,
+        vif=False,
+        base_metrics=True,
+        pred_metrics=True,
+        ols_fit_cov_type="HC1",
+        rlm_model_M=sm.robust.norms.RamsayE(),
+        glm_fit_cov_type="HC1",
+        glm_model_family=sm.families.Gaussian(),
+    )
+
+    # OLS
+    print(metrics[0])
+    assert s(results[0].aic) == "50.09"
+    assert results[0].params.index[0] == "Intercept"
+    assert s(results[0].params.iloc[0]) == "-0.00"
+    
 
 if __name__ == "__main__":
     test_lm()
