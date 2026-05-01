@@ -1,14 +1,15 @@
 import warnings
-import scipy
 import numpy as np
+import scipy
 from io import StringIO
 import statsmodels.api as sm
 from itertools import zip_longest
-from pandas import read_html, to_numeric, DataFrame
 from sklearn.model_selection import LeaveOneOut
+from pandas import read_html, to_numeric, DataFrame
 from statsmodels.formula.formulatools import handle_formula_data
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
+
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
@@ -24,21 +25,21 @@ https://doi.org/10.25080/Majora-92bf1922-011"
 )
 
 
-def _intercept(df): # play around intercept
+def check_intercept(df): # play around intercept
         if 'const' in df.columns:
             return 'const'
         elif "Intercept" in df.columns:
             return 'Intercept'
         else:
             return None
-    
+
     
 def standardize(data, func='z'):
     df = data.select_dtypes(include=[np.number, "bool"])
-    const_name = _intercept(df)
-   
+    const_name = check_intercept(df)
+    
     if const_name is not None: # rem const
-        if df.shape[1] == 1: # only const in the data frame
+        if df.shape[1] == 1: # if only const in the data frame
             return df
         const_pos = df.columns.get_loc(const_name)
         const = df[const_name].copy()
@@ -50,15 +51,14 @@ def standardize(data, func='z'):
         df = df.apply(scipy.stats.zscore)
     else:
         raise NotImplementedError(
-                f"Func '{func}' is not implemented as an option, try apply-compatible method or 'z'."
+                f"Func '{func}' is not implemented, try df.apply-compatible method or 'z'."
             )
- 
+
     if const_name is not None: # insert const back
         df.insert(const_pos, const_name, const) 
 
     return df
         
-    
 
 def vif(results, sort=False, decimal=2):
     """
@@ -79,7 +79,7 @@ def vif(results, sort=False, decimal=2):
         return vif_df
     except Exception as e:
         warnings.warn(
-            f"Some attempts to calculate VIF failed ({str(e)}).",
+            f"VIF calculation failed ({str(e)}).",
             UserWarning,
         )
         return None   
@@ -98,9 +98,11 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
             yield next(fit_model(sm.GLM, Y, X, **kwargs))
         elif model == "qlm":
             yield next(fit_model(sm.QuantReg, Y, X, **kwargs))
+        elif model == "mlm":
+            yield next(fit_model(sm.MixedLM, Y, X, **kwargs))
         else:
             raise NotImplementedError(
-                f"'{model}' is not implemented, try 'ols', 'rlm', 'glm' or 'qlm'."
+                f"'{model}' is not implemented, try 'ols', 'rlm', 'glm', 'qlm' or 'mlm'."
             )
     else:
         verbose = kwargs.get("verbose", False)
@@ -120,6 +122,10 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
             if verbose:
                 print("model: QLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("qlm_")}
+        elif model == sm.MixedLM:
+            if verbose:
+                print("model: MLM")
+            _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("mlm_")}
         else:
             _kwargs = kwargs
         model_kwargs = {k[6:]: v for k, v in _kwargs.items() if k.startswith("model_")}
@@ -170,7 +176,7 @@ def pred_metrics(model, Y, X, **kwargs):
 
 def mlm_icc(results):
     """
-    the Intraclass Correlation Coefficient (ICC) (approx.)
+    Intraclass Correlation Coefficient (ICC) (approx.)
     """
     var_random = 0.0  # Random effects variance
     if results.cov_re.shape[0] > 0:
@@ -330,6 +336,7 @@ def base_metrics(results):
             )
     except NotImplementedError:
         pass
+    
     outputs.update(
         {
             "r_sq": r_sq,
@@ -375,13 +382,13 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     if formula is None:
         if x is None or y is None or len(x) == 0:
             raise ValueError(
-                "Either formula or x,y have to be defined."
+                "Either formula or x,y have to be explicitely defined."
             )
         
         df = data[[y] + x].dropna()
         if len(df) != len(data):
             warnings.warn(
-                f"Rows with NAs were dropped! Ntotal={len(data)}",
+                f"Rows with NAs were dropped. Ntotal={len(data)}",
                 UserWarning,
             )
 
@@ -406,7 +413,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
             X = standardize(X, func=standardized)
             Y = standardize(Y, func=standardized)
 
-    if (constant or _intercept(X)) and standardized:
+    if (constant or check_intercept(X)) and standardized:
         warnings.warn(
             "Having constant=True and standardized=True at the same time may not make sense, especially for z-transform.",
             UserWarning,
@@ -435,9 +442,10 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     return results, metrics
 
 
-def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=None, add_vif=True,
-              add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
-              add_pred_loo_mae=True, add_pred_loo_mad=True, add_n_obs=True, add_n_groups=True):
+def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=None, 
+              add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
+              add_pred_loo_mae=True, add_pred_loo_mad=True, 
+              add_n_obs=True, add_n_groups=True, add_vif=True):
     # R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009
 
     output = []
@@ -449,7 +457,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             s.append(f"R²adj {format_r(i['r_sq_adj'], use_letter=False)}")
         if "pred_loo_r_sq" in i:
             s.append(f"R²pred {format_r(i['pred_loo_r_sq'], use_letter=False)}")
-        if "df_model" in i:
+        if add_ftest and "f_stat" in i and "df_model" in i:
             s.append(
                 f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
             )
@@ -496,7 +504,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
 
         if add_stars:
             add_stars = add_stars if callable(add_stars) else get_stars
-            params["sig"] = [get_stars(c) for c in params["p-value"]]
+            params["sig"] = [add_stars(c) for c in params["p-value"]]
 
         if format_pval:
             format_pval = (
