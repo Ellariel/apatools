@@ -137,6 +137,43 @@ def test_lm():
     assert results[0].params.index[0] == "Intercept"
     assert s(results[0].params.iloc[0]) == "-0.00"
     
+    # MLM
+    results, metrics = lm(
+        test_data,
+        formula = "mpg ~ 1 + vs",
+        model="mlm",
+        verbose=True,
+        constant=False,
+        standardized=False,
+        vif=False,
+        base_metrics=True,
+        pred_metrics=True,
+        mlm_model_groups="am", # test_data["am"] tested below
+        
+    )
+    results_rep = lm_report(results, metrics, format_pval=True, add_stars=True)
+    print(results_rep, metrics)
+    assert s(metrics[0]["r_sq"]) == "0.71"
+    assert s(metrics[0]["pred_loo_r_sq"]) == "0.38"
+    
+    results, metrics = lm(
+        test_data,
+        formula = "mpg ~ 1 + vs",
+        model="mlm",
+        verbose=True,
+        constant=False,
+        standardized=False,
+        vif=False,
+        base_metrics=True,
+        pred_metrics=True,
+        mlm_model_groups=test_data["am"],
+        
+    )
+    results_rep = lm_report(results, metrics, format_pval=True, add_stars=True)
+    print(results_rep, metrics)
+    assert s(metrics[0]["r_sq"]) == "0.71"
+    assert s(metrics[0]["pred_loo_r_sq"]) == "0.38"
+    
 
 if __name__ == "__main__":
     test_lm()

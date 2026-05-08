@@ -85,6 +85,11 @@ def vif(results, sort=False, decimal=2):
         return None   
 
 
+def mlm_wrapper(Y, X, **kwargs):
+    groups = kwargs.pop("groups")
+    return sm.MixedLM(Y, X, groups, **kwargs)
+
+
 def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
     if isinstance(model, (list, tuple)):
         for m in model:
@@ -123,6 +128,7 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
                 print("model: QLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("qlm_")}
         elif model == sm.MixedLM:
+            model = mlm_wrapper # using wrapper because of one positional argument
             if verbose:
                 print("model: MLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("mlm_")}
@@ -146,12 +152,19 @@ def pred_metrics(model, Y, X, **kwargs):
     """
     errors = {}
     fit_fails = []
-    kwargs["verbose"] = False
+    _kwargs = kwargs.copy()
+    _kwargs["verbose"] = False
+    groups = kwargs.get("mlm_model_groups", None) # mlm
+    
     for train_index, test_index in LeaveOneOut().split(X):
-        x_train, x_test = X.iloc[train_index], X.iloc[test_index]
+        if groups is not None: # mlm
+            x_train, x_test, _groups = X.iloc[train_index], X.iloc[test_index], groups.iloc[train_index]
+            _kwargs["mlm_model_groups"] = _groups
+        else:
+            x_train, x_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = Y.iloc[train_index], Y.iloc[test_index]
         try:
-            for idx, r in enumerate(fit_model(model, y_train, x_train, **kwargs)):
+            for idx, r in enumerate(fit_model(model, y_train, x_train, **_kwargs)):
                 errors.setdefault(idx, [])
                 errors[idx].append(y_test.iloc[0] - r.predict(x_test).iloc[0])
         except Exception as e:
@@ -361,9 +374,11 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     lm(test_data, Y, X, model=['ols', 'rlm'],
                     verbose=True,
                     constant=True, # ignored when formula is defined
+                    dropna = True, # ignored when formula is defined
                     standardized='z' # keeps np.number or bool columns only
                     base_metrics = True,
                     pred_metrics = False,
+                    
                     vif = False,
                     qlm_fit_q=0.5,
                     qlm_fit_cov_type='boot',
@@ -373,11 +388,16 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     """
 
     verbose = kwargs.get("verbose", True)
+    dropna = kwargs.get("dropna", True)
     constant = kwargs.pop("constant", True)
     standardized = kwargs.pop("standardized", False)
     add_base_metrics = kwargs.pop("base_metrics", True)
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     calc_vif = kwargs.pop("vif", False)
+    
+    groups = kwargs.get("mlm_model_groups", False) #mlm
+    if isinstance(groups, str):
+        kwargs["mlm_model_groups"] = data[groups]
 
     if formula is None:
         if x is None or y is None or len(x) == 0:
@@ -385,7 +405,9 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
                 "Either formula or x,y have to be explicitely defined."
             )
         
-        df = data[[y] + x].dropna()
+        df = data[[y] + x]
+        if dropna:
+            df = df.dropna()
         if len(df) != len(data):
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
