@@ -43,7 +43,7 @@ def sem(
     metrics = pd.concat([pd.Series({"N": data.shape[0]}, name="value"), metrics])
     stats = model.inspect(std_est=True, se_robust=se_robust)
     stats.columns = [i.lower().replace(". ", "_") for i in stats.columns]
-    stats = stats.replace("-", np.nan).infer_objects(copy=False)
+    stats = stats.replace("-", np.nan).infer_objects().copy()
     if return_model:
         return stats, metrics, model
     return stats, metrics
