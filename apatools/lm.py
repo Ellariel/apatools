@@ -340,7 +340,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
 
     lm(test_data, Y, X, model=['ols', 'rlm'],
                     verbose=True,
-                    constant=True, # ignored when formula is defined
+                    intercept=True, # ignored when formula is defined
                     dropna=True, # ignored when formula is defined
                     standardize='z' # keeps np.number or bool columns only
                     base_metrics=True,
@@ -356,7 +356,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
 
     verbose = kwargs.get("verbose", True)
     dropna = kwargs.get("dropna", True)
-    constant = kwargs.pop("constant", True)
+    constant = kwargs.pop("intercept", True)
     standardize = kwargs.pop("standardize", False)
     add_base_metrics = kwargs.pop("base_metrics", True)
     add_pred_metrics = kwargs.pop("pred_metrics", False)
@@ -402,9 +402,10 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
             X = df_standardize(X, func=standardize)
             Y = df_standardize(Y, func=standardize)
 
-    if (constant or df_check_intercept(X)) and standardize:
+    if (constant or df_check_intercept(X)) and\
+       (standardize == 'z' or (isinstance(standardize, bool) and standardize)):
         warnings.warn(
-            "Having constant=True and standardize=True at the same time may not make sense, especially for z-transform.",
+            "Having intercept=True and using z-transformation sets the intercept estimate to zero. This may lead to wrong results.",
             UserWarning,
         )
 

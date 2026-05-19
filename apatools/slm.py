@@ -1,8 +1,7 @@
 import warnings
 import numpy as np
-import spreg as sr
+import spreg as spr
 import scipy
-import statsmodels.api as sm
 from itertools import zip_longest
 from sklearn.model_selection import LeaveOneOut
 from spreg import OLS, ML_Lag, ML_LagRE, ML_ErrorRE, ML_ErrorFE, PooledOLS, PanelFE, PanelRE#,# OLS
@@ -34,7 +33,7 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
             yield next(fit_model(m, Y, X, w, **kwargs))
     elif isinstance(model, str):
         if model == "ols":
-            yield next(fit_model(sr.OLS, Y, X, w, **kwargs))
+            yield next(fit_model(spr.OLS, Y, X, w, **kwargs))
         #elif model == "rlm":
         #    yield next(fit_model(sm.RLM, Y, X, **kwargs))
         #elif model == "glm":
@@ -49,7 +48,7 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
             )
     else:
         verbose = kwargs.get("verbose", False)
-        if model == sr.OLS:
+        if model == spr.OLS:
             if verbose:
                 print("model: OLS")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("ols_")}
@@ -80,7 +79,7 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
         yield model(Y, X, w, **model_kwargs)
 
 
-def plm(data, y=None, x=None, w=None, model="ols", **kwargs):
+def slm(data, y=None, x=None, w=None, model="ols", **kwargs):
     """
     Fitting OLS, RLM, GLM from statsmodels
 
@@ -119,7 +118,7 @@ def plm(data, y=None, x=None, w=None, model="ols", **kwargs):
         df = df_standardize(df, func=standardize)
         if standardize == 'z' or (isinstance(standardize, bool) and standardize):
             warnings.warn(
-                "Having standardize=True and using z-transformation sets the intercept estimate (which is enabled by default) to zero, this may lead to wrong results.",
+                "Having standardize=True and using z-transformation sets the intercept estimate (which is enabled by default) to zero. This may lead to wrong results.",
                 UserWarning,
             )
 
