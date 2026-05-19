@@ -13,6 +13,7 @@ from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
+from .utils import df_standardize, df_check_intercept
 
 
 # https://www.statsmodels.org/stable/index.html
@@ -24,41 +25,7 @@ Austin, Texas, United States. \
 https://doi.org/10.25080/Majora-92bf1922-011"
 )
 
-
-def check_intercept(df): # play around intercept
-        if 'const' in df.columns:
-            return 'const'
-        elif "Intercept" in df.columns:
-            return 'Intercept'
-        else:
-            return None
-
-    
-def standardize(data, func='z'):
-    df = data.select_dtypes(include=[np.number, "bool"])
-    const_name = check_intercept(df)
-    
-    if const_name is not None: # rem const
-        if df.shape[1] == 1: # if only const in the data frame
-            return df
-        const_pos = df.columns.get_loc(const_name)
-        const = df[const_name].copy()
-        df.drop(const_name, axis=1, inplace=True) 
-
-    if callable(func):
-        df = df.apply(func)
-    elif func == 'z' or (isinstance(func, bool) and func):
-        df = df.apply(scipy.stats.zscore)
-    else:
-        raise NotImplementedError(
-                f"Func '{func}' is not implemented, try df.apply-compatible method or 'z'."
-            )
-
-    if const_name is not None: # insert const back
-        df.insert(const_pos, const_name, const) 
-
-    return df
-        
+  
 
 def vif(results, sort=False, decimal=2):
     """
@@ -374,12 +341,12 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     lm(test_data, Y, X, model=['ols', 'rlm'],
                     verbose=True,
                     constant=True, # ignored when formula is defined
-                    dropna = True, # ignored when formula is defined
-                    standardized='z' # keeps np.number or bool columns only
-                    base_metrics = True,
-                    pred_metrics = False,
+                    dropna=True, # ignored when formula is defined
+                    standardize='z' # keeps np.number or bool columns only
+                    base_metrics=True,
+                    pred_metrics=False,
+                    vif=False,
                     
-                    vif = False,
                     qlm_fit_q=0.5,
                     qlm_fit_cov_type='boot',
                     qlm_fit_cov_kwds={'n_boot': 100},
@@ -390,7 +357,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     verbose = kwargs.get("verbose", True)
     dropna = kwargs.get("dropna", True)
     constant = kwargs.pop("constant", True)
-    standardized = kwargs.pop("standardized", False)
+    standardize = kwargs.pop("standardize", False)
     add_base_metrics = kwargs.pop("base_metrics", True)
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     calc_vif = kwargs.pop("vif", False)
@@ -407,15 +374,15 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
         
         df = data[[y] + x]
         if dropna:
-            df = df.dropna()
+            df.dropna(inplace=True)
         if len(df) != len(data):
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
                 UserWarning,
             )
 
-        if standardized:
-            df = standardize(df, func=standardized)
+        if standardize:
+            df = df_standardize(df, func=standardize)
 
         X, Y = df[x], df[y]
 
@@ -431,13 +398,13 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
            print(f"N={len(Y)}")
            print(f"formula: {formula}")
            
-        if standardized: # need a test
-            X = standardize(X, func=standardized)
-            Y = standardize(Y, func=standardized)
+        if standardize: # need a test
+            X = df_standardize(X, func=standardize)
+            Y = df_standardize(Y, func=standardize)
 
-    if (constant or check_intercept(X)) and standardized:
+    if (constant or df_check_intercept(X)) and standardize:
         warnings.warn(
-            "Having constant=True and standardized=True at the same time may not make sense, especially for z-transform.",
+            "Having constant=True and standardize=True at the same time may not make sense, especially for z-transform.",
             UserWarning,
         )
 

@@ -3,7 +3,45 @@ import pandas as pd
 import itertools
 import asyncio
 import zipfile
+import scipy
 
+
+
+def df_check_intercept(df): # look for the intercept column name
+        if 'CONSTANT' in df.columns:
+            return 'CONSTANT'
+        if 'const' in df.columns:
+            return 'const'
+        elif "Intercept" in df.columns:
+            return 'Intercept'
+        else:
+            return None
+
+
+def df_standardize(df, func='z'):
+    df = df.select_dtypes(include=[np.number, "bool"])
+    const_name = df_check_intercept(df)
+    
+    if const_name is not None: # rem const
+        if df.shape[1] == 1: # if only const in the data frame
+            return df
+        const_pos = df.columns.get_loc(const_name)
+        const = df[const_name].copy()
+        df.drop(const_name, axis=1, inplace=True) 
+
+    if callable(func):
+        df = df.apply(func)
+    elif func == 'z' or (isinstance(func, bool) and func):
+        df = df.apply(scipy.stats.zscore)
+    else:
+        raise NotImplementedError(
+                f"Func '{func}' is not implemented, try df.apply-compatible method or use 'z'."
+            )
+
+    if const_name is not None: # insert const back
+        df.insert(const_pos, const_name, const) 
+
+    return df
 
 
 def read_zip(zip_file_path, 
@@ -32,7 +70,6 @@ def read_zip(zip_file_path,
         if '.xls' in fname.lower():
             return pd.read_excel(zf.open(fname), **kwargs)
         return pd.read_csv(zf.open(fname), **kwargs)
-
 
 
 def take_until_timeout(iterator, 
