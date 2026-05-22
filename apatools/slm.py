@@ -1,10 +1,11 @@
 import warnings
+import scipy
 import numpy as np
 import spreg as spr
-import scipy
 from itertools import zip_longest
+from statsmodels.api import add_constant
 from sklearn.model_selection import LeaveOneOut
-from spreg import OLS, ML_Lag, ML_LagRE, ML_ErrorRE, ML_ErrorFE, PooledOLS, PanelFE, PanelRE#,# OLS
+from statsmodels.formula.formulatools import handle_formula_data
 
 
 from .citation import Citation
@@ -12,18 +13,12 @@ from .format import format_r, format_p, get_stars
 from .utils import df_standardize, df_check_intercept
 
 
-# https://www.statsmodels.org/stable/index.html
+# https://pysal.org/spreg/index.html
 CITATION = Citation(
-    APA="Seabold, S., & Perktold, J. (2010). \
-statsmodels: Econometric and Statistical Modeling with Python. \
-9th Python in Science Conference (pp. 57-61), \
-Austin, Texas, United States. \
-https://doi.org/10.25080/Majora-92bf1922-011"
+    APA="Rey, S. J., & Anselin, L. (2007). \
+PySAL: A python library of spatial analytical methods. \
+The Review of Regional Studies, 37(1), 5-27."
 )
-
-
-
-     
 
 
 
@@ -34,17 +29,13 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
     elif isinstance(model, str):
         if model == "ols":
             yield next(fit_model(spr.OLS, Y, X, w, **kwargs))
-        #elif model == "rlm":
-        #    yield next(fit_model(sm.RLM, Y, X, **kwargs))
-        #elif model == "glm":
-        #    yield next(fit_model(sm.GLM, Y, X, **kwargs))
-        #elif model == "qlm":
-        #    yield next(fit_model(sm.QuantReg, Y, X, **kwargs))
-        #elif model == "mlm":
-        #    yield next(fit_model(sm.MixedLM, Y, X, **kwargs))
+        elif model == "slm":
+            yield next(fit_model(spr.ML_Lag, Y, X, w, **kwargs))
+        elif model == "sem":
+            yield next(fit_model(spr.ML_Error, Y, X, w, **kwargs))
         else:
             raise NotImplementedError(
-                f"'{model}' is not implemented, try 'ols', 'rlm', 'glm', 'qlm' or 'mlm'."
+                f"'{model}' is not implemented, try 'ols', 'slm' or 'sem'."
             )
     else:
         verbose = kwargs.get("verbose", False)
@@ -52,23 +43,14 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
             if verbose:
                 print("model: OLS")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("ols_")}
-        #elif model == sm.RLM:
-        #    if verbose:
-        #        print("model: RLM")
-        #    _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("rlm_")}
-        #elif model == sm.GLM:
-        #    if verbose:
-        #        print("model: GLM")
-        #    _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("glm_")}
-        #elif model == sm.QuantReg:
-        #    if verbose:
-        #        print("model: QLM")
-        #    _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("qlm_")}
-        #elif model == sm.MixedLM:
-        #    model = mlm_wrapper # using wrapper because of one positional argument
-        #    if verbose:
-        #        print("model: MLM")
-        #    _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("mlm_")}
+        elif model == spr.ML_Lag:
+            if verbose:
+                print("model: SLM")
+            _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("slm_")}
+        elif model == spr.ML_Error:
+            if verbose:
+                print("model: SEM")
+            _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("sem_")}
         else:
             _kwargs = kwargs
         model_kwargs = {k[6:]: v for k, v in _kwargs.items() if k.startswith("model_")}
@@ -79,55 +61,71 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
         yield model(Y, X, w, **model_kwargs)
 
 
-def slm(data, y=None, x=None, w=None, model="ols", **kwargs):
+def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     """
-    Fitting OLS, RLM, GLM from statsmodels
+    Fitting OLS, SLM, SEM from spreg
 
-    lm(test_data, Y, X, model=['ols', 'rlm'],
+    slm(test_data, Y, X, model=['ols', 'slm'],
                     verbose=True,
                     dropna=True, 
+                    intercept=False, # ignored, in spreg it is added by default 
                     standardized='z' # keeps np.number or bool columns only
                     base_metrics=True,
                     pred_metrics=False,
                     
-                    qlm_fit_q=0.5,
-                    qlm_fit_cov_type='boot',
+                    ols_model_spat_diag=True,
+                    ols_model_nonspat_diag=True,
     """
 
     verbose = kwargs.get("verbose", True)
     dropna = kwargs.get("dropna", True)
+    constant = kwargs.pop("intercept", False)
     standardize = kwargs.pop("standardize", False)
-    add_base_metrics = kwargs.pop("base_metrics", True)
-    add_pred_metrics = kwargs.pop("pred_metrics", False)
+    #add_base_metrics = kwargs.pop("base_metrics", True)
+    #add_pred_metrics = kwargs.pop("pred_metrics", False)
     
-    if x is None or y is None or len(x) == 0:
-        raise ValueError(
-            "x,y have to be explicitely defined."
+    if formula is None:
+        if x is None or y is None or len(x) == 0:
+            raise ValueError(
+                "Either formula or x,y have to be explicitely defined."
             )
         
-    df = data[[y] + x]
-    if dropna:
-        df.dropna(inplace=True)
+        df = data[[y] + x]
+        if dropna:
+            df.dropna(inplace=True)
         if len(df) != len(data):
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
                 UserWarning,
             )
 
-    if standardize:
-        df = df_standardize(df, func=standardize)
-        if standardize == 'z' or (isinstance(standardize, bool) and standardize):
-            warnings.warn(
-                "Having standardize=True and using z-transformation sets the intercept estimate (which is enabled by default) to zero. This may lead to wrong results.",
-                UserWarning,
-            )
+        if standardize:
+            df = df_standardize(df, func=standardize)
 
-    X, Y = df[x], df[y]
+        X, Y = df[x], df[y]
 
-    if verbose:
-        print(f"N={len(Y)}")
-        print(f"formula: {y} ~ 1 + " + " + ".join(x))
+        if verbose:
+            print(f"N={len(Y)}")
+            print(f"Formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
 
+        if constant:
+            X = add_constant(X) # ignoredin spreg
+    else:
+        if verbose:
+           (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
+           print(f"N={len(Y)}")
+           print(f"Specified formula: {formula}")
+           
+        if standardize: # need a test
+            X = df_standardize(X, func=standardize)
+            Y = df_standardize(Y, func=standardize)
+
+    if standardize == 'z' or (isinstance(standardize, bool) and standardize):
+        warnings.warn(
+            "Using z-transformation sets the intercept estimate to zero. This may lead to wrong results.",
+            UserWarning,
+        ) 
+    
     results = []
     for r in fit_model(model, Y, X, w, **kwargs):
         results.append(r)

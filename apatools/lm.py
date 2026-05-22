@@ -1,9 +1,10 @@
 import warnings
-import numpy as np
 import scipy
+import numpy as np
 from io import StringIO
 import statsmodels.api as sm
 from itertools import zip_longest
+from statsmodels.api import add_constant
 from sklearn.model_selection import LeaveOneOut
 from pandas import read_html, to_numeric, DataFrame
 from statsmodels.formula.formulatools import handle_formula_data
@@ -19,7 +20,7 @@ from .utils import df_standardize, df_check_intercept
 # https://www.statsmodels.org/stable/index.html
 CITATION = Citation(
     APA="Seabold, S., & Perktold, J. (2010). \
-statsmodels: Econometric and Statistical Modeling with Python. \
+statsmodels: Econometric and statistical modeling with python. \
 9th Python in Science Conference (pp. 57-61), \
 Austin, Texas, United States. \
 https://doi.org/10.25080/Majora-92bf1922-011"
@@ -388,15 +389,15 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
 
         if verbose:
             print(f"N={len(Y)}")
-            print(f"formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
+            print(f"Formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
 
         if constant:
-            X = sm.add_constant(X)
+            X = add_constant(X)
     else:
         if verbose:
            (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
            print(f"N={len(Y)}")
-           print(f"formula: {formula}")
+           print(f"Specified formula: {formula}")
            
         if standardize: # need a test
             X = df_standardize(X, func=standardize)
