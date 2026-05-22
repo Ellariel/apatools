@@ -67,4 +67,4 @@ def test_sem():
 
 if __name__ == "__main__":
     test_sem()
-    print("Tests for metatools.sem are PASSED!")
+    print("Tests for apatools.sem are PASSED!")

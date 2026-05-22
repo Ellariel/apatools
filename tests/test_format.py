@@ -38,4 +38,4 @@ def test_format():
 
 if __name__ == "__main__":
     test_format()
-    print("Tests for metatools.format are PASSED!")
+    print("Tests for apatools.format are PASSED!")

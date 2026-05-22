@@ -295,4 +295,4 @@ def test_bootstrap():
 if __name__ == "__main__":
     test_conversion()
     test_bootstrap()
-    print("Tests for metatools.calc are PASSED!")
+    print("Tests for apatools.calc are PASSED!")

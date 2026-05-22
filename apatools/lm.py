@@ -108,7 +108,6 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
         if verbose:
             print("model_kwargs:", model_kwargs)
             print("fit_kwargs:", fit_kwargs)
-
         yield model(Y, X, **model_kwargs).fit(**fit_kwargs)
 
 
@@ -232,11 +231,11 @@ def base_metrics(results):
     # SSe = np.sum(weights * resid ** 2)
     # SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
 
-    M = getattr(results.model, "M", False)  # r_sq_pseudo
-    if M and callable(M.rho):
-        SSe = np.sum(M.rho(resid))
-        SSt = np.sum(M.rho(observed - np.mean(observed)))
-        outputs.update({"r_sq_pseudo": 1 - SSe / SSt})
+    #M = getattr(results.model, "M", False)  # r_sq_pseudo
+    #if M and callable(M.rho):
+    #    SSe = np.sum(M.rho(resid))
+    #    SSt = np.sum(M.rho(observed - np.mean(observed)))
+    #    outputs.update({"r_sq_pseudo": 1 - SSe / SSt})
 
     weights = getattr(results, "weights", 1)
     SSe = np.sum(weights * resid**2)

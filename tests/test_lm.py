@@ -177,4 +177,4 @@ def test_lm():
 
 if __name__ == "__main__":
     test_lm()
-    print("Tests for metatools.lm are PASSED!")
+    print("Tests for apatools.lm are PASSED!")

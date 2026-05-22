@@ -48,4 +48,4 @@ def test_psm():
 
 if __name__ == "__main__":
     test_psm()
-    print("Tests for metatools.psm are PASSED!")
+    print("Tests for apatools.psm are PASSED!")

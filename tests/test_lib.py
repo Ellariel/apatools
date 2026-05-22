@@ -30,4 +30,4 @@ def test_lib():
 
 if __name__ == "__main__":
     test_lib()
-    print("Tests for metatools.lib are PASSED!")
+    print("Tests for apatools.lib are PASSED!")

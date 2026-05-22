@@ -39,15 +39,15 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
             )
     else:
         verbose = kwargs.get("verbose", False)
-        if model == spr.OLS:
+        if isinstance(model, spr.OLS):
             if verbose:
                 print("model: OLS")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("ols_")}
-        elif model == spr.ML_Lag:
+        elif isinstance(model, spr.ML_Lag):
             if verbose:
                 print("model: SLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("slm_")}
-        elif model == spr.ML_Error:
+        elif isinstance(model, spr.ML_Error):
             if verbose:
                 print("model: SEM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("sem_")}
@@ -61,6 +61,51 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
         yield model(Y, X, w, **model_kwargs)
 
 
+def base_metrics(results):
+    """
+    Calculating/retrieving R²/R²pseudo, R²adj
+    for OLS, SLM, SEM from spreg fitting results
+    """
+
+    outputs = {}
+    resid = results.y.flatten() - results.predy.flatten()
+    # k - variables for which coefficients are estimated 
+    # (including the constant, excluding rho / lambda) <-- wrong description, rho is excluded, but not lambda
+    n_params = int(results.k)
+    n_obs = int(results.n)
+    
+    if isinstance(results, spr.ML_Error):
+        n_params += 1 # lambda counts
+    df_model = n_params - 1
+    df_resid = n_obs - df_model
+    
+    if isinstance(results, (spr.ML_Lag, spr.ML_Error)):
+        r_sq = results.pr2
+        r_sq_adj = 1 - (1 - r_sq) * n_obs / df_resid
+        f_stat = (r_sq / df_model) / ((1 - r_sq) / df_resid)
+        f_pvalue = scipy.stats.f.sf(f_stat, df_model, df_resid)
+    else:
+        r_sq = results.r2
+        r_sq_adj = results.ar2
+        f_stat, f_pvalue = results.f_stat
+        
+    outputs.update(
+        {
+            "r_sq": r_sq,
+            "r_sq_adj": r_sq_adj,
+            "df_model": df_model,
+            "df_resid": df_resid,
+            "f_stat": f_stat,
+            "f_pvalue": f_pvalue,
+            "n_obs": n_obs,
+            "n_params": n_params, 
+            "mae": np.mean(np.abs(resid)),
+            "mad": np.median(np.abs(resid) - np.median(resid)),
+        }
+    )
+    return outputs
+
+
 def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     """
     Fitting OLS, SLM, SEM from spreg
@@ -68,7 +113,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     slm(test_data, Y, X, model=['ols', 'slm'],
                     verbose=True,
                     dropna=True, 
-                    intercept=False, # ignored, in spreg it is added by default 
+                    intercept=False, # ignored, spreg adds it by default 
                     standardized='z' # keeps np.number or bool columns only
                     base_metrics=True,
                     pred_metrics=False,
@@ -81,8 +126,8 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     dropna = kwargs.get("dropna", True)
     constant = kwargs.pop("intercept", False)
     standardize = kwargs.pop("standardize", False)
-    #add_base_metrics = kwargs.pop("base_metrics", True)
-    #add_pred_metrics = kwargs.pop("pred_metrics", False)
+    add_base_metrics = kwargs.pop("base_metrics", True)
+    add_pred_metrics = kwargs.pop("pred_metrics", False)
     
     if formula is None:
         if x is None or y is None or len(x) == 0:
@@ -124,7 +169,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
         warnings.warn(
             "Using z-transformation sets the intercept estimate to zero. This may lead to wrong results.",
             UserWarning,
-        ) 
+        )
     
     results = []
     for r in fit_model(model, Y, X, w, **kwargs):
@@ -132,6 +177,18 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
         if verbose:
             print(r.summary)
     
-    return results
+    metrics = []
+    if add_base_metrics or add_pred_metrics:
+        metrics = [base_metrics(r) for r in results]
+        #if add_pred_metrics:
+        #    metrics = [
+        #        {
+        #            **r,
+        #            **m,
+        #        }
+        #        for r, m in zip(metrics, pred_metrics(model, Y, X, **kwargs))
+        #    ]
+    
+    return results, metrics
 
 
