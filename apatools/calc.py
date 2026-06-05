@@ -241,8 +241,7 @@ def p_from_ci(estimate, cil, cir, n=None, alpha=0.95, method="two-tailed"):
 
 def ci_from_r(r, n, alpha=0.95, method="two-tailed"):
     """
-    Bootstraping confidence intervals for the correlation coefficient
-    using Fisher transformation
+    Confidence intervals for the correlation coefficient using Fisher transformation
     https://stats.stackexchange.com/questions/18887/how-to-calculate-a-confidence-interval-for-spearmans-rank-correlation
     https://en.wikipedia.org/wiki/Fisher_transformation
     """
@@ -254,23 +253,6 @@ def ci_from_r(r, n, alpha=0.95, method="two-tailed"):
 def ci_from_p(p, n, alpha=0.95, method="two-tailed"):
     r = r_from_p(p, n, method=method)
     return ci_from_r(r, n, alpha=alpha, method=method)
-
-
-def bootstrap(*args, func=np.mean, alpha=0.95, n_rep=1000, seed=13):
-    """
-    Bootstraping confidence intervals for the mean/median value
-    https://towardsdatascience.com/how-to-calculate-confidence-intervals-in-python-a8625a48e62b
-    """
-
-    np.random.seed(seed)
-    data = np.asanyarray(args)
-    idx = np.arange(0, data.shape[1], 1)
-    sample = [
-        func(*np.take(data, np.random.choice(idx, size=data.shape[1], replace=True), 1))
-        for _ in range(n_rep)
-    ]
-    lp, m, rp = (1 - alpha) / 2, 0.5, 1 - (1 - alpha) / 2
-    return np.percentile(sample, [lp * 100, m * 100, rp * 100])
 
 
 ##############
