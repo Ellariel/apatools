@@ -65,7 +65,13 @@ def psm(
                 indx=index_variable, 
                 exclude=list(all_vars))
     model.logistic_ps(balance=balance)
-    model.knn_matched(matcher='propensity_logit', 
+    
+    if hasattr(model, "knn_matched"):
+        matched_method = getattr(model, "knn_matched") # <= v0.3.15
+    else:
+        matched_method = getattr(model, "kdtree_matched") # >= v0.3.16
+            
+    matched_method(matcher='propensity_logit', 
                     caliper=None, 
                     replacement=replacement, 
                     drop_unmatched=drop_unmatched)

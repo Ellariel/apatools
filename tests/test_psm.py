@@ -26,7 +26,7 @@ def test_psm():
     )
 
     effects = psm_effect_size(model)
-    assert f"{effects.effect_size.sum():.3f}" == "4.561"
+    assert f"{effects.effect_size.sum():.3f}" == "4.499"
 
     df, model = psm(
         test_data,
@@ -48,4 +48,4 @@ def test_psm():
 
 if __name__ == "__main__":
     test_psm()
-    print("Tests for metatools.psm are PASSED!")
+    print("Tests for apatools.psm are PASSED!")

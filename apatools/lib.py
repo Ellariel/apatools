@@ -102,9 +102,7 @@ def fleiss_kappa(df, return_per_item_agreement=False, method="two-tailed"):
     # https://en.wikipedia.org/wiki/Fleiss%27s_kappa
     # https://www.statsmodels.org/dev/generated/statsmodels.stats.inter_rater.aggregate_raters.html
 
-    df = df.astype(
-        str
-    )  # be careful about NaNs, they are transformed to a category via .astype(str)
+    df = df.astype(str).where(pd.notnull(df), "None") # be careful about NaNs, they are transformed to "None" category
     n_items, n_raters = df.shape
     m = aggregate_raters(df, n_cat=None)[0]
     P_i = (np.sum(m**2, axis=1) - n_raters) / (
@@ -155,13 +153,11 @@ def krippendorffs_alpha(
     """
     # https://en.wikipedia.org/wiki/Krippendorff's_Alpha
     # https://github.com/pln-fing-udelar/fast-krippendorff
-
-    df = df.astype(
-        str
-    )  # be careful about NaNs, they are transformed to a category via .astype(str)
-    m = aggregate_raters(df, n_cat=None)[0]  # [:,:-1]
-    alpha = krippendorff.alpha(value_counts=m, level_of_measurement=measurement)
-
+    
+    df = df.astype(str).where(pd.notnull(df), "None") # be careful about NaNs, they are transformed to "None" category
+    m = aggregate_raters(df, n_cat=None)[0]#[:,:-1]
+    alpha = krippendorff.alpha(value_counts=m, 
+                               level_of_measurement=measurement)
     # z-score and p-value
     z, p = np.nan, np.nan
     if return_bootstraped_z_score:
