@@ -7,12 +7,14 @@ import scipy
 
 
 
-def df_check_intercept(df): # look for the intercept column name
-        if 'CONSTANT' in df.columns:
+def df_check_intercept(df, columns=None): # look for the intercept column name
+        if columns is None:
+            columns = df.columns
+        if 'CONSTANT' in columns:
             return 'CONSTANT'
-        if 'const' in df.columns:
+        if 'const' in columns:
             return 'const'
-        elif "Intercept" in df.columns:
+        elif "Intercept" in columns:
             return 'Intercept'
         else:
             return None

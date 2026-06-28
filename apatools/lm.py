@@ -26,7 +26,6 @@ Austin, Texas, United States. \
 https://doi.org/10.25080/Majora-92bf1922-011"
 )
 
-  
 
 def vif(results, sort=False, decimal=2):
     """
@@ -113,8 +112,7 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
 
 def pred_metrics(model, Y, X, **kwargs):
     """
-    Calculating R²pred for statsmodels
-
+    Calculating R²pred etc.
     https://stats.stackexchange.com/questions/592653/how-to-get-predicted-r-square-from-statmodels
     """
     errors = {}
@@ -351,7 +349,8 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
                     qlm_fit_cov_type='boot',
                     qlm_fit_cov_kwds={'n_boot': 100},
                     ols_fit_cov_type='HC1',
-                    rlm_model_M=sm.robust.norms.RamsayE())
+                    rlm_model_M=sm.robust.norms.RamsayE()),
+                    mlm_model_groups='country',
     """
 
     verbose = kwargs.get("verbose", True)
@@ -435,7 +434,8 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
 def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=None, 
               add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
               add_pred_loo_mae=True, add_pred_loo_mad=True, 
-              add_n_obs=True, add_n_groups=True, add_vif=True):
+              add_n_obs=True, add_n_groups=True, add_vif=True,
+              intercept_name='Intercept'):
     # R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009
 
     output = []
@@ -509,6 +509,9 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
             params = params.join(i["vif"])
         if len(i):
             params.loc[params.index[0], "model"] = s
+        const_name = df_check_intercept(params, params.index)  
+        if const_name != intercept_name:
+            params.index = params.index.str.replace(const_name, intercept_name)
         output.append(params)
 
     return output

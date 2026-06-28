@@ -63,8 +63,7 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
 
 def base_metrics(results):
     """
-    Calculating/retrieving R²/R²pseudo, R²adj
-    for OLS, SLM, SEM from spreg fitting results
+    Calculating/retrieving R²/R²pseudo etc.
     """
 
     outputs = {}
