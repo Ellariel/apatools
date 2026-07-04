@@ -431,7 +431,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     return results, metrics
 
 
-def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=None, 
+def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3, 
               add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
               add_pred_loo_mae=True, add_pred_loo_mad=True, 
               add_n_obs=True, add_n_groups=True, add_vif=True,
@@ -491,11 +491,9 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=Non
         if decimal:
             for c in ["coef", "se", "cil", "cir"]:
                 params[c] = params[c].round(decimal)
-
         if add_stars:
             add_stars = add_stars if callable(add_stars) else get_stars
             params["sig"] = [add_stars(c) for c in params["p-value"]]
-
         if format_pval:
             format_pval = (
                 format_pval

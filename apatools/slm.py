@@ -2,9 +2,10 @@ import warnings
 import scipy
 import numpy as np
 import spreg as spr
+from pandas import to_numeric
 from itertools import zip_longest
 from statsmodels.api import add_constant
-from sklearn.model_selection import LeaveOneOut
+# from sklearn.model_selection import LeaveOneOut
 from statsmodels.formula.formulatools import handle_formula_data
 
 
@@ -100,6 +101,9 @@ def base_metrics(results):
             "n_params": n_params, 
             "mae": np.mean(np.abs(resid)),
             "mad": np.median(np.abs(resid) - np.median(resid)),
+            "aic": results.aic,
+            "bic": results.schwarz,
+            "llf": results.logll,
         }
     )
     return outputs
@@ -115,7 +119,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
                     intercept=False, # ignored, spreg adds it by default 
                     standardized='z' # keeps np.number or bool columns only
                     base_metrics=True,
-                    pred_metrics=False,
+                    pred_metrics=False, # no this, and no vif for spreg
                     
                     ols_model_spat_diag=True,
                     ols_model_nonspat_diag=True,
@@ -191,3 +195,80 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     return results, metrics
 
 
+def slm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3, 
+              add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
+              add_pred_loo_mae=False, add_pred_loo_mad=False, # no this, and no vif for spreg
+              add_n_obs=True, add_n_groups=False, add_vif=False,
+              intercept_name='Intercept'):
+    # R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009
+
+    output = []
+    for r, i in zip_longest(results, metrics, fillvalue={}):
+        s = []
+        if "r_sq" in i:
+            s.append(f"R² {format_r(i['r_sq'], use_letter=False)}")
+        if "r_sq_adj" in i:
+            s.append(f"R²adj {format_r(i['r_sq_adj'], use_letter=False)}")
+        if "pred_loo_r_sq" in i:
+            s.append(f"R²pred {format_r(i['pred_loo_r_sq'], use_letter=False)}")
+        if add_ftest and "f_stat" in i and "df_model" in i:
+            s.append(
+                f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
+            )
+        if add_aic and "aic" in i:
+            s.append(f"AIC = {i['aic']:.1f}")
+        if add_bic and "bic" in i:
+            s.append(f"BIC = {i['bic']:.1f}")
+        if add_llf and "llf" in i:
+            s.append(f"LL = {i['llf']:.1f}")
+        if add_mae and "mae" in i:
+            s.append(f"MAE = {i['mae']:.3f}")
+        if add_mad and "mad" in i:
+            s.append(f"MAD = {i['mad']:.3f}")
+        if add_pred_loo_mae and "pred_loo_mae" in i:
+            s.append(f"MAEpred = {i['pred_loo_mae']:.3f}")
+        if add_pred_loo_mad and "pred_loo_mad" in i:
+            s.append(f"MADpred = {i['pred_loo_mad']:.3f}")
+        if add_n_obs and "n_obs" in i:
+            s.append(f"N = {i['n_obs']}")
+        if add_n_groups and "n_groups" in i:
+            s.append(f"G = {i['n_groups']}")
+
+        s = ", ".join(s)
+        params = r.output.set_index('var_names')
+        params = params.apply(to_numeric, errors="coerce").rename(
+            columns={
+                "coefficients": "coef",
+                "prob": "p-value",
+                "std_err": "se",
+                "zt_stat": "z",
+            },
+        )
+        alpha_z = scipy.stats.norm.ppf(0.975) # 95% CI
+        params["cil"] = params["coef"] - alpha_z * params["se"]
+        params["cir"] = params["coef"] + alpha_z * params["se"]
+        if decimal:
+            for c in ["coef", "se", "cil", "cir"]:
+                params[c] = params[c].round(decimal)
+        if add_stars:
+            add_stars = add_stars if callable(add_stars) else get_stars
+            params["sig"] = [add_stars(c) for c in params["p-value"]]
+        if format_pval:
+            format_pval = (
+                format_pval
+                if callable(format_pval)
+                else lambda x: format_p(
+                    x, use_letter=False, keep_spaces=False, no_equals=True
+                )
+            )
+            params["p-value"] = [format_pval(c) for c in params["p-value"]]
+        if add_vif and "vif" in i and i["vif"] is not None:
+            params = params.join(i["vif"])
+        if len(i):
+            params.loc[params.index[0], "model"] = s
+        const_name = df_check_intercept(params, params.index)  
+        if const_name != intercept_name:
+            params.index = params.index.str.replace(const_name, intercept_name)
+        output.append(params)
+
+    return output

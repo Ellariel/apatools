@@ -173,6 +173,9 @@ def test_lm():
     print(results_rep, metrics)
     assert s(metrics[0]["r_sq"]) == "0.71"
     assert s(metrics[0]["pred_loo_r_sq"]) == "0.38"
+    #print(results_rep[0].to_string(), metrics)
+    #5/0
+    
     
 
 if __name__ == "__main__":

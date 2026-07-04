@@ -81,7 +81,7 @@ def psm(
                     .rename(columns={'matched_ID': index_variable}), df, 
                         how='left', on=index_variable)
     if return_coupled:
-        b.columns = [i+coupled_suffix if i in a else i for i in b.columns]
+        b.columns = [i + coupled_suffix if i in a else i for i in b.columns]
         df = pd.concat([a, b], axis=1)
     else:
         df = pd.concat([a, b], axis=0)
