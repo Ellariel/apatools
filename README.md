@@ -62,10 +62,13 @@ _, m, _ = bootstrap(
 
 
 ### *apatools.lm*
-Fitting of OLS, RLM and GLM models using *statsmodels*. Passing arguments to the class initialization `model()`  and the fitting method `model.fit()` is possible by adding appropriate model (`ols_`, `rlm_`, `glm_`) and method (`fit_` or `model_`) prefixes, e.g. `ols_fit_cov_type`, `glm_model_family`, `rlm_model_M`.
+Fitting of OLS, RLM, GLM, QuantReg and MixedLM models using *statsmodels*. Passing arguments to the class initialization `model()` and the fitting method `model.fit()` is possible by adding appropriate model (`ols_`, `rlm_`, `glm_`) and method (`fit_` or `model_`) prefixes, e.g. `ols_fit_cov_type`, `glm_model_family`, `rlm_model_M`.
 
 Specific parameters:
+* `qlm_fit_q` – adds a quantile for QuantReg, e.g. 0.5
+* `mlm_model_groups` – adds a grouping variable for MixedLM, e.g. `country`
 * `vif` - adds a VIF column to the metrics dictionary and reported table
+* `formula` - a formula string as in *statsmodels*
 * `pred_r_sq` - calculates [predicted R²](https://blog.minitab.com/en/adventures-in-statistics-2/multiple-regession-analysis-use-adjusted-r-squared-and-predicted-r-squared-to-include-the-correct-number-of-variables#:~:text=What%20Is%20the%20Predicted%20R,valid%20predictions%20for%20new%20observations.)
 
 ```python
@@ -82,6 +85,29 @@ results, metrics = lm(
         glm_model_family=sm.families.Gaussian(),
     )
 results_rep = lm_report(results, metrics)
+print(results_rep, metrics)
+```
+
+
+### *apatools.slm*
+Fitting of OLS, SLM, and SEM spatial models using *spreg*. Passing arguments to the class initialization `model()` and the fitting method `model.fit()` is possible by adding appropriate model (`ols_`, `slm_`, `sem_`) and method (`fit_` or `model_`) prefixes, e.g. `ols_model_spat_diag`.
+
+Specific parameters:
+* `w` - a spatial matrix, created with *libpysal*
+* `formula` - a formula string as in *statsmodels*
+
+
+```python
+from apatools.slm import slm, slm_report
+results, metrics = slm(
+        data,
+        y, x, w,
+        model=["ols", "slm", "sem"],
+        verbose=True,
+        ols_model_spat_diag=True,
+        ols_model_nonspat_diag=True,
+    )
+results_rep = slm_report(results, metrics)
 print(results_rep, metrics)
 ```
 
@@ -143,6 +169,7 @@ s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
 * [factor-analyzer](https://pypi.org/project/factor-analyzer/) (GPL-2.0 License)
 * [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
 * [semopy](https://pypi.org/project/semopy/) (MIT License)
+* [spreg](https://pypi.org/project/spreg/) (BSD License)
 * [psmpy](https://pypi.org/project/psmpy/) (MIT License)
 * [scipy](https://pypi.org/project/scipy/) (BSD License)
 
