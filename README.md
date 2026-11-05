@@ -95,8 +95,12 @@ print(results_rep, metrics)
 Fitting of OLS, SLM, and SEM spatial models using *spreg*. Arguments for the spreg model constructor are passed as `<model>_model_<argument>` with the model prefix `ols_`, `slm_` or `sem_`, e.g. `ols_model_spat_diag`.
 
 Specific parameters:
-* `w` - a spatial matrix, created with *libpysal*
+* `w` - a spatial matrix, created with *libpysal*; its rows must correspond to the rows of `data` (rows dropped because of NAs are removed from `w` automatically)
 * `formula` - a formula string as in *statsmodels*
+* `pred_metrics` - adds leave-one-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`) to the metrics dictionary and the reported table. Every observation is held out in turn, the model and the weights are refitted without it, and the held-out value is predicted: `x·β` for OLS and SEM, and `ρ·(Wy)ᵢ + x·β` for SLM (observed neighbour values enter through the weights, so SLM is not strictly comparable with the other two). It needs one fit per observation and model; for large samples pass e.g. `slm_model_method="LU"`.
+* `pred_exclude_neighbors` - with `pred_metrics`: also remove the neighbours of the held-out observation from the training sample
+
+> **Caveat:** plain leave-one-out is *optimistic* for spatial data. The neighbours of the held-out observation stay in the training sample and are correlated with it, so `R²pred` overestimates how well the model predicts a new, unseen region. `pred_exclude_neighbors=True` gives a more honest (slightly pessimistic) estimate; it may create islands in the training weights, which is reported with a warning.
 
 
 ```python
@@ -108,6 +112,8 @@ results, metrics = slm(
         verbose=True,
         ols_model_spat_diag=True,
         ols_model_nonspat_diag=True,
+        pred_metrics=True,  # leave-one-out R²pred etc. (optimistic, see the caveat)
+        pred_exclude_neighbors=True,  # leave the neighbourhood out as well
     )
 results_rep = slm_report(results, metrics)
 print(results_rep, metrics)

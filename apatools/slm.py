@@ -1,7 +1,10 @@
+import io
+import contextlib
 import warnings
 import scipy
 import numpy as np
 import spreg as spr
+from libpysal.weights import WSP
 from pandas import to_numeric
 from itertools import zip_longest
 from statsmodels.api import add_constant
@@ -111,6 +114,154 @@ def base_metrics(results):
     return outputs
 
 
+def w_subset_rows(w, positions):
+    """
+    Spatial weights restricted to the observations at ``positions``.
+
+    Unlike ``libpysal.weights.w_subset`` the original weight values are kept (not
+    replaced by binary ones), the transformation of ``w`` (e.g. row-standardization,
+    ``w.transform``) is re-applied to the subset and the ids of the returned
+    object are the new row positions ``0..len(positions)-1``.
+    Observations that lose all their neighbours become islands (see ``.islands``).
+
+    Parameters
+    ----------
+    w : libpysal.weights.W
+        Weights whose ``id_order`` corresponds to the rows of the data.
+    positions : array-like of int
+        Row positions to keep (in the order of the data).
+    """
+    positions = np.asarray(positions, dtype=int)
+    sub = WSP(w.sparse[positions][:, positions]).to_W(silence_warnings=True)
+    sub.transform = w.transform
+    return sub
+
+
+def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
+    """
+    Leave-one-out prediction metrics (R²pred, MAEpred, MADpred) for spreg models.
+
+    Every observation ``i`` is held out in turn, the model is refitted on the
+    remaining observations (with the spatial weights restricted to them, see
+    :func:`w_subset_rows`) and ``y_i`` is predicted. The prediction depends on the model:
+
+    * ``ols`` and ``sem`` (spatial error): ``x_i·β`` (the trend; the error process
+      is not used for prediction, which is also what spreg's ``predy`` is);
+    * ``slm`` (spatial lag): ``ρ·(Wy)_i + x_i·β``, i.e. the observed ``y`` values
+      of the neighbours of ``i`` are used through the *original* weights row of ``i``.
+      This predictor uses more information than the one for ols/sem, so the
+      R²pred values of the models are not strictly comparable.
+
+    .. warning::
+       Spatial data are autocorrelated. In plain leave-one-out the neighbours of the
+       held-out observation stay in the training sample, and their (correlated)
+       values leak into the fit, so R²pred is *optimistic* with respect to predicting
+       a new, unseen region. Use ``exclude_neighbors=True`` for a more honest
+       estimate: the neighbours of ``i`` (according to ``w``) are removed from
+       the training sample as well (``i`` is still the only observation that is
+       predicted). Because the refit has fewer rows this variant is slightly
+       pessimistic for small samples and may create islands in the training weights.
+
+    Cost: one model fit per observation and model (``n`` fits). For ML lag/error
+    models each fit computes the log-determinant of ``W``; pass e.g.
+    ``slm_model_method="LU"`` / ``sem_model_method="LU"`` or ``"ord"`` for large ``n``.
+
+    Parameters
+    ----------
+    results : list
+        Fitted spreg models returned by the full-sample fit, one per entry of ``model``
+        (used for the design matrix, so that a constant added by spreg is handled).
+    model : str or list of str
+        The models that were fitted (``"ols"``, ``"slm"``, ``"sem"``).
+    Y, X : array-like
+        Data used for the full-sample fit; ``w`` must be aligned with the rows.
+    w : libpysal.weights.W or None
+        Spatial weights. ``None`` is only possible for plain ``ols``.
+    exclude_neighbors : bool
+        Also remove the neighbours of the held-out observation from the training sample.
+    **kwargs
+        The same model arguments as passed to :func:`slm`. Diagnostics of OLS are
+        switched off inside the loop for speed.
+
+    Returns
+    -------
+    list of dict
+        One dict per model with ``pred_loo_r_sq`` (clipped to [-1, 1], as in
+        :func:`apatools.lm.pred_metrics`), ``pred_loo_mae`` and ``pred_loo_mad``
+        (median absolute deviation of the prediction errors). ``nan`` if every
+        refit failed. Failed refits are skipped with a warning.
+    """
+    y = np.asarray(Y, dtype=float).reshape(len(Y), -1)
+    x = np.asarray(X, dtype=float)
+    n = y.shape[0]
+    if w is None and exclude_neighbors:
+        raise ValueError("exclude_neighbors=True requires spatial weights `w`.")
+    if w is not None and w.n != n:
+        raise ValueError(f"Weights have {w.n} observations but the data {n}.")
+
+    _kwargs = kwargs.copy()
+    _kwargs.update(verbose=False, ols_model_spat_diag=False, ols_model_nonspat_diag=False)
+    designs = [r.x for r in results]  # n x k design (incl. constant added by spreg)
+    wy = None if w is None else w.sparse @ y  # (Wy)_i from the original weights
+
+    errors = {}
+    fit_fails = []
+    n_islands = 0
+    all_pos = np.arange(n)
+    for i in range(n):
+        drop = {i}
+        if exclude_neighbors:
+            drop |= {int(w.id2i[j]) for j in w.neighbors[w.id_order[i]]}
+        train = np.array([k for k in all_pos if k not in drop])
+        w_train = None if w is None else w_subset_rows(w, train)
+        if w_train is not None and len(w_train.islands):
+            n_islands += 1
+        try:
+            with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
+                warnings.simplefilter("ignore")  # spreg is chatty on every refit
+                fitted = list(fit_model(model, y[train], x[train], w_train, **_kwargs))
+        except Exception as e:  # e.g. singular design, no convergence
+            fit_fails.append(str(e))
+            continue
+        for idx, r in enumerate(fitted):
+            d = designs[idx]
+            beta = np.asarray(r.betas, dtype=float).ravel()[: d.shape[1]]
+            pred = float(d[i] @ beta)
+            if isinstance(r, spr.ML_Lag):
+                pred += float(r.rho) * float(wy[i, 0])
+            errors.setdefault(idx, []).append((i, y[i, 0] - pred))
+
+    if fit_fails:
+        warnings.warn(
+            f"Some attempts to calculate LeaveOneOut metrics failed ({len(fit_fails)}): {set(fit_fails)}",
+            UserWarning,
+        )
+    if n_islands:
+        warnings.warn(
+            f"In {n_islands} leave-one-out refits the training weights contained islands "
+            "(observations without neighbours).",
+            UserWarning,
+        )
+
+    ybar = y.mean()
+    outputs = []
+    for idx in range(len(results)):
+        if idx not in errors:
+            outputs.append({k: np.nan for k in ("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad")})
+            continue
+        pos, err = zip(*errors[idx])
+        err = np.asarray(err)
+        sst = np.sum((y[list(pos), 0] - ybar) ** 2)
+        outputs.append(
+            {
+                "pred_loo_r_sq": float(np.clip(1 - np.sum(err**2) / sst, -1.0, 1.0)),
+                "pred_loo_mae": float(np.mean(np.abs(err))),
+                "pred_loo_mad": float(np.median(np.abs(err - np.median(err)))),
+            }
+        )
+    return outputs
+
+
 def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     """
     Fit OLS, spatial lag (SLM, ``ML_Lag``) and spatial error (SEM, ``ML_Error``) models with spreg.
@@ -138,6 +289,31 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     metrics : list of dict
         r_sq (pseudo R² for SLM/SEM), r_sq_adj, f_stat, f_pvalue, df_model, df_resid
         (n - k), aic, bic, llf, mae, mad (median absolute deviation of residuals), n_obs.
+        With ``pred_metrics=True`` also pred_loo_r_sq, pred_loo_mae, pred_loo_mad
+        (see :func:`pred_metrics` for how the predictions are made and for the
+        caveat on spatial autocorrelation).
+
+    Function options (``**kwargs``)
+    -------------------------------
+    verbose : bool (default True)
+        Print the sample size, the formula and the model summaries.
+    dropna : bool (default True)
+        Drop rows with NAs (not with ``formula``: patsy always drops them).
+        ``w`` is restricted to the remaining rows automatically.
+    intercept : bool (default False)
+        Ignored by spreg, which always adds a constant.
+    standardize : False, True/'z' or callable
+        z-transform (or apply a callable to) the numeric columns.
+    base_metrics : bool (default True)
+        Compute :func:`base_metrics` for every model.
+    pred_metrics : bool (default False)
+        Add leave-one-out prediction metrics, which needs one refit per observation.
+        Leave-one-out is optimistic for spatially autocorrelated data, see
+        :func:`pred_metrics`.
+    pred_exclude_neighbors : bool (default False)
+        With ``pred_metrics``: also remove the neighbours of the held-out observation
+        from the training sample (less optimistic; needs ``w``).
+    There is no VIF for spreg models.
 
     Example
     -------
@@ -147,8 +323,9 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
                     intercept=False, # ignored, spreg adds it by default
                     standardize='z' # keeps np.number or bool columns only
                     base_metrics=True,
-                    pred_metrics=False, # no this, and no vif for spreg
-                    
+                    pred_metrics=True, # leave-one-out R²pred, MAEpred, MADpred
+                    pred_exclude_neighbors=False,
+
                     ols_model_spat_diag=True,
                     ols_model_nonspat_diag=True,
     """
@@ -159,16 +336,21 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     standardize = kwargs.pop("standardize", False)
     add_base_metrics = kwargs.pop("base_metrics", True)
     add_pred_metrics = kwargs.pop("pred_metrics", False)
-    
+    pred_exclude_neighbors = kwargs.pop("pred_exclude_neighbors", False)
+
     if formula is None:
         if x is None or y is None or len(x) == 0:
             raise ValueError(
                 "Either formula or x,y have to be explicitly defined."
             )
-        
+
         df = data[[y] + x]
         if dropna:
-            df = df.dropna()
+            keep = df.notna().all(axis=1).to_numpy()
+            df = df[keep]
+            if w is not None and not keep.all():
+                # keep the weights aligned with the rows that survived NA-dropping
+                w = w_subset_rows(w, np.flatnonzero(keep))
         if len(df) != len(data):
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
@@ -188,6 +370,15 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
             X = add_constant(X) # ignoredin spreg
     else:
         (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
+        if w is not None and len(Y) != len(data):
+            # patsy dropped rows with NAs: restrict the weights to the remaining rows
+            if not data.index.is_unique:
+                raise ValueError("A unique data index is required to align the weights after NA-dropping.")
+            w = w_subset_rows(w, data.index.get_indexer(Y.index))
+            warnings.warn(
+                f"Rows with NAs were dropped. Ntotal={len(data)}",
+                UserWarning,
+            )
         if verbose:
             print(f"N={len(Y)}")
             print(f"Specified formula: {formula}")
@@ -211,21 +402,24 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     metrics = []
     if add_base_metrics or add_pred_metrics:
         metrics = [base_metrics(r) for r in results]
-        #if add_pred_metrics:
-        #    metrics = [
-        #        {
-        #            **r,
-        #            **m,
-        #        }
-        #        for r, m in zip(metrics, pred_metrics(model, Y, X, **kwargs))
-        #    ]
-    
+        if add_pred_metrics:
+            metrics = [
+                {**m, **p}
+                for m, p in zip(
+                    metrics,
+                    pred_metrics(
+                        results, model, Y, X, w,
+                        exclude_neighbors=pred_exclude_neighbors, **kwargs
+                    ),
+                )
+            ]
+
     return results, metrics
 
 
 def slm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3, 
               add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
-              add_pred_loo_mae=False, add_pred_loo_mad=False, # no this, and no vif for spreg
+              add_pred_loo_mae=True, add_pred_loo_mad=True, # shown only if pred_metrics=True was used; no vif for spreg
               add_n_obs=True, add_n_groups=False, add_vif=False,
               intercept_name='Intercept'):
     """
@@ -233,7 +427,9 @@ def slm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
 
     Columns: coef, se, z/t, p-value, cil, cir (95% CI from the normal approximation),
     optional ``sig``. The first row's ``model`` column holds the fit summary, e.g.
-    ``R² = .35, R²adj = .31, F(3, 45) = 8.06, p < .001, AIC = ..., N = 49``.
+    ``R² = .35, R²adj = .31, R²pred = .22, F(3, 45) = 8.06, p < .001, AIC = ..., N = 49``;
+    R²pred, MAEpred and MADpred appear only if :func:`slm` was run with
+    ``pred_metrics=True`` (leave-one-out, see :func:`pred_metrics`).
     """
 
     output = []
