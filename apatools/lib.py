@@ -4,22 +4,7 @@ from scipy.stats import norm
 from statsmodels.stats.inter_rater import aggregate_raters
 import krippendorff
 
-
-def bootstrap(*args, func=np.mean, alpha=0.95, n_rep=1000, seed=13):
-    """
-    Bootstraping confidence intervals for the mean/median value
-    https://towardsdatascience.com/how-to-calculate-confidence-intervals-in-python-a8625a48e62b
-    """
-
-    np.random.seed(seed)
-    data = np.asanyarray(args)
-    idx = np.arange(0, data.shape[1], 1)
-    sample = [
-        func(*np.take(data, np.random.choice(idx, size=data.shape[1], replace=True), 1))
-        for _ in range(n_rep)
-    ]
-    lp, m, rp = (1 - alpha) / 2, 0.5, 1 - (1 - alpha) / 2
-    return np.percentile(sample, [lp * 100, m * 100, rp * 100])
+from .calc import bootstrap  # noqa: F401  (moved to apatools.calc; re-exported for backward compatibility)
 
 
 def gini(values, drop_zeros=False, tolerance=10**-6):

@@ -16,6 +16,12 @@ https://doi.org/10.1109/EMBC48229.2022.9871333')
 
 
 def psm_effect_size(model):
+    """Standardized mean differences (Cohen's d) of the covariates before and after matching.
+
+    ``model`` is the fitted ``PsmPy`` object returned by ``psm(..., return_model=True)``.
+    Returns a long DataFrame with columns ``variable``, ``matching`` ('before'/'after')
+    and ``effect_size``; |d| close to 0 after matching indicates good balance.
+    """
     df_preds_after = model.df_matched[[model.treatment] + model.xvars]
     df_preds_b4 = model.data[[model.treatment] + model.xvars]
     df_preds_after_float = df_preds_after.astype(float)
@@ -34,8 +40,8 @@ def psm_effect_size(model):
 def psm(
     data,
     treatment_variable,
-    include_vars=[],
-    exclude_vars=[],
+    include_vars=None,
+    exclude_vars=None,
     index_variable=None,
     balance=True,
     replacement=True,
@@ -45,12 +51,46 @@ def psm(
     return_model=False,
     seed=13,
 ):
+    """Propensity score matching (logistic PS, nearest neighbour on logit) with psmpy.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+    treatment_variable : str
+        Binary column (1 = treated, 0 = control).
+    include_vars : str or list, optional
+        Covariates used for the propensity model. All other columns are excluded.
+    exclude_vars : str or list, optional
+        Columns to leave out of the propensity model. Used only if ``include_vars``
+        is empty; if both are given, ``include_vars`` wins.
+    index_variable : str, optional
+        Unique id column; if None, the row position is used (column ``index``).
+    balance : bool
+        Balance classes when fitting the logistic model.
+    replacement : bool
+        Match controls with replacement.
+    drop_unmatched : bool
+        Drop unmatched rows.
+    return_coupled : bool
+        True: return treated and matched rows side by side (matched columns get
+        ``coupled_suffix``); False: stack them vertically.
+    return_model : bool
+        Also return the fitted ``PsmPy`` object (needed for :func:`psm_effect_size`).
+    seed : int
+        Seed for numpy's global random generator.
+
+    Returns
+    -------
+    pandas.DataFrame, or (DataFrame, PsmPy) if ``return_model``.
+    """
     np.random.seed(seed)
     df = data.copy()
     if index_variable is None:
         index_variable = 'index'
         df = df.reset_index(drop=True).reset_index()
     all_vars = []
+    include_vars = [] if include_vars is None else include_vars
+    exclude_vars = [] if exclude_vars is None else exclude_vars
     if not isinstance(include_vars, list):
         include_vars = [include_vars]
     if not isinstance(exclude_vars, list):

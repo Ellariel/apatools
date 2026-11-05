@@ -1,3 +1,4 @@
+import numpy as np
 import statsmodels.api as sm
 
 from apatools.lm import lm, lm_report
@@ -52,21 +53,21 @@ def test_lm():
     assert s(results_rep[0].loc["vs"]["vif"]) == "1.44"
     assert (
         results_rep[0].iloc[0]["model"]
-        == "R² = .80, R²adj = .79, R²pred = .75, F(2, 30) = 40.58, p < .0001, AIC = 159.1, BIC = 163.5, LL = -76.5, MAE = 2.179, MAD = 2.317, MAEpred = 2.413, MADpred = 2.090, N = 32"
+        == "R² = .80, R²adj = .79, R²pred = .75, F(2, 30) = 40.58, p < .001, AIC = 159.1, BIC = 163.5, LL = -76.5, MAE = 2.179, MAD = 1.818, MAEpred = 2.413, MADpred = 2.090, N = 32"
     )
     # lm_report RLM
     assert results_rep[1].loc["vs"]["p-value"] == ".017"
     assert s(results_rep[1].loc["vs"]["vif"]) == "1.44"
     assert (
         results_rep[1].iloc[0]["model"]
-        == "R² = .82, R²adj = .81, R²pred = .75, F(2, 30) = 70.07, p < .0001, MAE = 2.165, MAD = 2.070, MAEpred = 2.422, MADpred = 2.167, N = 32"
+        == "R² = .82, R²adj = .82, R²pred = .75, F(2, 30) = 70.07, p < .001, MAE = 2.165, MAD = 1.865, MAEpred = 2.422, MADpred = 2.167, N = 32"
     )
     # lm_report GLM
     assert results_rep[2].loc["vs"]["p-value"] == ".001"
     assert s(results_rep[2].loc["vs"]["vif"]) == "1.44"
     assert (
         results_rep[2].iloc[0]["model"]
-        == "R² = .97, R²adj = .97, R²pred = .75, F(2, 30) = 563.42, p < .0001, AIC = 159.1, BIC = 163.5, LL = -76.5, MAE = 2.179, MAD = 2.317, MAEpred = 2.413, MADpred = 2.090, N = 32"
+        == "R² = .97, R²adj = .97, R²pred = .75, F(2, 30) = 563.42, p < .001, AIC = 159.1, BIC = 163.5, LL = -76.5, MAE = 2.179, MAD = 1.818, MAEpred = 2.413, MADpred = 2.090, N = 32"
     )
     
     # test the formula param
@@ -177,6 +178,25 @@ def test_lm():
     #5/0
     
     
+
+def test_lm_regressions():
+    d = sm.datasets.get_rdataset("mtcars", "datasets", cache=True).data
+    # formula path must work without verbose output
+    results, metrics = lm(d, formula="mpg ~ wt + vs", model="ols", verbose=False)
+    assert s(metrics[0]["r_sq"]) == "0.80"
+    # MAD is the median absolute deviation of the residuals
+    res = results[0].resid
+    assert abs(metrics[0]["mad"] - np.median(np.abs(res - np.median(res)))) < 1e-9
+    # leave-one-out R2 is a plain float
+    _, m = lm(d, "mpg", ["wt", "vs"], model="ols", verbose=False,
+              base_metrics=True, pred_metrics=True)
+    assert isinstance(m[0]["pred_loo_r_sq"], float)
+    # NA rows with a grouping variable (MixedLM) stay aligned
+    d2 = d.copy()
+    d2.loc[d2.index[0], "wt"] = np.nan
+    results, _ = lm(d2, "mpg", ["wt"], model="mlm", verbose=False, mlm_model_groups="cyl")
+    assert results[0].nobs == 31
+
 
 if __name__ == "__main__":
     test_lm()

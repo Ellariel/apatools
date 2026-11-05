@@ -6,7 +6,7 @@ import statsmodels.api as sm
 from itertools import zip_longest
 from statsmodels.api import add_constant
 from sklearn.model_selection import LeaveOneOut
-from pandas import read_html, to_numeric, DataFrame
+from pandas import read_html, to_numeric, DataFrame, Series
 from statsmodels.formula.formulatools import handle_formula_data
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
@@ -141,7 +141,7 @@ def pred_metrics(model, Y, X, **kwargs):
         )
     return [{
             "pred_loo_r_sq": np.clip(
-                1 - np.sum(np.square(err)) / (np.var(Y) * Y.size),
+                1 - np.sum(np.square(err)) / (np.var(np.asarray(Y, dtype=float)) * Y.size),
                 -1.0,
                 1.0,
             ),
@@ -266,7 +266,9 @@ def base_metrics(results):
     if not np.isfinite(r_sq):
         r_sq = r_sq_def
 
-    r_sq_adj_def = 1 - (1 - r_sq) * n_obs / df_resid
+    # centered models: (n - 1) / df_resid; models without intercept: n / df_resid
+    has_const = "const" in params or "Intercept" in params
+    r_sq_adj_def = 1 - (1 - r_sq) * (n_obs - int(has_const)) / df_resid
     r_sq_adj = getattr(results, "rsquared_adj", r_sq_adj_def)
     if not np.isfinite(r_sq_adj):
         r_sq_adj = r_sq_adj_def
@@ -326,7 +328,7 @@ def base_metrics(results):
             "n_obs": int(n_obs),
             "n_params": int(n_params),
             "mae": np.mean(np.abs(resid)),
-            "mad": np.median(np.abs(resid) - np.median(resid)),
+            "mad": np.median(np.abs(resid - np.median(resid))),
         }
     )
     return outputs
@@ -334,8 +336,37 @@ def base_metrics(results):
 
 def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     """
-    Fitting OLS, RLM, GLM from statsmodels
+    Fit OLS, RLM, GLM, QuantReg or MixedLM models with statsmodels.
 
+    Parameters
+    ----------
+    data : pandas.DataFrame
+    y : str
+        Dependent variable (column name). Not used if ``formula`` is given.
+    x : list of str
+        Predictor column names. Not used if ``formula`` is given.
+    model : str or list of str
+        ``"ols"``, ``"rlm"``, ``"glm"``, ``"qlm"``, ``"mlm"`` or a list of them.
+    formula : str, optional
+        statsmodels/patsy formula; overrides ``y``/``x``, ``intercept`` and ``dropna``.
+    **kwargs
+        Options of this function (see the example below) and arguments for statsmodels,
+        named ``<model>_<stage>_<argument>``: ``<model>`` is ``ols``/``rlm``/``glm``/
+        ``qlm``/``mlm``; ``<stage>`` is ``model`` (passed to the constructor) or ``fit``
+        (passed to ``.fit()``), e.g. ``ols_fit_cov_type`` or ``glm_model_family``.
+        ``mlm_model_groups`` may be a column name.
+
+    Returns
+    -------
+    results : list
+        One fitted statsmodels results object per model.
+    metrics : list of dict
+        One dict per model: r_sq, r_sq_adj, f_stat, df_*, aic/bic/llf (if available),
+        mae, mad (median absolute deviation of residuals), n_obs, optional pred_loo_*
+        (leave-one-out) and vif.
+
+    Example
+    -------
     lm(test_data, Y, X, model=['ols', 'rlm'],
                     verbose=True,
                     intercept=True, # ignored when formula is defined
@@ -368,12 +399,12 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     if formula is None:
         if x is None or y is None or len(x) == 0:
             raise ValueError(
-                "Either formula or x,y have to be explicitely defined."
+                "Either formula or x,y have to be explicitly defined."
             )
         
         df = data[[y] + x]
         if dropna:
-            df.dropna(inplace=True)
+            df = df.dropna()
         if len(df) != len(data):
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
@@ -384,6 +415,9 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
             df = df_standardize(df, func=standardize)
 
         X, Y = df[x], df[y]
+        if isinstance(kwargs.get("mlm_model_groups"), Series):
+            # keep the grouping variable aligned with the rows that survived NA-dropping
+            kwargs["mlm_model_groups"] = kwargs["mlm_model_groups"].loc[df.index]
 
         if verbose:
             print(f"N={len(Y)}")
@@ -392,10 +426,10 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
         if constant:
             X = add_constant(X)
     else:
+        (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
         if verbose:
-           (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
-           print(f"N={len(Y)}")
-           print(f"Specified formula: {formula}")
+            print(f"N={len(Y)}")
+            print(f"Specified formula: {formula}")
            
         if standardize: # need a test
             X = df_standardize(X, func=standardize)
@@ -436,7 +470,15 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
               add_pred_loo_mae=True, add_pred_loo_mad=True, 
               add_n_obs=True, add_n_groups=True, add_vif=True,
               intercept_name='Intercept'):
-    # R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009
+    """
+    Build one APA-style coefficient table per model from :func:`lm` output.
+
+    Each DataFrame has columns coef, se, test statistic, p-value, cil, cir (95% CI),
+    optional ``sig`` stars and ``vif``. The first row's ``model`` column holds a fit
+    summary such as ``R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009``.
+    ``format_pval`` / ``add_stars`` may be True or a callable; the ``add_*`` flags
+    switch the summary parts on and off; the constant is renamed to ``intercept_name``.
+    """
 
     output = []
     for r, i in zip_longest(results, metrics, fillvalue={}):

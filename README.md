@@ -11,6 +11,7 @@ pip install git+https://github.com/ellariel/apatools.git
 ## Content and examples
 * ***apatools.calc*** - *a basic module for statistical conversions and bootstrapping*
 * ***apatools.lm*** - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
+* ***apatools.slm*** - *a module offering wrapper functions for spreg, streamlining the fitting of OLS, spatial lag (SLM) and spatial error (SEM) models, as well as generating detailed tables*
 * ***apatools.sem*** - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
 * ***apatools.psm*** - *a module for performing propensity score matching, complete with effect sizes reporting*
 * ***apatools.format*** - *simple APA-compliant formatting functions for numerical results*
@@ -39,6 +40,7 @@ p = p_from_r(r, n) # p = 0.0
 
 #### Bootstrap examples
 ```python
+import numpy as np
 from apatools.calc import bootstrap
 # bootstraping confidence intervals for a mean value:
 cil, m, cir = bootstrap([1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -62,7 +64,7 @@ _, m, _ = bootstrap(
 
 
 ### *apatools.lm*
-Fitting of OLS, RLM, GLM, QuantReg and MixedLM models using *statsmodels*. Passing arguments to the class initialization `model()` and the fitting method `model.fit()` is possible by adding appropriate model (`ols_`, `rlm_`, `glm_`) and method (`fit_` or `model_`) prefixes, e.g. `ols_fit_cov_type`, `glm_model_family`, `rlm_model_M`.
+Fitting of OLS, RLM, GLM, QuantReg and MixedLM models using *statsmodels*. Arguments for the model constructor and for `.fit()` are passed as `<model>_<stage>_<argument>`: the model prefix (`ols_`, `rlm_`, `glm_`, `qlm_`, `mlm_`) followed by `model_` (constructor) or `fit_` (the `.fit()` call), e.g. `ols_fit_cov_type`, `glm_model_family`, `rlm_model_M`.
 
 Specific parameters:
 * `qlm_fit_q` – adds a quantile for QuantReg, e.g. 0.5
@@ -90,7 +92,7 @@ print(results_rep, metrics)
 
 
 ### *apatools.slm*
-Fitting of OLS, SLM, and SEM spatial models using *spreg*. Passing arguments to the class initialization `model()` and the fitting method `model.fit()` is possible by adding appropriate model (`ols_`, `slm_`, `sem_`) and method (`fit_` or `model_`) prefixes, e.g. `ols_model_spat_diag`.
+Fitting of OLS, SLM, and SEM spatial models using *spreg*. Arguments for the spreg model constructor are passed as `<model>_model_<argument>` with the model prefix `ols_`, `slm_` or `sem_`, e.g. `ols_model_spat_diag`.
 
 Specific parameters:
 * `w` - a spatial matrix, created with *libpysal*

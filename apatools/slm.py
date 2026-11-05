@@ -40,15 +40,16 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
             )
     else:
         verbose = kwargs.get("verbose", False)
-        if isinstance(model, spr.OLS):
+        # `model` is a class here (not an instance), so compare with `is`
+        if model is spr.OLS:
             if verbose:
                 print("model: OLS")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("ols_")}
-        elif isinstance(model, spr.ML_Lag):
+        elif model is spr.ML_Lag:
             if verbose:
                 print("model: SLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("slm_")}
-        elif isinstance(model, spr.ML_Error):
+        elif model is spr.ML_Error:
             if verbose:
                 print("model: SEM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("sem_")}
@@ -64,24 +65,25 @@ def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
 
 def base_metrics(results):
     """
-    Calculating/retrieving R²/R²pseudo etc.
+    Collect fit metrics (R²/pseudo R², adjusted R², F-test, AIC/BIC/LL, MAE, MAD) from a
+    spreg results object.
     """
 
     outputs = {}
     resid = results.y.flatten() - results.predy.flatten()
-    # k - variables for which coefficients are estimated 
-    # (including the constant, excluding rho / lambda) <-- wrong description, rho is excluded, but not lambda
+    # spreg's `k` counts the constant and the predictors; it also counts rho for
+    # ML_Lag but does NOT count lambda for ML_Error (added below).
     n_params = int(results.k)
     n_obs = int(results.n)
     
     if isinstance(results, spr.ML_Error):
         n_params += 1 # lambda counts
-    df_model = n_params - 1
-    df_resid = n_obs - df_model
+    df_model = n_params - 1  # predictors (+ rho / lambda), without the constant
+    df_resid = n_obs - n_params  # n - k, as in spreg's OLS F-test
     
     if isinstance(results, (spr.ML_Lag, spr.ML_Error)):
         r_sq = results.pr2
-        r_sq_adj = 1 - (1 - r_sq) * n_obs / df_resid
+        r_sq_adj = 1 - (1 - r_sq) * (n_obs - 1) / df_resid
         f_stat = (r_sq / df_model) / ((1 - r_sq) / df_resid)
         f_pvalue = scipy.stats.f.sf(f_stat, df_model, df_resid)
     else:
@@ -100,7 +102,7 @@ def base_metrics(results):
             "n_obs": n_obs,
             "n_params": n_params, 
             "mae": np.mean(np.abs(resid)),
-            "mad": np.median(np.abs(resid) - np.median(resid)),
+            "mad": np.median(np.abs(resid - np.median(resid))),
             "aic": results.aic,
             "bic": results.schwarz,
             "llf": results.logll,
@@ -111,13 +113,39 @@ def base_metrics(results):
 
 def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     """
-    Fitting OLS, SLM, SEM from spreg
+    Fit OLS, spatial lag (SLM, ``ML_Lag``) and spatial error (SEM, ``ML_Error``) models with spreg.
 
-    slm(test_data, Y, X, model=['ols', 'slm'],
+    Parameters
+    ----------
+    data : pandas.DataFrame
+    y : str
+        Dependent variable; ignored if ``formula`` is given.
+    x : list of str
+        Predictors; ignored if ``formula`` is given.
+    w : libpysal.weights.W
+        Spatial weights (required for SLM/SEM and for OLS spatial diagnostics).
+    model : str or list of str
+        ``"ols"``, ``"slm"``, ``"sem"`` or a list of them.
+    formula : str, optional
+        patsy formula; overrides ``y``/``x``.
+    **kwargs
+        Function options (below) and spreg arguments named ``<model>_model_<argument>``
+        with ``<model>`` in ols/slm/sem, e.g. ``ols_model_spat_diag=True``.
+
+    Returns
+    -------
+    results : list of spreg model objects
+    metrics : list of dict
+        r_sq (pseudo R² for SLM/SEM), r_sq_adj, f_stat, f_pvalue, df_model, df_resid
+        (n - k), aic, bic, llf, mae, mad (median absolute deviation of residuals), n_obs.
+
+    Example
+    -------
+    slm(test_data, Y, X, w, model=['ols', 'slm'],
                     verbose=True,
-                    dropna=True, 
-                    intercept=False, # ignored, spreg adds it by default 
-                    standardized='z' # keeps np.number or bool columns only
+                    dropna=True,
+                    intercept=False, # ignored, spreg adds it by default
+                    standardize='z' # keeps np.number or bool columns only
                     base_metrics=True,
                     pred_metrics=False, # no this, and no vif for spreg
                     
@@ -135,12 +163,12 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     if formula is None:
         if x is None or y is None or len(x) == 0:
             raise ValueError(
-                "Either formula or x,y have to be explicitely defined."
+                "Either formula or x,y have to be explicitly defined."
             )
         
         df = data[[y] + x]
         if dropna:
-            df.dropna(inplace=True)
+            df = df.dropna()
         if len(df) != len(data):
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
@@ -159,10 +187,10 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
         if constant:
             X = add_constant(X) # ignoredin spreg
     else:
+        (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
         if verbose:
-           (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
-           print(f"N={len(Y)}")
-           print(f"Specified formula: {formula}")
+            print(f"N={len(Y)}")
+            print(f"Specified formula: {formula}")
            
         if standardize: # need a test
             X = df_standardize(X, func=standardize)
@@ -200,7 +228,13 @@ def slm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
               add_pred_loo_mae=False, add_pred_loo_mad=False, # no this, and no vif for spreg
               add_n_obs=True, add_n_groups=False, add_vif=False,
               intercept_name='Intercept'):
-    # R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009
+    """
+    Build one APA-style coefficient table per model from :func:`slm` output.
+
+    Columns: coef, se, z/t, p-value, cil, cir (95% CI from the normal approximation),
+    optional ``sig``. The first row's ``model`` column holds the fit summary, e.g.
+    ``R² = .35, R²adj = .31, F(3, 45) = 8.06, p < .001, AIC = ..., N = 49``.
+    """
 
     output = []
     for r, i in zip_longest(results, metrics, fillvalue={}):

@@ -34,6 +34,39 @@ def sem(
     return_model=False,
     seed=13,
 ):
+    """Fit a structural equation model with semopy.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Observed variables.
+    formula : str
+        Model description in semopy syntax: ``=~`` measurement part (latent
+        =~ indicators), ``~`` structural part, ``~~`` (co)variances.
+    method : str
+        Objective function: MLW, ULS, GLS, FIML, DWLS or WLS.
+    solver : str
+        scipy optimizer name.
+    bootstrap : int or falsy
+        If truthy, ``semopy.bias_correction`` with this many resamples is applied,
+        which *changes* the parameter estimates.
+    se_robust : bool
+        Use Huber-White robust standard errors.
+    return_model : bool
+        Also return the fitted ``semopy.Model``.
+    seed : int
+        Seed for numpy's global random generator.
+
+    Returns
+    -------
+    stats : pandas.DataFrame
+        Parameter table (``lval``, ``op``, ``rval``, ``estimate``, ``se``, ``z``,
+        ``p-value``, ``est_std``, ...). ``stats.attrs["latent"]`` lists latent variables.
+    metrics : pandas.DataFrame
+        ``N`` followed by semopy's fit statistics (column ``value``).
+    model : semopy.Model
+        Only if ``return_model`` is True.
+    """
     np.random.seed(seed)
     model = semopy.Model(formula)
     model.fit(data, obj=method, solver=solver)
@@ -44,14 +77,22 @@ def sem(
     stats = model.inspect(std_est=True, se_robust=se_robust)
     stats.columns = [i.lower().replace(". ", "_") for i in stats.columns]
     stats = stats.replace("-", np.nan).infer_objects().copy()
+    # semopy reports measurement paths ("=~") as "~" rows, so keep the latent
+    # variable names for sem_plot() to be able to tell latent from observed nodes
+    stats.attrs["latent"] = sorted(model.vars.get("latent", []))
     if return_model:
         return stats, metrics, model
     return stats, metrics
 
 
 def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
-    # https://people.ucsc.edu/~zurbrigg/psy214b/09SEM8a.pdf
-    # χ2(48, N = 500) = 303.80, p < .001, TLI = .86, CFI = .90
+    """Format the output of :func:`sem` for reporting.
+
+    Returns a copy of ``stats`` (p-values formatted, optional ``sig`` column, rounded)
+    whose first row carries an APA-style fit summary in the ``model`` column, e.g.
+    ``χ²(48, N = 500) = 303.80, p < .001, CFI = .90, TLI = .86, ...``.
+    ``format_pval`` / ``add_stars`` may be ``True`` or a callable.
+    """
 
     stats = stats.copy()
     if add_stars:
@@ -69,14 +110,19 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
                 )
             )
         )
-    r = metrics.iloc[:6].T.to_dict()
-    m = metrics.iloc[6:11].T.to_dict()
-    k = metrics.iloc[11:].T.to_dict()
-    r = f"χ²({int(r['DoF']['value'])}, N = {int(r['N']['value'])}) = {round(r['chi2']['value'], decimal)}, {format_p(r['chi2 p-value']['value'])}"
-    m = ", ".join(
-        [f"{i} = " + f"{round(v['value'], decimal)}"[1:] for i, v in m.items()]
-    )
-    k = ", ".join([f"{i} = " + f"{round(v['value'], decimal)}" for i, v in k.items()])
+    # select metrics by name: positional slicing would silently break if semopy reorders them
+    chi = metrics["value"]
+    fit_names = [i for i in ("CFI", "GFI", "AGFI", "NFI", "TLI") if i in chi.index]
+    info_names = [i for i in chi.index if i not in fit_names and i not in (
+        "N", "DoF", "DoF Baseline", "chi2", "chi2 p-value", "chi2 Baseline")]
+    r = f"χ²({int(chi['DoF'])}, N = {int(chi['N'])}) = {round(chi['chi2'], decimal)}, {format_p(chi['chi2 p-value'])}"
+
+    def _no_zero(v):  # APA: no leading zero for values bounded by 1, keep the sign
+        s = f"{round(v, decimal)}"
+        return s.replace("0.", ".", 1) if abs(v) < 1 else s
+
+    m = ", ".join([f"{i} = " + _no_zero(chi[i]) for i in fit_names])
+    k = ", ".join([f"{i} = {round(chi[i], decimal)}" for i in info_names])
     if decimal:
         stats = stats.round(decimal)
     stats.loc[stats.index[0], "model"] = r + ", " + m + ", " + k
@@ -99,8 +145,38 @@ def sem_plot(
     seed=13,
     **kwargs,
 ):
-    #
+    """Plot a SEM path diagram from the ``stats`` table returned by :func:`sem`.
 
+    Parameters
+    ----------
+    stats : pandas.DataFrame
+        Parameter table from :func:`sem`.
+    save_to_file : str, optional
+        Copy the rendered figure to this path.
+    plot_covs : bool
+        Draw covariances (dashed, double-headed arrows).
+    std_ests : bool
+        Show standardized instead of raw estimates.
+    show_stars : bool or callable
+        Show significance stars instead of formatted p-values.
+    format_pval : bool or callable
+        Format p-values (ignored if ``show_stars`` is set).
+    format_fig : str
+        Graphviz output format (``"png"``, ``"svg"``, ...).
+    method : str
+        Plotting backend; only ``"semopy"`` (Graphviz) is implemented.
+    return_fig : bool
+        Return the ``graphviz.Digraph``.
+    decimal : int
+        Rounding of the estimates.
+    **kwargs
+        Passed through (currently unused by the Graphviz backend).
+
+    Requires the Graphviz executables (``dot``) on the system PATH.
+    """
+    if method != "semopy":
+        raise NotImplementedError(f"Plot method '{method}' is not implemented, use 'semopy'.")
+    fig = None
     if method == "semopy":
         fig = semopy_plot(
             stats,
@@ -143,29 +219,36 @@ def semopy_plot(
 
     Parameters
     ----------
-    save_to_file : str
-        Name of file where to plot is saved.
+    stats : pandas.DataFrame
+        Parameter table from :func:`sem`. Latent variables are read from
+        ``stats.attrs["latent"]``; without it every right-hand-side variable is drawn
+        as latent (circle).
+    save_to_file : str or None
+        Path where the rendered figure is copied to.
     plot_covs : bool, optional
-        If True, covariances are also drawn. The default is False.
-    plot_exos: bool, optional
-        If False, exogenous variables are not plotted. It might be useful,
-        for example, in GWAS setting, where a number of exogenous variables,
-        i.e. genetic markers, is oblivious. Has effect only with ModelMeans or
-        ModelEffects. The default is True.
-    engine : str, optional
-        Graphviz engine name to use. The default is 'dot'.
-    latshape : str, optional
-        Graphviz-compaitable shape for latent variables. The default is
-        'circle'.
-    plot_ests : bool, optional
-        If True, then estimates are also plotted on the graph. The default is
-        True.
+        Draw covariances as dashed double-headed edges. Default True.
     std_ests : bool, optional
-        If True and plot_ests is True, then standardized values are plotted
-        instead. The default is False.
+        Plot standardized instead of raw estimates. Default True.
+    plot_ests : bool, optional
+        Label edges with estimates. Default True.
+    engine : str, optional
+        Graphviz layout engine. Default 'dot'.
+    latshape : str, optional
+        Graphviz node shape for latent variables. Default 'circle'.
+    show_stars : bool or callable, optional
+        Append significance stars to labels instead of p-values.
+    format_pval : bool or callable, optional
+        Format p-values in labels (ignored when ``show_stars`` is set).
+    format_fig : str, optional
+        Graphviz output format. Default 'png'.
+    decimal : int, optional
+        Rounding of estimates. Default 3.
+    seed : int, optional
+        Seed for numpy's global random generator.
+
     Returns
     -------
-    Graphviz graph.
+    graphviz.Digraph
     """
     import os
     import shutil
@@ -192,8 +275,13 @@ def semopy_plot(
         )
     stats = stats.round(decimal)
     elements = stats[stats["op"] == "~"]
-    latent = set(elements["rval"].to_list())
-    observed = set(elements["lval"].to_list()) - latent
+    latent = set(stats.attrs.get("latent", []))
+    if not latent:  # fallback for tables without metadata: old heuristic
+        latent = set(elements["rval"].to_list())
+    nodes = set(elements["lval"].to_list()) | set(elements["rval"].to_list())
+    nodes.discard("1")  # semopy's intercept pseudo-variable
+    observed = nodes - latent
+    latent = latent & nodes
     g = graphviz.Digraph("G", format=format_fig, engine=engine)
     g.attr(overlap="scale", splines="true")
     g.attr("edge", fontsize="12")
@@ -239,8 +327,12 @@ def semopy_plot(
                     else:
                         label += f"\n{pval}"
             g.edge(rval, lval, label=label, dir="both", style="dashed")
-    tfile = os.path.join(tempfile.gettempdir(), "semplot_tmp_fig")
-    g.render(tfile, view=False)
-    if save_to_file:
-        shutil.copy(f"{tfile}.{format_fig}", save_to_file)
+    tdir = tempfile.mkdtemp(prefix="semplot_")  # unique dir: no clashes between runs
+    try:
+        tfile = os.path.join(tdir, "semplot_tmp_fig")
+        g.render(tfile, view=False)
+        if save_to_file:
+            shutil.copy(f"{tfile}.{format_fig}", save_to_file)
+    finally:
+        shutil.rmtree(tdir, ignore_errors=True)
     return g
