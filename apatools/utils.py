@@ -6,52 +6,53 @@ import zipfile
 import scipy
 
 
+def df_check_intercept(df=None, columns=None):  # look for the intercept column name
+    if columns is None and isinstance(df, pd.DataFrame):
+        columns = df.columns
+    if "CONSTANT" in columns:
+        return "CONSTANT"
+    if "const" in columns:
+        return "const"
+    elif "Intercept" in columns:
+        return "Intercept"
+    else:
+        return None
 
-def df_check_intercept(df, columns=None): # look for the intercept column name
-        if columns is None:
-            columns = df.columns
-        if 'CONSTANT' in columns:
-            return 'CONSTANT'
-        if 'const' in columns:
-            return 'const'
-        elif "Intercept" in columns:
-            return 'Intercept'
-        else:
-            return None
 
-
-def df_standardize(df, func='z'):
+def df_standardize(df, func="z"):
     df = df.select_dtypes(include=[np.number, "bool"])
     const_name = df_check_intercept(df)
-    
-    if const_name is not None: # rem const
-        if df.shape[1] == 1: # if only const in the data frame
+
+    if const_name is not None:  # rem const
+        if df.shape[1] == 1:  # if only const in the data frame
             return df
         const_pos = df.columns.get_loc(const_name)
         const = df[const_name].copy()
-        df.drop(const_name, axis=1, inplace=True) 
+        df.drop(const_name, axis=1, inplace=True)
 
     if callable(func):
         df = df.apply(func)
-    elif func == 'z' or (isinstance(func, bool) and func):
+    elif func == "z" or (isinstance(func, bool) and func):
         df = df.apply(scipy.stats.zscore)
     else:
         raise NotImplementedError(
-                f"Func '{func}' is not implemented, try df.apply-compatible method or use 'z'."
-            )
+            f"Func '{func}' is not implemented, try df.apply-compatible method or use 'z'."
+        )
 
-    if const_name is not None: # insert const back
-        df.insert(const_pos, const_name, const) 
+    if const_name is not None:  # insert const back
+        df.insert(const_pos, const_name, const)
 
     return df
 
 
-def read_zip(zip_file_path, 
-             use_file_name=None, 
-             use_file_index=0, 
-             print_file_names=False,
-             return_io=False,
-             **kwargs):
+def read_zip(
+    zip_file_path,
+    use_file_name=None,
+    use_file_index=0,
+    print_file_names=False,
+    return_io=False,
+    **kwargs,
+):
     fname = None
     zf = zipfile.ZipFile(zip_file_path)
     if use_file_name is not None:
@@ -69,23 +70,26 @@ def read_zip(zip_file_path,
     if fname is not None:
         if return_io:
             return zf.open(fname)
-        if '.xls' in fname.lower():
+        if ".xls" in fname.lower():
             return pd.read_excel(zf.open(fname), **kwargs)
         return pd.read_csv(zf.open(fname), **kwargs)
 
 
-def take_until_timeout(iterator, 
-                       max_elements=None, 
-                       per_item_timeout=None, 
-                       total_timeout=None, 
-                       loop=None,
-                       patch_loop=False):
+def take_until_timeout(
+    iterator,
+    max_elements=None,
+    per_item_timeout=None,
+    total_timeout=None,
+    loop=None,
+    patch_loop=False,
+):
     # https://docs.python.org/3/library/asyncio-task.html#asyncio.wait_for
 
     if patch_loop:
         import nest_asyncio
+
         nest_asyncio.apply(loop)
-    
+
     async def get_elements(start):
         elements = []
         for i in itertools.count():
@@ -95,8 +99,7 @@ def take_until_timeout(iterator,
                 break
             try:
                 item = await asyncio.wait_for(
-                    asyncio.to_thread(next, iterator),
-                    timeout=per_item_timeout
+                    asyncio.to_thread(next, iterator), timeout=per_item_timeout
                 )
             except asyncio.TimeoutError:
                 break
@@ -105,6 +108,6 @@ def take_until_timeout(iterator,
 
             elements.append(item)
         return elements
-    
+
     loop = asyncio.get_event_loop() if loop is None else loop
     return loop.run_until_complete(get_elements(loop.time()))

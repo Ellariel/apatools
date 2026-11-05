@@ -49,7 +49,7 @@ def vif(results, sort=False, decimal=2):
             f"VIF calculation failed ({str(e)}).",
             UserWarning,
         )
-        return None   
+        return None
 
 
 def mlm_wrapper(Y, X, **kwargs):
@@ -95,7 +95,7 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
                 print("model: QLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("qlm_")}
         elif model == sm.MixedLM:
-            model = mlm_wrapper # using wrapper because of one positional argument
+            model = mlm_wrapper  # using wrapper because of one positional argument
             if verbose:
                 print("model: MLM")
             _kwargs = {k[4:]: v for k, v in kwargs.items() if k.startswith("mlm_")}
@@ -119,11 +119,15 @@ def pred_metrics(model, Y, X, **kwargs):
     fit_fails = []
     _kwargs = kwargs.copy()
     _kwargs["verbose"] = False
-    groups = kwargs.get("mlm_model_groups", None) # mlm
-    
+    groups = kwargs.get("mlm_model_groups", None)  # mlm
+
     for train_index, test_index in LeaveOneOut().split(X):
-        if groups is not None: # mlm
-            x_train, x_test, _groups = X.iloc[train_index], X.iloc[test_index], groups.iloc[train_index]
+        if groups is not None:  # mlm
+            x_train, x_test, _groups = (
+                X.iloc[train_index],
+                X.iloc[test_index],
+                groups.iloc[train_index],
+            )
             _kwargs["mlm_model_groups"] = _groups
         else:
             x_train, x_test = X.iloc[train_index], X.iloc[test_index]
@@ -139,9 +143,12 @@ def pred_metrics(model, Y, X, **kwargs):
             f"Some attempts to calculate LeaveOneOut metrics failed ({len(fit_fails)}): {set(fit_fails)}",
             UserWarning,
         )
-    return [{
+    return [
+        {
             "pred_loo_r_sq": np.clip(
-                1 - np.sum(np.square(err)) / (np.var(np.asarray(Y, dtype=float)) * Y.size),
+                1
+                - np.sum(np.square(err))
+                / (np.var(np.asarray(Y, dtype=float)) * Y.size),
                 -1.0,
                 1.0,
             ),
@@ -200,16 +207,17 @@ def base_metrics(results):
     n_params = getattr(
         results, "k_fe", len(params)
     )  # k_fe counts only fixed effects in MLM
-    if "const" in params or "Intercept" in params:
+    # if "const" in params or "Intercept" in params:
+    if df_check_intercept(columns=params):
         n_params -= 1  # number of predictors, without intercept/const
     n_params = max(n_params, 0)
     df_model = max(getattr(results, "df_model", 0), n_params)  # technical correction
     if df_model == 0 or n_params == 0:
         warnings.warn(
-                "A model has no parameters or zero degrees or freedom.",
-                UserWarning,
-            )
-        
+            "A model has no parameters or zero degrees or freedom.",
+            UserWarning,
+        )
+
     df_resid = max(
         getattr(results, "df_resid", 0), n_obs - df_model
     )  # technical correction
@@ -229,8 +237,8 @@ def base_metrics(results):
     # SSe = np.sum(weights * resid ** 2)
     # SSt = np.sum(weights * (observed - np.mean(observed)) ** 2)
 
-    #M = getattr(results.model, "M", False)  # r_sq_pseudo
-    #if M and callable(M.rho):
+    # M = getattr(results.model, "M", False)  # r_sq_pseudo
+    # if M and callable(M.rho):
     #    SSe = np.sum(M.rho(resid))
     #    SSt = np.sum(M.rho(observed - np.mean(observed)))
     #    outputs.update({"r_sq_pseudo": 1 - SSe / SSt})
@@ -267,16 +275,18 @@ def base_metrics(results):
         r_sq = r_sq_def
 
     # centered models: (n - 1) / df_resid; models without intercept: n / df_resid
-    has_const = "const" in params or "Intercept" in params
+    # has_const = "const" in params or "Intercept" in params
+    has_const = bool(df_check_intercept(columns=params))
+
     r_sq_adj_def = 1 - (1 - r_sq) * (n_obs - int(has_const)) / df_resid
     r_sq_adj = getattr(results, "rsquared_adj", r_sq_adj_def)
     if not np.isfinite(r_sq_adj):
         r_sq_adj = r_sq_adj_def
 
     # https://www.slideshare.net/slideshow/multiple-regressionppt-252604177/252604177#8
-    f_stat_def = (r_sq / df_model) / (
-        (1 - r_sq) / df_resid
-    ) if df_model and df_resid else np.nan # (SSt / df_model) / (SSe / df_resid)
+    f_stat_def = (
+        (r_sq / df_model) / ((1 - r_sq) / df_resid) if df_model and df_resid else np.nan
+    )  # (SSt / df_model) / (SSe / df_resid)
     f_stat = getattr(results, "fvalue", f_stat_def)
     if not np.isfinite(f_stat):
         f_stat = f_stat_def
@@ -316,7 +326,7 @@ def base_metrics(results):
             )
     except NotImplementedError:
         pass
-    
+
     outputs.update(
         {
             "r_sq": r_sq,
@@ -375,7 +385,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
                     base_metrics=True,
                     pred_metrics=False,
                     vif=False,
-                    
+
                     qlm_fit_q=0.5,
                     qlm_fit_cov_type='boot',
                     qlm_fit_cov_kwds={'n_boot': 100},
@@ -391,17 +401,15 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     add_base_metrics = kwargs.pop("base_metrics", True)
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     calc_vif = kwargs.pop("vif", False)
-    
-    groups = kwargs.get("mlm_model_groups", False) #mlm
+
+    groups = kwargs.get("mlm_model_groups", False)  # mlm
     if isinstance(groups, str):
         kwargs["mlm_model_groups"] = data[groups]
 
     if formula is None:
         if x is None or y is None or len(x) == 0:
-            raise ValueError(
-                "Either formula or x,y have to be explicitly defined."
-            )
-        
+            raise ValueError("Either formula or x,y have to be explicitly defined.")
+
         df = data[[y] + x]
         if dropna:
             df = df.dropna()
@@ -430,13 +438,14 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
         if verbose:
             print(f"N={len(Y)}")
             print(f"Specified formula: {formula}")
-           
-        if standardize: # need a test
+
+        if standardize:  # need a test
             X = df_standardize(X, func=standardize)
             Y = df_standardize(Y, func=standardize)
 
-    if (constant or df_check_intercept(X)) and\
-       (standardize == 'z' or (isinstance(standardize, bool) and standardize)):
+    if (constant or df_check_intercept(X)) and (
+        standardize == "z" or (isinstance(standardize, bool) and standardize)
+    ):
         warnings.warn(
             "Having intercept=True and using z-transformation sets the intercept estimate to zero. This may lead to wrong results.",
             UserWarning,
@@ -447,7 +456,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
         results.append(r)
         if verbose:
             print(r.summary())
-    
+
     metrics = []
     if add_base_metrics or add_pred_metrics:
         metrics = [base_metrics(r) for r in results]
@@ -465,11 +474,25 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     return results, metrics
 
 
-def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3, 
-              add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
-              add_pred_loo_mae=True, add_pred_loo_mad=True, 
-              add_n_obs=True, add_n_groups=True, add_vif=True,
-              intercept_name='Intercept'):
+def lm_report(
+    results,
+    metrics={},
+    format_pval=True,
+    add_stars=True,
+    decimal=3,
+    add_ftest=True,
+    add_aic=True,
+    add_bic=True,
+    add_llf=True,
+    add_mae=True,
+    add_mad=True,
+    add_pred_loo_mae=True,
+    add_pred_loo_mad=True,
+    add_n_obs=True,
+    add_n_groups=True,
+    add_vif=True,
+    intercept_name="Intercept",
+):
     """
     Build one APA-style coefficient table per model from :func:`lm` output.
 
@@ -549,7 +572,7 @@ def lm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
             params = params.join(i["vif"])
         if len(i):
             params.loc[params.index[0], "model"] = s
-        const_name = df_check_intercept(params, params.index)  
+        const_name = df_check_intercept(params, params.index)
         if const_name != intercept_name:
             params.index = params.index.str.replace(const_name, intercept_name)
         output.append(params)
