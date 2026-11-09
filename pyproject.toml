@@ -20,8 +20,13 @@ dependencies = [
     "krippendorff",
 ]
 
+[project.optional-dependencies]
+# optional backend of apatools.plm: pip install "apatools[linearmodels]"
+linearmodels = ["linearmodels>=6.0"]
+
 [dependency-groups]
 dev = [
+    "linearmodels>=6.0",
     "scikit-learn>=1.5.2",
     "seaborn>=0.13.2",
     "matplotlib>=3.9.2",

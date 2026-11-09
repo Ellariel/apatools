@@ -12,6 +12,7 @@ pip install git+https://github.com/ellariel/apatools.git
 * ***apatools.calc*** - *a basic module for statistical conversions and bootstrapping*
 * ***apatools.lm*** - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
 * ***apatools.slm*** - *a module offering wrapper functions for spreg, streamlining the fitting of OLS, spatial lag (SLM) and spatial error (SEM) models, as well as generating detailed tables*
+* ***apatools.plm*** - *a module offering wrapper functions for panel regressions (pooled, fixed and random effects, with optional spatial lag/error terms) with spreg or, optionally, linearmodels, as well as generating detailed tables and specification tests*
 * ***apatools.sem*** - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
 * ***apatools.psm*** - *a module for performing propensity score matching, complete with effect sizes reporting*
 * ***apatools.format*** - *simple APA-compliant formatting functions for numerical results*
@@ -120,6 +121,42 @@ print(results_rep, metrics)
 ```
 
 
+### *apatools.plm*
+Panel regressions (pooled, fixed effects, random effects, optionally with a spatial lag or spatial error) in the same format as `lm` and `slm`. Two backends: *spreg* (default; all models) and the optional *linearmodels* (`pip install "apatools[linearmodels]"`; non-spatial models, adds e.g. clustered standard errors and two-way fixed effects).
+
+Data are an ordinary *long* data frame with an entity and a time column (or an `(entity, time)` index). The module checks that the panel is balanced, aligns the entities with the rows of the spatial weights `w` (the entity values must be the ids `w.id_order`, otherwise pass `w_ids`) and brings the rows into the layout spreg needs, so the row order of your data does not matter.
+
+Models (`model=`): `pooled`, `fe`, `re` (both backends), `slm_fe`, `slm_re`, `sem_pooled`, `sem_fe`, `sem_re`, `sem_pooled_gm`, `sem_re_gm` (spreg: spatial lag / spatial error with ML or GMM estimation). *spreg* 1.9.0 fails in `sem_re` (ML); use `sem_re_gm`.
+
+Specific parameters:
+* `entity`, `time` - columns (or index levels) identifying entity and period; `balance="drop"` drops entities that are not observed in all periods instead of raising an error
+* `backend` - `"spreg"` (default) or `"linearmodels"`
+* `slx_lags` - number of spatial lags of the predictors (spreg; `slx_lags=1` gives a Durbin-type model)
+* `<model>_model_<arg>` / `<model>_fit_<arg>` - arguments for the model class / `.fit()`, e.g. `slm_fe_model_method="LU"`, or for linearmodels `fe_fit_cov_type="clustered"`, `fe_fit_cluster_entity=True`, `fe_model_time_effects=True`
+* `pred_metrics` - adds leave-one-*group*-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`). Leaving out single observations is not meaningful in panels, so whole entities (`pred_group="entity"`, predicts a new entity; not possible for fixed-effects models) or whole periods (`pred_group="time"`) are held out, the model and the weights are refitted, and the held-out rows are predicted (`x·β`, plus `ρ·Wy` for spatial lag and the estimated entity effect for fixed effects). With spatial data the neighbours of a held-out entity stay in the training sample, which is optimistic; `pred_exclude_neighbors=True` removes them as well (see the caveat for `slm`).
+
+```python
+from apatools.plm import plm, plm_report, plm_tests
+results, metrics = plm(
+        data,
+        "y", ["x1", "x2"],
+        w=w,
+        entity="county", time="year",
+        model=["pooled", "fe", "re", "slm_fe"],
+        verbose=True,
+        pred_metrics=True,
+        pred_group="time",
+    )
+results_rep = plm_report(results, metrics)
+print(results_rep, metrics)
+print(plm_tests(results))  # Hausman, Mundlak, F test of entity effects, spatial LM tests
+```
+
+`plm_tests()` returns a tidy table: Hausman test (FE vs RE; undefined when `V_fe - V_re` is not positive definite, which is typical when the effects *are* correlated with the predictors), the regression-based Mundlak test (robust to that problem), the F test of entity effects, and, for pooled spreg models with weights, the Baltagi-Song-Koh and Anselin LM tests for random effects and spatial dependence.
+
+Notes: R² is `R²within` for fixed effects, `R²overall` for random effects with linearmodels, `R²pseudo` (squared correlation of observed and predicted y) for spatial and spreg random-effects models and the plain R² for pooled OLS. spreg's `PanelFE` reports residuals and a pseudo R² that ignore the fixed effects and uses `N·T - N` instead of `N·T - N - k` degrees of freedom for the standard errors (slightly too small); the within R², the residual statistics and the F test use the correct values and agree with linearmodels. AIC/BIC from spreg do not count the fixed effects.
+
+
 ### *apatools.sem*
 Structural equation modeling implemented with *semopy*. The module provides modeling function `sem()`, formatting `sem_report()` and plotting `sem_plot()` functions.
 
@@ -178,6 +215,7 @@ s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
 * [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
 * [semopy](https://pypi.org/project/semopy/) (MIT License)
 * [spreg](https://pypi.org/project/spreg/) (BSD License)
+* [linearmodels](https://pypi.org/project/linearmodels/) (NCSA License)
 * [psmpy](https://pypi.org/project/psmpy/) (MIT License)
 * [scipy](https://pypi.org/project/scipy/) (BSD License)
 
