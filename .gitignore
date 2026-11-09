@@ -4,9 +4,11 @@
 uv.lock
 *.png
 *.pdf
+*.csv
 
 __pycache__/
 .venv
+.conda
 .vscode
 .ruff_cache
 *.py[cod]

@@ -292,7 +292,111 @@ def test_bootstrap():
     # pvalue=np.float64(0.02958657594620456))
 
 
+def test_regressions():
+    # CI width must be positive and the p-value must not depend on its sign
+    assert abs(p_from_ci(0.5, 0.1, 0.9) - 0.0143) < 1e-3
+    assert abs(p_from_ci(-0.5, -0.9, -0.1) - 0.0143) < 1e-3
+    # probit -> logit scaling is positive
+    assert logit_from_probit(1.0) > 0
+    # unbiased Fisher's z is slightly larger than the plain one for small n
+    assert unbiased_z(0.5, 10) > z_from_r(0.5)
+    assert abs(unbiased_z(0.5, 10_000) - z_from_r(0.5)) < 1e-3
+    # r <-> t <-> p round trip
+    assert abs(p_from_r(r_from_p(0.01, 40), 40) - 0.01) < 1e-9
+    # bootstrap is also exposed through the old location
+    from apatools.lib import bootstrap as lib_bootstrap
+
+    assert lib_bootstrap is bootstrap
+
+
+import pytest
+
+
+@pytest.mark.parametrize("r", [-0.9, -0.3, 0.0, 0.1, 0.5, 0.95])
+def test_round_trips(r):
+    n = 50
+    assert r_from_z(z_from_r(r)) == pytest.approx(r)
+    assert r_from_d(d_from_r(r)) == pytest.approx(r)
+    assert r_from_t(t_from_r(r, n), n) == pytest.approx(r)
+    assert cohen_d_from_t(t_from_d(d_from_r(r), n), n) == pytest.approx(d_from_r(r))
+    assert d_from_z(z_from_d(d_from_r(r))) == pytest.approx(d_from_r(r))
+    assert t_from_z(z_from_t(t_from_r(r, n), n), n) == pytest.approx(t_from_r(r, n))
+
+
+@pytest.mark.parametrize("p", [0.001, 0.01, 0.05, 0.3])
+@pytest.mark.parametrize("method", ["two-tailed", "one-tailed"])
+def test_p_round_trips(p, method):
+    n = 40
+    assert p_from_z(z_from_p(p, method=method), method=method) == pytest.approx(p)
+    assert p_from_t(t_from_p(p, n, method=method), n, method=method) == pytest.approx(p)
+    assert p_from_r(r_from_p(p, n, method=method), n, method=method) == pytest.approx(p)
+    assert p_from_d(d_from_p(p, n, method=method), n, method=method) == pytest.approx(p)
+    # the "normal deviate" branch of z_from_t / t_from_z is consistent as well
+    t = t_from_p(p, n, method=method)
+    assert t_from_z(z_from_t(t, n, method=method), n, method=method) == pytest.approx(t)
+
+
+def test_known_values():
+    assert z_from_p(0.05) == pytest.approx(1.959964, abs=1e-5)
+    assert z_from_p(0.05, method="one-tailed") == pytest.approx(1.644854, abs=1e-5)
+    assert p_from_t(2.0, 12) == pytest.approx(0.0734, abs=1e-3)  # df = 10
+    assert r_from_d(1.0) == pytest.approx(1 / np.sqrt(5))
+    assert d_from_r(r_from_d(0.8)) == pytest.approx(0.8)
+    assert OR_from_logit(logit_from_OR(2.5)) == pytest.approx(2.5)
+    assert cohen_d_from_logit(logit_from_cohen_d(0.4)) == pytest.approx(0.4)
+    assert logit_from_probit(1.0) == pytest.approx(1.7)
+    assert t_from_b(2.0, 0.5) == 4.0
+    # F(1, df) is t squared
+    t, df = 2.5, 20
+    assert p_from_f(t**2, 1, df) == pytest.approx(p_from_t(t, df + 2))
+    assert r_from_f(t**2, 1, df) == pytest.approx(r_from_t(t, df + 2))
+    assert d_from_f(t**2, 1, df) == pytest.approx(d_from_t(t, df + 2))
+
+
+def test_signs_and_symmetry():
+    assert r_from_z(-1.0) == pytest.approx(-r_from_z(1.0))
+    assert r_from_d(-0.5) < 0 and d_from_r(-0.5) < 0
+    assert p_from_t(-2.0, 30) == pytest.approx(p_from_t(2.0, 30))
+    assert p_from_r(-0.4, 60) == pytest.approx(p_from_r(0.4, 60))
+    # p-value based reconstructions are always non-negative
+    assert r_from_p(0.01, 40) > 0 and d_from_p(0.01, 40) > 0
+    lo, hi = ci_from_r(-0.5, 40)
+    assert lo < -0.5 < hi
+
+
+def test_confidence_intervals():
+    lo, hi = ci_from_r(0.5, 103)  # se of Fisher z = 0.1
+    assert lo == pytest.approx(np.tanh(np.atanh(0.5) - 1.959964 * 0.1), abs=1e-5)
+    assert hi == pytest.approx(np.tanh(np.atanh(0.5) + 1.959964 * 0.1), abs=1e-5)
+    # narrower interval for a lower confidence level
+    lo90, hi90 = ci_from_r(0.5, 103, alpha=0.90)
+    assert lo < lo90 < 0.5 < hi90 < hi
+    # a normal-theory 95% CI that just excludes zero gives p ~ .05
+    est, se = 0.98, 0.5  # z = 1.96, so the interval is (0, 1.96)
+    assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se) == pytest.approx(0.05, abs=2e-3)
+    assert p_from_ci(2.0, 1.02, 2.98) == pytest.approx(p_from_z(2.0 / 0.5), abs=1e-3)
+    # the t-based version is more conservative
+    assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se, n=20) > p_from_ci(
+        est, est - 1.96 * se, est + 1.96 * se
+    )
+    # ci_from_p returns an interval around the r implied by p
+    lo, hi = ci_from_p(0.01, 40)
+    assert lo < r_from_p(0.01, 40) < hi
+
+
+def test_bootstrap_properties():
+    x = np.arange(1, 10)
+    lo, m, hi = bootstrap(x, func=np.mean, n_rep=500, seed=1)
+    assert lo < m < hi
+    assert bootstrap(x, func=np.mean, n_rep=500, seed=1).tolist() == [lo, m, hi]  # reproducible
+    lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, alpha=0.99)
+    assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
+    # a constant sample has a degenerate interval
+    assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]
+
+
 if __name__ == "__main__":
     test_conversion()
+    test_regressions()
     test_bootstrap()
-    print("Tests for metatools.calc are PASSED!")
+    print("Tests for apatools.calc are PASSED!")
