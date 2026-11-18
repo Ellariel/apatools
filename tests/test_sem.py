@@ -50,7 +50,9 @@ def test_sem():
     print(results)
 
 
-@pytest.mark.skipif(shutil.which("dot") is None, reason="the Graphviz executables are not installed")
+@pytest.mark.skipif(
+    shutil.which("dot") is None, reason="the Graphviz executables are not installed"
+)
 def test_sem_plot(tmp_path):
     pytest.importorskip("graphviz")
     data = semopy.examples.political_democracy.get_data()
@@ -91,43 +93,6 @@ def test_sem_plot(tmp_path):
     )
     assert fig is not None
     assert (tmp_path / "fig2.png").stat().st_size > 0
-
-
-def test_sem_report_and_plot_details():
-    import pandas as pd
-    import pytest
-
-    data = semopy.examples.political_democracy.get_data()
-    formula = semopy.examples.political_democracy.get_model()
-    stats, metrics = sem(data, formula, bootstrap=0, seed=13)
-
-    # latent variables are remembered for plotting and are not indicators
-    assert set(stats.attrs["latent"]) == {"dem60", "dem65", "ind60"}
-    # N is the first metric
-    assert metrics.index[0] == "N" and metrics.loc["N", "value"] == 75
-
-    # report is built by metric name, in APA style, and does not alter its input
-    before = stats.copy()
-    rep = sem_report(stats, metrics, format_pval=True, add_stars=True)
-    pd.testing.assert_frame_equal(stats, before)
-    summary = rep.iloc[0]["model"]
-    assert summary.startswith("χ²(35, N = 75) = ")
-    for name in ("CFI", "TLI", "RMSEA", "AIC", "BIC"):
-        assert f"{name} = " in summary
-    assert "CFI = ." in summary  # no leading zero for bounded fit indices
-    assert rep["model"].iloc[1:].isna().all()
-
-    # values outside (-1, 1) keep their sign / digits
-    m2 = metrics.copy()
-    m2.loc["AGFI", "value"] = -0.123
-    m2.loc["GFI", "value"] = 1.0
-    summary2 = sem_report(stats, m2).iloc[0]["model"]
-    assert "AGFI = -.123" in summary2
-    assert "GFI = 1.0" in summary2
-
-    # unknown plot backend fails loudly instead of with UnboundLocalError
-    with pytest.raises(NotImplementedError):
-        sem_plot(stats, method="unknown")
 
 
 def test_sem_report_and_plot_details():
