@@ -337,7 +337,7 @@ def dependent_correlations(xy, xz, yz, n, method="steiger", twotailed=True, alph
         )
         return lower, upper
     else:
-        raise Exception("Wrong method!")
+        raise ValueError(f"Wrong method {method!r}: use 'steiger' or 'zou'.")
 
 
 def independent_correlations(
@@ -376,7 +376,7 @@ def independent_correlations(
         upper = xy - ab + np.pow((np.pow((U1 - xy), 2) + np.pow((ab - L2), 2)), 0.5)
         return lower, upper
     else:
-        raise Exception("Wrong method!")
+        raise ValueError(f"Wrong method {method!r}: use 'fisher' or 'zou'.")
 
 
 def htmt_ratio(data, construct_a, construct_b, method="spearman"):

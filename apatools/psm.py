@@ -11,7 +11,6 @@ except ImportError as e:  # pragma: no cover
 
 from .citation import Citation
 
-
 # https://pypi.org/project/psmpy/
 # https://github.com/adriennekline/psmpy
 CITATION = Citation(APA='Kline, A., & Luo, Y. (2022). \
@@ -113,9 +112,9 @@ def psm(
     model.logistic_ps(balance=balance)
     
     if hasattr(model, "knn_matched"):
-        matched_method = getattr(model, "knn_matched") # <= v0.3.15
+        matched_method = model.knn_matched # <= v0.3.15
     else:
-        matched_method = getattr(model, "kdtree_matched") # >= v0.3.16
+        matched_method = model.kdtree_matched # >= v0.3.16
             
     matched_method(matcher='propensity_logit', 
                     caliper=None, 

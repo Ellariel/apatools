@@ -90,7 +90,7 @@ Changelog = "https://github.com/Ellariel/apatools/blob/main/CHANGELOG.md"
 dev = [
     "apatools[all]",
     "pytest>=8.3.4",
-    "ruff>=0.8.4",
+    "ruff~=0.17.5",  # keep in sync with .github/workflows/ci.yml
     "build",
     "twine",
 ]

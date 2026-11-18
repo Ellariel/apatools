@@ -279,7 +279,7 @@ def test_dependent_correlations_zou():
     # a lower confidence level gives a narrower interval
     lo90, hi90 = dependent_correlations(0.7, 0.2, 0.4, n=200, method="zou", alpha=0.90)
     assert lo < lo90 < hi90 < hi
-    with pytest.raises(Exception, match="Wrong method"):
+    with pytest.raises(ValueError, match="Wrong method"):
         dependent_correlations(0.7, 0.2, 0.4, n=200, method="x")
 
 
@@ -315,7 +315,7 @@ def test_independent_correlations_zou():
     assert (lo_sw, hi_sw) == pytest.approx((-hi, -lo))
     # decision agrees with the Fisher test on a clear case
     assert independent_correlations(0.6, 0.2, 100, 100)[1] < 0.05 and lo > 0
-    with pytest.raises(Exception, match="Wrong method"):
+    with pytest.raises(ValueError, match="Wrong method"):
         independent_correlations(0.6, 0.2, 100, method="x")
 
 

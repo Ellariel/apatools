@@ -28,7 +28,8 @@ def w_subset_rows(w, positions):
     positions : array-like of int
         Row positions to keep (in the order of the data).
     """
-    from libpysal.weights import WSP  # imported here: only the spatial modules need libpysal
+    # imported here: only the spatial modules need libpysal
+    from libpysal.weights import WSP
 
     positions = np.asarray(positions, dtype=int)
     sub = WSP(w.sparse[positions][:, positions]).to_W(silence_warnings=True)

@@ -8,20 +8,19 @@ import scipy
 from ._deps import missing_dependency
 
 try:
-    import statsmodels.api as sm
-    from statsmodels.api import add_constant
-    from pandas import read_html, to_numeric, DataFrame, Series
-    from statsmodels.formula.formulatools import handle_formula_data
-    from statsmodels.stats.outliers_influence import variance_inflation_factor
-    from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
     import lxml  # noqa: F401  (pandas.read_html in lm_report needs it)
+    import statsmodels.api as sm
+    from pandas import DataFrame, Series, read_html, to_numeric
+    from statsmodels.api import add_constant
+    from statsmodels.formula.formulatools import handle_formula_data
+    from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
+    from statsmodels.stats.outliers_influence import variance_inflation_factor
 except ImportError as e:  # pragma: no cover
     missing_dependency("lm", "lm", e)
 
 from .citation import Citation
-from .format import format_r, format_p, get_stars
-from .utils import df_standardize, df_check_intercept
-
+from .format import format_p, format_r, get_stars
+from .utils import df_check_intercept, df_standardize
 
 # https://www.statsmodels.org/stable/index.html
 CITATION = Citation(
@@ -50,9 +49,9 @@ def vif(results, sort=False, decimal=2):
         if decimal:
             vif_df = vif_df.round(decimal)
         return vif_df
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  (any failure of statsmodels' VIF only becomes a warning)
         warnings.warn(
-            f"VIF calculation failed ({str(e)}).",
+            f"VIF calculation failed ({e!s}).",
             UserWarning,
         )
         return None
@@ -144,7 +143,7 @@ def pred_metrics(model, Y, X, **kwargs):
             for idx, r in enumerate(fit_model(model, y_train, x_train, **_kwargs)):
                 errors.setdefault(idx, [])
                 errors[idx].append(y_test.iloc[0] - r.predict(x_test).iloc[0])
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  (a failed refit is skipped and reported in a warning)
             fit_fails.append(str(e))
     if len(fit_fails):
         warnings.warn(
@@ -484,7 +483,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
 
 def lm_report(
     results,
-    metrics={},
+    metrics=None,
     format_pval=True,
     add_stars=True,
     decimal=3,
@@ -511,6 +510,8 @@ def lm_report(
     switch the summary parts on and off; the constant is renamed to ``intercept_name``.
     """
 
+    if metrics is None:  # reporting without metrics is allowed
+        metrics = []
     output = []
     for r, i in zip_longest(results, metrics, fillvalue={}):
         s = []

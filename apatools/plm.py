@@ -36,29 +36,29 @@ entities with the rows of the spatial weights ``w`` (by ``w.id_order``, or by ``
 and sorts the data in the layout spreg needs (period blocks, entities in the order of ``w``).
 """
 
-import io
-import inspect
 import contextlib
+import inspect
+import io
 import warnings
 from dataclasses import dataclass, replace
 from itertools import zip_longest
 
 import numpy as np
-import scipy.stats
 import scipy.sparse as sps
+import scipy.stats
 
 from ._deps import missing_dependency
 
 try:
-    import spreg as spr
     import patsy  # noqa: F401  (used for formulas)
+    import spreg as spr
     from libpysal.weights import WSP
-    from pandas import DataFrame, Index, Series, MultiIndex, concat, to_numeric
+    from pandas import DataFrame, Index, MultiIndex, Series, concat, to_numeric
 except ImportError as e:  # pragma: no cover
     missing_dependency("plm", "plm", e)
 
 from .citation import Citation
-from .format import format_r, format_p, get_stars
+from .format import format_p, format_r, get_stars
 from .utils import w_subset_rows
 
 # https://pysal.org/spreg/index.html
@@ -351,7 +351,7 @@ def _model_kwargs(kwargs, name, stage="model"):
 
 
 def _fit_spreg(name, panel, kwargs):
-    cls_name, effects, spatial = SPREG_MODELS[name]
+    cls_name, _, spatial = SPREG_MODELS[name]
     cls = getattr(spr, cls_name)
     w = panel.w
     if spatial and w is None:
@@ -754,7 +754,7 @@ def pred_metrics(
                     r = _fit_one(name, train, backend, kwargs)
                 pred = _predict_rows(_coefs(r), name, panel, wy, train_mask, test_mask)
                 errors[i].append((np.flatnonzero(test_mask), y[test_mask] - pred))
-            except Exception as e:  # e.g. singular design, no convergence
+            except Exception as e:  # noqa: BLE001  (e.g. singular design, no convergence: skipped and reported)
                 fails.append(str(e))
     if fails:
         warnings.warn(
@@ -927,7 +927,7 @@ _R_SQ_SUFFIX = {"ols": "", "within": "within", "overall": "overall", "pseudo": "
 
 def plm_report(
     results,
-    metrics={},
+    metrics=None,
     format_pval=True,
     add_stars=True,
     decimal=3,
@@ -956,6 +956,8 @@ def plm_report(
     The spatial parameters (``W_dep_var`` = ρ, ``lambda`` = λ) and variance parameters are rows of
     the table. ``format_pval`` / ``add_stars`` may be True or a callable.
     """
+    if metrics is None:  # reporting without metrics is allowed
+        metrics = []
     output = []
     for r, i in zip_longest(results, metrics, fillvalue={}):
         s = []

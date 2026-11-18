@@ -11,7 +11,6 @@ except ImportError as e:  # pragma: no cover
 from .citation import Citation
 from .format import format_p, get_stars
 
-
 # https://arxiv.org/pdf/2106.01140.pdf
 # https://semopy.com/cite.html
 # https://gitlab.com/georgy.m/semopy
