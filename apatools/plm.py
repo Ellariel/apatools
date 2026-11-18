@@ -66,7 +66,7 @@ from .utils import w_subset_rows
 CITATION = Citation(
     APA="Rey, S. J., & Anselin, L. (2007). \
 PySAL: A python library of spatial analytical methods. \
-The Review of Regional Studies, 37(1), 5-27. \
+The Review of Regional Studies, 37(1), 5-27.; \
 Sheppard, K. (n.d.). linearmodels: Linear models for panel data, \
 instrumental variables and system regression [Computer software]. \
 https://github.com/bashtage/linearmodels"

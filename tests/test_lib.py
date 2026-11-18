@@ -31,7 +31,14 @@ def test_lib():
     df = pd.DataFrame(
         {
             "Expert1": ["for", "no decision", "for", "for", "no decision", np.nan],
-            "Expert2": ["for", "no decision", "for", "no decision", "no decision", np.nan],
+            "Expert2": [
+                "for",
+                "no decision",
+                "for",
+                "no decision",
+                "no decision",
+                np.nan,
+            ],
             "Expert3": ["for", "no decision", "for", "for", "for", np.nan],
             "Expert4": ["for", "no decision", "for", "for", "no decision", np.nan],
         }
@@ -82,21 +89,32 @@ def test_gini():
 def test_gini_from_percentiles():
     pct = np.arange(10, 101, 10)
     # perfect equality: cumulative share equals the percentile (percentiles do not start at 0!)
-    assert gini_from_percentiles(pct, pct, values_are_shares=True) == pytest.approx(0, abs=1e-12)
-    assert gini_from_percentiles(pct, pct) == pytest.approx(0, abs=1e-12)  # cumulative values
+    assert gini_from_percentiles(pct, pct, values_are_shares=True) == pytest.approx(
+        0, abs=1e-12
+    )
+    assert gini_from_percentiles(pct, pct) == pytest.approx(
+        0, abs=1e-12
+    )  # cumulative values
     # one person has everything: 1 - 1/n
-    assert gini_from_percentiles([0] * 9 + [100], pct, values_are_shares=True) == pytest.approx(0.9)
+    assert gini_from_percentiles(
+        [0] * 9 + [100], pct, values_are_shares=True
+    ) == pytest.approx(0.9)
     # the same with percentiles that start at 0
     pct0 = np.arange(0, 101, 10)
-    assert gini_from_percentiles(pct0, pct0, values_are_shares=True) == pytest.approx(0, abs=1e-12)
-    assert gini_from_percentiles([0] * 10 + [100], pct0, values_are_shares=True) == pytest.approx(0.9)
+    assert gini_from_percentiles(pct0, pct0, values_are_shares=True) == pytest.approx(
+        0, abs=1e-12
+    )
+    assert gini_from_percentiles(
+        [0] * 10 + [100], pct0, values_are_shares=True
+    ) == pytest.approx(0.9)
     # agrees with the sample Gini of the underlying (decile) data: incomes 1..10 per decile
     incomes = np.arange(1, 11)
     cum = np.cumsum(incomes)
     assert gini_from_percentiles(cum, pct) == pytest.approx(gini(incomes), abs=0.02)
     # cumulative values and shares give the same result
     assert gini_from_percentiles(cum, pct) == pytest.approx(
-        gini_from_percentiles(100 * cum / cum[-1], pct, values_are_shares=True))
+        gini_from_percentiles(100 * cum / cum[-1], pct, values_are_shares=True)
+    )
 
 
 ###################
@@ -109,7 +127,10 @@ def test_log_and_z_transform():
     z = z_transform([1.0, 2, 3, 4, 10])
     assert z.mean() == pytest.approx(0, abs=1e-12) and z.std() == pytest.approx(1)
     z, m, sd = z_transform([2.0, 4, 6], return_params=True)
-    assert (m, sd) == (4.0, pytest.approx(np.sqrt(8 / 3))) and z.tolist() == pytest.approx([-1.2247, 0, 1.2247], abs=1e-4)
+    assert (m, sd) == (
+        4.0,
+        pytest.approx(np.sqrt(8 / 3)),
+    ) and z.tolist() == pytest.approx([-1.2247, 0, 1.2247], abs=1e-4)
     # NaNs are ignored for mean and sd and stay NaN
     z = z_transform([1.0, np.nan, 3.0])
     assert z[0] == pytest.approx(-1) and z[2] == pytest.approx(1) and np.isnan(z[1])
@@ -126,8 +147,16 @@ def test_log_and_z_transform():
 
 # Fleiss (1971), as used in the Wikipedia article: 10 items, 14 raters, 5 categories; kappa = 0.210
 FLEISS_COUNTS = [
-    [0, 0, 0, 0, 14], [0, 2, 6, 4, 2], [0, 0, 3, 5, 6], [0, 3, 9, 2, 0], [2, 2, 8, 1, 1],
-    [7, 7, 0, 0, 0], [3, 2, 6, 3, 0], [2, 5, 3, 2, 2], [6, 5, 2, 1, 0], [0, 2, 2, 3, 7],
+    [0, 0, 0, 0, 14],
+    [0, 2, 6, 4, 2],
+    [0, 0, 3, 5, 6],
+    [0, 3, 9, 2, 0],
+    [2, 2, 8, 1, 1],
+    [7, 7, 0, 0, 0],
+    [3, 2, 6, 3, 0],
+    [2, 5, 3, 2, 2],
+    [6, 5, 2, 1, 0],
+    [0, 2, 2, 3, 7],
 ]
 
 
@@ -140,7 +169,9 @@ def test_fleiss_kappa_reference_values():
     df = counts_to_ratings(FLEISS_COUNTS)
     kappa, z, p = fleiss_kappa(df)
     assert kappa == pytest.approx(0.210, abs=5e-4)
-    assert kappa == pytest.approx(sm_fleiss_kappa(np.array(FLEISS_COUNTS)), abs=1e-12)  # statsmodels
+    assert kappa == pytest.approx(
+        sm_fleiss_kappa(np.array(FLEISS_COUNTS)), abs=1e-12
+    )  # statsmodels
     assert p == pytest.approx(2 * norm.sf(abs(z))) and z > 0
     assert fleiss_kappa(df, method="one-tailed")[2] == pytest.approx(p / 2)
     # perfect agreement
@@ -160,9 +191,13 @@ def test_fleiss_kappa_reference_values():
 def test_krippendorffs_alpha():
     krippendorff = pytest.importorskip("krippendorff")
     df = counts_to_ratings(FLEISS_COUNTS)
-    alpha, z, p = krippendorffs_alpha(df, measurement="nominal", n_iter_for_bootstrap=50)
+    alpha, z, p = krippendorffs_alpha(
+        df, measurement="nominal", n_iter_for_bootstrap=50
+    )
     # same value as the reference implementation applied to the raw (rater x item) data
-    ref = krippendorff.alpha(reliability_data=df.to_numpy().T, level_of_measurement="nominal")
+    ref = krippendorff.alpha(
+        reliability_data=df.to_numpy().T, level_of_measurement="nominal"
+    )
     assert alpha == pytest.approx(ref, abs=1e-9)
     assert 0 < alpha < 0.4 and z > 0 and 0 <= p <= 1
     # reproducible (seeded bootstrap) and optional bootstrap
@@ -171,7 +206,9 @@ def test_krippendorffs_alpha():
     a2, z2, p2 = krippendorffs_alpha(df, return_bootstraped_z_score=False)
     assert a2 == pytest.approx(alpha) and np.isnan(z2) and np.isnan(p2)
     perfect = pd.DataFrame({"a": list("xyzx"), "b": list("xyzx")})
-    assert krippendorffs_alpha(perfect, return_bootstraped_z_score=False)[0] == pytest.approx(1.0)
+    assert krippendorffs_alpha(perfect, return_bootstraped_z_score=False)[
+        0
+    ] == pytest.approx(1.0)
 
 
 ###########################
@@ -186,7 +223,9 @@ def test_average_correlations():
     z_bar = np.sum(w * np.arctanh(r)) / w.sum()
     se = 1 / np.sqrt(w.sum())
     assert res["z_mean"] == pytest.approx(z_bar) and res["se"] == pytest.approx(se)
-    assert res["r_mean"] == pytest.approx(np.tanh(z_bar)) and res["z"] == pytest.approx(z_bar / se)
+    assert res["r_mean"] == pytest.approx(np.tanh(z_bar)) and res["z"] == pytest.approx(
+        z_bar / se
+    )
     assert res["p-value"] == pytest.approx(2 * norm.sf(abs(z_bar / se)))
     assert res["cil"] == pytest.approx(np.tanh(z_bar - 1.959964 * se), abs=1e-6)
     assert res["cir"] == pytest.approx(np.tanh(z_bar + 1.959964 * se), abs=1e-6)
@@ -197,7 +236,9 @@ def test_average_correlations():
     one = average_correlations([0.4], [103])
     assert one["r_mean"] == pytest.approx(0.4) and one["se"] == pytest.approx(0.1)
     # one-tailed p is half of the two-tailed p; wider interval for a smaller alpha
-    assert average_correlations(r, n, method="one-tailed")["p-value"] == pytest.approx(res["p-value"] / 2)
+    assert average_correlations(r, n, method="one-tailed")["p-value"] == pytest.approx(
+        res["p-value"] / 2
+    )
     narrow = average_correlations(r, n, alpha=0.2)
     assert narrow["cil"] > res["cil"] and narrow["cir"] < res["cir"]
 
@@ -207,10 +248,14 @@ def test_average_morans_i():
     res = average_morans_i(i, var)
     w = 1 / np.array(var)
     mean = np.sum(w * i) / w.sum()
-    assert res["i_mean"] == pytest.approx(mean) and res["se"] == pytest.approx(np.sqrt(1 / w.sum()))
+    assert res["i_mean"] == pytest.approx(mean) and res["se"] == pytest.approx(
+        np.sqrt(1 / w.sum())
+    )
     assert res["z"] == pytest.approx(mean / res["se"])
     assert res["p-value"] == pytest.approx(2 * norm.sf(abs(res["z"])))
-    assert average_morans_i(i, var, method="one-tailed")["p-value"] == pytest.approx(res["p-value"] / 2)
+    assert average_morans_i(i, var, method="one-tailed")["p-value"] == pytest.approx(
+        res["p-value"] / 2
+    )
     # equal variances: plain mean; one value: its own z
     assert average_morans_i([0.1, 0.3], [0.04, 0.04])["i_mean"] == pytest.approx(0.2)
     assert average_morans_i([0.2], [0.01])["z"] == pytest.approx(2.0)
@@ -252,13 +297,20 @@ def test_dependent_correlations_steiger():
     t_sw, p_sw = dependent_correlations(0.2, 0.7, 0.4, n=200)
     assert t_sw == pytest.approx(-t) and p_sw == pytest.approx(p)
     # one-tailed is half of the two-tailed p
-    assert dependent_correlations(0.7, 0.2, 0.4, n=200, twotailed=False)[1] == pytest.approx(p / 2)
+    assert dependent_correlations(0.7, 0.2, 0.4, n=200, twotailed=False)[
+        1
+    ] == pytest.approx(p / 2)
     # more data -> stronger evidence
-    assert dependent_correlations(0.5, 0.4, 0.3, n=1000)[1] < dependent_correlations(0.5, 0.4, 0.3, n=100)[1]
+    assert (
+        dependent_correlations(0.5, 0.4, 0.3, n=1000)[1]
+        < dependent_correlations(0.5, 0.4, 0.3, n=100)[1]
+    )
 
     # Monte Carlo: under H0 (equal true correlations) the test rejects in about 5% of the samples
     rng = np.random.default_rng(42)
-    cov = np.array([[1, 0.3, 0.3], [0.3, 1, 0.5], [0.3, 0.5, 1]])  # x with y and z correlate .3
+    cov = np.array(
+        [[1, 0.3, 0.3], [0.3, 1, 0.5], [0.3, 0.5, 1]]
+    )  # x with y and z correlate .3
     rejections = 0
     reps = 600
     for _ in range(reps):
@@ -289,9 +341,13 @@ def test_independent_correlations_fisher():
     assert z == pytest.approx(expected) and p == pytest.approx(2 * norm.sf(expected))
     # different sample sizes; n2 defaults to n1; one-tailed
     z2, _ = independent_correlations(0.5, 0.3, 103, 53)
-    assert z2 == pytest.approx(abs(np.arctanh(0.5) - np.arctanh(0.3)) / np.sqrt(1 / 100 + 1 / 50))
+    assert z2 == pytest.approx(
+        abs(np.arctanh(0.5) - np.arctanh(0.3)) / np.sqrt(1 / 100 + 1 / 50)
+    )
     assert independent_correlations(0.5, 0.3, 103, 103)[0] == pytest.approx(z)
-    assert independent_correlations(0.5, 0.3, 103, twotailed=False)[1] == pytest.approx(p / 2)
+    assert independent_correlations(0.5, 0.3, 103, twotailed=False)[1] == pytest.approx(
+        p / 2
+    )
     # symmetric, and equal correlations give p = 1
     assert independent_correlations(0.3, 0.5, 103)[0] == pytest.approx(z)
     assert independent_correlations(0.4, 0.4, 50)[1] == pytest.approx(1)
@@ -301,7 +357,12 @@ def test_independent_correlations_fisher():
     cov = np.array([[1, 0.4], [0.4, 1]])
     rejections, reps, n = 0, 600, 60
     for _ in range(reps):
-        r = [np.corrcoef(rng.multivariate_normal([0, 0], cov, size=n), rowvar=False)[0, 1] for _ in range(2)]
+        r = [
+            np.corrcoef(rng.multivariate_normal([0, 0], cov, size=n), rowvar=False)[
+                0, 1
+            ]
+            for _ in range(2)
+        ]
         rejections += independent_correlations(r[0], r[1], n)[1] < 0.05
     assert 0.025 < rejections / reps < 0.085
 
@@ -331,33 +392,51 @@ def test_htmt_ratio():
     corr[:3, :3] = 0.6
     corr[3:, 3:] = 0.5
     np.fill_diagonal(corr, 1)
-    data = pd.DataFrame(correlated_sample(corr, 400, rng), columns=["a1", "a2", "a3", "b1", "b2"])
-    assert htmt_ratio(data, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson") == pytest.approx(
-        0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
+    data = pd.DataFrame(
+        correlated_sample(corr, 400, rng), columns=["a1", "a2", "a3", "b1", "b2"]
+    )
+    assert htmt_ratio(
+        data, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"
+    ) == pytest.approx(0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
     # item order does not matter; constructs are interchangeable
-    assert htmt_ratio(data, ["a3", "a1", "a2"], ["b2", "b1"], method="pearson") == pytest.approx(
-        htmt_ratio(data, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"))
-    assert htmt_ratio(data, ["b1", "b2"], ["a1", "a2", "a3"], method="pearson") == pytest.approx(
-        0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
+    assert htmt_ratio(
+        data, ["a3", "a1", "a2"], ["b2", "b1"], method="pearson"
+    ) == pytest.approx(
+        htmt_ratio(data, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson")
+    )
+    assert htmt_ratio(
+        data, ["b1", "b2"], ["a1", "a2", "a3"], method="pearson"
+    ) == pytest.approx(0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
     # signs do not matter (absolute correlations are used)
     flipped = data.assign(a1=-data["a1"], b2=-data["b2"])
-    assert htmt_ratio(flipped, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson") == pytest.approx(
-        0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
+    assert htmt_ratio(
+        flipped, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"
+    ) == pytest.approx(0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
     # Spearman is invariant to monotone transformations, Pearson is not
     mono = np.exp(data)
     sp = htmt_ratio(data, ["a1", "a2", "a3"], ["b1", "b2"], method="spearman")
-    assert htmt_ratio(mono, ["a1", "a2", "a3"], ["b1", "b2"], method="spearman") == pytest.approx(sp)
-    assert htmt_ratio(mono, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson") != pytest.approx(
-        htmt_ratio(data, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"), abs=1e-3)
+    assert htmt_ratio(
+        mono, ["a1", "a2", "a3"], ["b1", "b2"], method="spearman"
+    ) == pytest.approx(sp)
+    assert htmt_ratio(
+        mono, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"
+    ) != pytest.approx(
+        htmt_ratio(data, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"), abs=1e-3
+    )
     # rows with missing values are dropped
     with_na = pd.concat([data, data.iloc[:5].assign(a1=np.nan)], ignore_index=True)
-    assert htmt_ratio(with_na, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson") == pytest.approx(
-        0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
+    assert htmt_ratio(
+        with_na, ["a1", "a2", "a3"], ["b1", "b2"], method="pearson"
+    ) == pytest.approx(0.3 / np.sqrt(0.6 * 0.5), abs=1e-9)
     # discriminant validity: indistinguishable constructs have HTMT close to 1
     same = np.full((4, 4), 0.5)
     np.fill_diagonal(same, 1)
-    d2 = pd.DataFrame(correlated_sample(same, 400, rng), columns=["a1", "a2", "b1", "b2"])
-    assert htmt_ratio(d2, ["a1", "a2"], ["b1", "b2"], method="pearson") == pytest.approx(1.0, abs=1e-9)
+    d2 = pd.DataFrame(
+        correlated_sample(same, 400, rng), columns=["a1", "a2", "b1", "b2"]
+    )
+    assert htmt_ratio(
+        d2, ["a1", "a2"], ["b1", "b2"], method="pearson"
+    ) == pytest.approx(1.0, abs=1e-9)
 
 
 if __name__ == "__main__":

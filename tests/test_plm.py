@@ -38,9 +38,16 @@ def simulate(rho=0.4, correlated=False, seed=7):
     W = w.sparse.toarray()
     a = rng.normal(size=N)  # entity component of x1: gives x1 between-entity variation
     x1, x2 = a + rng.normal(size=(T, N)), rng.normal(size=(T, N))
-    mu = rng.normal(size=N) + (2.0 * a if correlated else 0.0)  # effects correlated with x1 or not
+    mu = rng.normal(size=N) + (
+        2.0 * a if correlated else 0.0
+    )  # effects correlated with x1 or not
     y = np.vstack(
-        [np.linalg.solve(np.eye(N) - rho * W, x1[t] - 0.5 * x2[t] + mu + rng.normal(size=N)) for t in range(T)]
+        [
+            np.linalg.solve(
+                np.eye(N) - rho * W, x1[t] - 0.5 * x2[t] + mu + rng.normal(size=N)
+            )
+            for t in range(T)
+        ]
     )
     df = pd.DataFrame(
         {
@@ -71,7 +78,16 @@ def fit(df, w=None, model="fe", quiet=True, **kwargs):
     with warnings.catch_warnings():
         if quiet:
             warnings.simplefilter("ignore")
-        return plm(df, "y", ["x1", "x2"], w=w, entity="county", time="year", model=model, **kwargs)
+        return plm(
+            df,
+            "y",
+            ["x1", "x2"],
+            w=w,
+            entity="county",
+            time="year",
+            model=model,
+            **kwargs,
+        )
 
 
 def coef(r):
@@ -84,7 +100,9 @@ def within_ols(panel, idx=None):
     ent = panel.ent
     cnt = np.bincount(ent)
     ym = np.bincount(ent, weights=y) / cnt
-    xm = np.column_stack([np.bincount(ent, weights=x[:, j]) / cnt for j in range(x.shape[1])])
+    xm = np.column_stack(
+        [np.bincount(ent, weights=x[:, j]) / cnt for j in range(x.shape[1])]
+    )
     beta = np.linalg.lstsq(x - xm[ent], y - ym[ent], rcond=None)[0]
     return beta, ym - xm @ beta
 
@@ -97,7 +115,14 @@ def within_ols(panel, idx=None):
 def test_make_panel_layout_is_independent_of_row_order(sim):
     df, w = sim
     shuffled = make_panel(df, "y", ["x1", "x2"], entity="county", time="year", w=w)
-    ordered = make_panel(df.sort_values(["year", "county"]), "y", ["x1", "x2"], entity="county", time="year", w=w)
+    ordered = make_panel(
+        df.sort_values(["year", "county"]),
+        "y",
+        ["x1", "x2"],
+        entity="county",
+        time="year",
+        w=w,
+    )
     pd.testing.assert_series_equal(shuffled.y, ordered.y)
     pd.testing.assert_frame_equal(shuffled.x, ordered.x)
     assert isinstance(shuffled, PanelData) and (shuffled.N, shuffled.T) == (N, T)
@@ -107,8 +132,12 @@ def test_make_panel_layout_is_independent_of_row_order(sim):
     assert shuffled.entities == list(w.id_order)
     # values end up at the right place
     row = df.iloc[0]
-    k = int(np.flatnonzero((shuffled.y.index.get_level_values(0) == row.county)
-                           & (shuffled.y.index.get_level_values(1) == row.year))[0])
+    k = int(
+        np.flatnonzero(
+            (shuffled.y.index.get_level_values(0) == row.county)
+            & (shuffled.y.index.get_level_values(1) == row.year)
+        )[0]
+    )
     assert shuffled.y.iloc[k] == row.y and shuffled.x["x1"].iloc[k] == row.x1
 
 
@@ -134,11 +163,20 @@ def test_make_panel_weights_alignment(sim):
     labelled = df.assign(county="c" + df["county"].astype(str))
     with pytest.raises(ValueError, match="w_ids"):
         make_panel(labelled, "y", ["x1"], entity="county", time="year", w=w)
-    p = make_panel(labelled, "y", ["x1"], entity="county", time="year", w=w,
-                   w_ids=[f"c{i}" for i in w.id_order])
+    p = make_panel(
+        labelled,
+        "y",
+        ["x1"],
+        entity="county",
+        time="year",
+        w=w,
+        w_ids=[f"c{i}" for i in w.id_order],
+    )
     assert p.entities == [f"c{i}" for i in range(N)]
     with pytest.raises(ValueError, match="labels"):
-        make_panel(labelled, "y", ["x1"], entity="county", time="year", w=w, w_ids=["a"])
+        make_panel(
+            labelled, "y", ["x1"], entity="county", time="year", w=w, w_ids=["a"]
+        )
 
 
 def test_make_panel_balance_and_duplicates(sim):
@@ -147,7 +185,9 @@ def test_make_panel_balance_and_duplicates(sim):
     with pytest.raises(ValueError, match="not balanced"):
         make_panel(unbalanced, "y", ["x1"], entity="county", time="year", w=w)
     with pytest.warns(UserWarning) as rec:
-        p = make_panel(unbalanced, "y", ["x1"], entity="county", time="year", w=w, balance="drop")
+        p = make_panel(
+            unbalanced, "y", ["x1"], entity="county", time="year", w=w, balance="drop"
+        )
     assert any("Dropped 1 entities" in str(r.message) for r in rec)
     assert any("restricted" in str(r.message) for r in rec)
     assert p.N == N - 1 and p.w.n == N - 1 and 5 not in p.entities
@@ -155,11 +195,16 @@ def test_make_panel_balance_and_duplicates(sim):
     # NA rows are removed like missing rows
     na = df.copy()
     na.loc[0, "x1"] = np.nan
-    assert make_panel(na, "y", ["x1"], entity="county", time="year", balance="drop").N == N - 1
+    assert (
+        make_panel(na, "y", ["x1"], entity="county", time="year", balance="drop").N
+        == N - 1
+    )
     with pytest.raises(ValueError, match="not balanced"):
         make_panel(na, "y", ["x1"], entity="county", time="year")
     with pytest.raises(ValueError, match="more than once"):
-        make_panel(pd.concat([df, df.iloc[:1]]), "y", ["x1"], entity="county", time="year")
+        make_panel(
+            pd.concat([df, df.iloc[:1]]), "y", ["x1"], entity="county", time="year"
+        )
     with pytest.raises(ValueError, match="balance"):
         make_panel(df, "y", ["x1"], entity="county", time="year", balance="x")
 
@@ -191,7 +236,11 @@ def test_fe_and_pooled_match_manual_estimators(sim, panel):
         np.testing.assert_allclose(coef(r_fe)[["x1", "x2"]].to_numpy(), beta, rtol=1e-6)
         c = coef(r_p)
         np.testing.assert_allclose([c.iloc[0], c["x1"], c["x2"]], pooled, rtol=1e-6)
-        assert m_fe["backend"] == backend and m_fe["model"] == "fe" and m_p["model"] == "pooled"
+        assert (
+            m_fe["backend"] == backend
+            and m_fe["model"] == "fe"
+            and m_p["model"] == "pooled"
+        )
 
 
 @needs_lm
@@ -202,7 +251,15 @@ def test_backends_report_the_same_metrics(sim):
     for a, b in ((a_fe, b_fe), (a_p, b_p)):
         for key in ("r_sq", "r_sq_adj", "f_stat", "f_pvalue", "mae", "mad"):
             assert a[key] == pytest.approx(b[key], rel=1e-6), key
-        for key in ("df_model", "df_resid", "n_obs", "n_entities", "n_periods", "n_params", "r_sq_type"):
+        for key in (
+            "df_model",
+            "df_resid",
+            "n_obs",
+            "n_entities",
+            "n_periods",
+            "n_params",
+            "r_sq_type",
+        ):
             assert a[key] == b[key], key
     assert (a_fe["n_obs"], a_fe["n_entities"], a_fe["n_periods"]) == (N * T, N, T)
     # FE: the N absorbed effects are subtracted from the residual degrees of freedom
@@ -213,7 +270,11 @@ def test_backends_report_the_same_metrics(sim):
     beta, _ = within_ols(p)
     y_dm = p.y.to_numpy() - (np.bincount(p.ent, weights=p.y.to_numpy()) / T)[p.ent]
     x_dm = p.x.to_numpy() - np.column_stack(
-        [(np.bincount(p.ent, weights=p.x.to_numpy()[:, j]) / T)[p.ent] for j in range(2)])
+        [
+            (np.bincount(p.ent, weights=p.x.to_numpy()[:, j]) / T)[p.ent]
+            for j in range(2)
+        ]
+    )
     resid = y_dm - x_dm @ beta
     assert a_fe["r_sq"] == pytest.approx(1 - resid @ resid / (y_dm @ y_dm))
     assert a_fe["mae"] == pytest.approx(np.mean(np.abs(resid)))
@@ -230,9 +291,20 @@ def test_nonspatial_models_work_without_weights(sim):
 
 def test_spatial_models(sim):
     df, w = sim
-    results, metrics = fit(df, w, ["slm_fe", "slm_re", "sem_fe", "sem_pooled", "sem_pooled_gm", "sem_re_gm"])
+    results, metrics = fit(
+        df,
+        w,
+        ["slm_fe", "slm_re", "sem_fe", "sem_pooled", "sem_pooled_gm", "sem_re_gm"],
+    )
     names = [m["model"] for m in metrics]
-    assert names == ["slm_fe", "slm_re", "sem_fe", "sem_pooled", "sem_pooled_gm", "sem_re_gm"]
+    assert names == [
+        "slm_fe",
+        "slm_re",
+        "sem_fe",
+        "sem_pooled",
+        "sem_pooled_gm",
+        "sem_re_gm",
+    ]
     # spatial lag: rho is recovered (true value 0.4) and is not counted as a slope
     for r, m in zip(results[:2], metrics[:2]):
         assert abs(coef(r)["rho"] - 0.4) < 0.15
@@ -255,9 +327,12 @@ def test_slx_lags_add_lagged_predictors(sim):
         fit(df, w, "fe", backend="linearmodels", slx_lags=1)
 
 
-@pytest.mark.xfail(raises=TypeError, strict=False,
-                   reason="spreg 1.9.0 ML_ErrorRE fails with complex numbers with older numpy/scipy "
-                          "(works with numpy 2.5 / scipy 1.18); use sem_re_gm")
+@pytest.mark.xfail(
+    raises=TypeError,
+    strict=False,
+    reason="spreg 1.9.0 ML_ErrorRE fails with complex numbers with older numpy/scipy "
+    "(works with numpy 2.5 / scipy 1.18); use sem_re_gm",
+)
 def test_sem_re_ml_upstream_bug(sim):
     df, w = sim
     fit(df, w, "sem_re")
@@ -267,19 +342,34 @@ def test_sem_re_ml_upstream_bug(sim):
 def test_linearmodels_options(sim):
     df, w = sim
     (a,), _ = fit(df, w, "fe", backend="linearmodels")
-    (b,), (mb,) = fit(df, w, "fe", backend="linearmodels",
-                      fe_fit_cov_type="clustered", fe_fit_cluster_entity=True)
+    (b,), (mb,) = fit(
+        df,
+        w,
+        "fe",
+        backend="linearmodels",
+        fe_fit_cov_type="clustered",
+        fe_fit_cluster_entity=True,
+    )
     (c,), _ = fit(df, w, "fe", backend="linearmodels", fe_model_time_effects=True)
     np.testing.assert_allclose(coef(a).to_numpy(), coef(b).to_numpy())
     assert not np.allclose(a.std_errors.to_numpy(), b.std_errors.to_numpy())
-    assert b.std_errors.tolist() == plm_report([b], [mb], decimal=None, add_stars=False)[0]["se"].tolist()
-    assert mb["f_stat"] == pytest.approx(float(b.f_statistic_robust.stat))  # robust F for robust SEs
-    assert not np.allclose(coef(a).to_numpy(), coef(c).to_numpy())  # two-way effects change the estimates
+    assert (
+        b.std_errors.tolist()
+        == plm_report([b], [mb], decimal=None, add_stars=False)[0]["se"].tolist()
+    )
+    assert mb["f_stat"] == pytest.approx(
+        float(b.f_statistic_robust.stat)
+    )  # robust F for robust SEs
+    assert not np.allclose(
+        coef(a).to_numpy(), coef(c).to_numpy()
+    )  # two-way effects change the estimates
 
 
 def test_errors(sim):
     df, w = sim
-    with pytest.raises(NotImplementedError, match="spatial models need backend='spreg'"):
+    with pytest.raises(
+        NotImplementedError, match="spatial models need backend='spreg'"
+    ):
         fit(df, w, "slm_fe", backend="linearmodels")
     with pytest.raises(NotImplementedError, match="not implemented"):
         fit(df, w, "xyz")
@@ -293,11 +383,29 @@ def test_errors(sim):
 
 def test_verbose_output(sim, capsys):
     df, w = sim
-    plm(df, "y", ["x1", "x2"], w=w, entity="county", time="year", model="fe", verbose=True)
+    plm(
+        df,
+        "y",
+        ["x1", "x2"],
+        w=w,
+        entity="county",
+        time="year",
+        model="fe",
+        verbose=True,
+    )
     out = capsys.readouterr().out
     assert f"N={N} entities, T={T} periods, N*T={N * T}" in out
     assert "model: fe (spreg)" in out
-    plm(df, "y", ["x1", "x2"], w=w, entity="county", time="year", model="fe", verbose=False)
+    plm(
+        df,
+        "y",
+        ["x1", "x2"],
+        w=w,
+        entity="county",
+        time="year",
+        model="fe",
+        verbose=False,
+    )
     assert capsys.readouterr().out == ""
 
 
@@ -317,8 +425,12 @@ def test_report(sim):
         reports[backend] = (plm_report(r, m), m)
     for backend, (tables, metrics) in reports.items():
         for t, m in zip(tables, metrics):
-            assert {"coef", "se", "p-value", "cil", "cir", "sig", "model"} <= set(t.columns)
-            assert isinstance(t.iloc[0]["model"], str) and t["model"].iloc[1:].isna().all()
+            assert {"coef", "se", "p-value", "cil", "cir", "sig", "model"} <= set(
+                t.columns
+            )
+            assert (
+                isinstance(t.iloc[0]["model"], str) and t["model"].iloc[1:].isna().all()
+            )
             assert f"N = {N * T}, n = {N}, T = {T}" in t.iloc[0]["model"]
             assert t.loc["x1", "p-value"] == "<.001" and t.loc["x1", "sig"] == "***"
             assert (t["cil"] <= t["coef"]).all() and (t["coef"] <= t["cir"]).all()
@@ -326,22 +438,43 @@ def test_report(sim):
                 assert "Intercept" not in t.index  # no constant in fixed-effects models
                 assert t.iloc[0]["model"].startswith("R²within = .")
             elif m["model"] == "pooled":
-                assert "Intercept" in t.index and "const" not in t.index and "CONSTANT" not in t.index
+                assert (
+                    "Intercept" in t.index
+                    and "const" not in t.index
+                    and "CONSTANT" not in t.index
+                )
                 assert t.iloc[0]["model"].startswith("R² = .")
     assert reports["linearmodels"][0][2].iloc[0]["model"].startswith("R²overall")
     slm_table = reports["spreg"][0][3]
-    assert "rho" in slm_table.index and slm_table.iloc[0]["model"].startswith("R²pseudo")
+    assert "rho" in slm_table.index and slm_table.iloc[0]["model"].startswith(
+        "R²pseudo"
+    )
     assert "F(" not in slm_table.iloc[0]["model"]
     # the FE summary is identical for both backends up to AIC/BIC/LL, which linearmodels lacks
     a, b = (reports[k][0][1].iloc[0]["model"] for k in ("spreg", "linearmodels"))
     assert a.split(", AIC")[0] == b.split(", LL")[0]
     # options
     r, m = fit(df, w, "fe")
-    t = plm_report(r, m, format_pval=False, add_stars=False, decimal=2, add_aic=False, add_bic=False,
-                   add_llf=False, add_mae=False, add_mad=False, add_panel_dims=False)[0]
+    t = plm_report(
+        r,
+        m,
+        format_pval=False,
+        add_stars=False,
+        decimal=2,
+        add_aic=False,
+        add_bic=False,
+        add_llf=False,
+        add_mae=False,
+        add_mad=False,
+        add_panel_dims=False,
+    )[0]
     assert "sig" not in t.columns and isinstance(t.loc["x1", "p-value"], float)
     summary = t.iloc[0]["model"]
-    assert summary.startswith("R²within = .") and ", R²adj = ." in summary and "F(2, 178) = " in summary
+    assert (
+        summary.startswith("R²within = .")
+        and ", R²adj = ." in summary
+        and "F(2, 178) = " in summary
+    )
     assert summary.endswith(f"N = {N * T}")
     assert not any(s in summary for s in ("AIC", "BIC", "LL", "MAE", "MAD", ", n = "))
     # results without metrics can still be reported
@@ -367,7 +500,11 @@ def test_correlated_effects_are_detected(backend):
         warnings.simplefilter("always")
         h, k, hp = hausman(fe, re)
     assert k == 2
-    assert (np.isnan(h) and np.isnan(hp) and any("positive definite" in str(x.message) for x in rec)) or hp < 0.05
+    assert (
+        np.isnan(h)
+        and np.isnan(hp)
+        and any("positive definite" in str(x.message) for x in rec)
+    ) or hp < 0.05
     # uncorrelated effects: neither test rejects
     (fe, re), _ = fit(uncorr, w, ["fe", "re"], backend=backend)
     assert mundlak(re)[2] > 0.05
@@ -422,14 +559,24 @@ def test_plm_tests_table(sim):
     r_s, _ = fit(df, w, ["pooled", "fe", "re"])
     r_l, _ = fit(df, w, ["pooled", "fe", "re"], backend="linearmodels")
     ts, tl = plm_tests(r_s), plm_tests(r_l)
-    assert list(ts.columns) == ["test", "model", "statistic", "df", "df_denom", "p-value", "report"]
+    assert list(ts.columns) == [
+        "test",
+        "model",
+        "statistic",
+        "df",
+        "df_denom",
+        "p-value",
+        "report",
+    ]
     # F test of entity effects: spreg (computed here) equals linearmodels (f_pooled)
     fs = ts[ts.test == "F test of entity effects"].iloc[0]
     fl = tl[tl.test == "F test of entity effects"].iloc[0]
     assert fs.statistic == pytest.approx(fl.statistic, rel=1e-6)
     assert (fs.df, fs.df_denom) == (N - 1, N * T - N - 2) == (fl.df, fl.df_denom)
     assert fs.report.startswith(f"F({N - 1}, {N * T - N - 2}) = ")
-    assert (ts.test == "Hausman (FE vs RE)").sum() == 1 and (tl.test == "Hausman (FE vs RE)").sum() == 1
+    assert (ts.test == "Hausman (FE vs RE)").sum() == 1 and (
+        tl.test == "Hausman (FE vs RE)"
+    ).sum() == 1
     for t_, r_ in ((ts, r_s), (tl, r_l)):
         row = t_[t_.test == "Mundlak (correlated effects)"]
         assert len(row) == 1 and row.iloc[0].model == "re" and row.iloc[0].df == 2
@@ -437,7 +584,10 @@ def test_plm_tests_table(sim):
     # LM tests need spreg results and weights
     assert "LM lag" in set(ts.test) and "LM lag" not in set(tl.test)
     lm_rows = ts[ts.test.str.startswith(("LM", "Robust"))]
-    assert len(lm_rows) == 7 and ((lm_rows["p-value"] >= 0) & (lm_rows["p-value"] <= 1)).all()
+    assert (
+        len(lm_rows) == 7
+        and ((lm_rows["p-value"] >= 0) & (lm_rows["p-value"] <= 1)).all()
+    )
     # strong spatial dependence in the data (rho = .4) and entity effects are detected
     assert ts.set_index("test").loc["LM lag", "p-value"] < 0.05
     assert ts.set_index("test").loc["LM Marginal RE (LM1)", "p-value"] < 0.001
@@ -463,7 +613,11 @@ def manual_loo(panel, group, model, exclude_neighbors=False):
     groups = panel.N if group == "entity" else panel.T
     for g in range(groups):
         if group == "entity":
-            drop = {g} | ({int(panel.w.id2i[j]) for j in panel.w.neighbors[g]} if exclude_neighbors else set())
+            drop = {g} | (
+                {int(panel.w.id2i[j]) for j in panel.w.neighbors[g]}
+                if exclude_neighbors
+                else set()
+            )
             train, test = ~np.isin(panel.ent, list(drop)), panel.ent == g
         else:
             train, test = panel.tim != g, panel.tim == g
@@ -475,25 +629,34 @@ def manual_loo(panel, group, model, exclude_neighbors=False):
             ent = panel.ent[train]
             cnt = np.bincount(ent)
             ym = np.bincount(ent, weights=y[train]) / cnt
-            xm = np.column_stack([np.bincount(ent, weights=x[train][:, j]) / cnt for j in range(2)])
+            xm = np.column_stack(
+                [np.bincount(ent, weights=x[train][:, j]) / cnt for j in range(2)]
+            )
             b = np.linalg.lstsq(x[train] - xm[ent], y[train] - ym[ent], rcond=None)[0]
             pred = x[test] @ b + (ym - xm @ b)[panel.ent[test]]
         err.append((np.flatnonzero(test), y[test] - pred))
     rows = np.concatenate([e[0] for e in err])
     e = np.concatenate([e[1] for e in err])
     sst = np.sum((y[rows] - y.mean()) ** 2)
-    return {"pred_loo_r_sq": 1 - np.sum(e**2) / sst, "pred_loo_mae": np.mean(np.abs(e)),
-            "pred_loo_mad": np.median(np.abs(e - np.median(e)))}
+    return {
+        "pred_loo_r_sq": 1 - np.sum(e**2) / sst,
+        "pred_loo_mae": np.mean(np.abs(e)),
+        "pred_loo_mad": np.median(np.abs(e - np.median(e))),
+    }
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("group,model", [("time", "pooled"), ("time", "fe"), ("entity", "pooled")])
+@pytest.mark.parametrize(
+    "group,model", [("time", "pooled"), ("time", "fe"), ("entity", "pooled")]
+)
 def test_pred_metrics_match_manual(sim, panel, backend, group, model):
     df, w = sim
     _, (m,) = fit(df, w, model, backend=backend, pred_metrics=True, pred_group=group)
     for k, v in manual_loo(panel, group, model).items():
         assert m[k] == pytest.approx(v, rel=1e-6), k
-    assert m["pred_loo_r_sq"] < m["r_sq"] or model == "fe"  # out of sample is worse than in sample
+    assert (
+        m["pred_loo_r_sq"] < m["r_sq"] or model == "fe"
+    )  # out of sample is worse than in sample
 
 
 def test_pred_metrics_exclude_neighbors_creates_islands():
@@ -502,12 +665,28 @@ def test_pred_metrics_exclude_neighbors_creates_islands():
     n, t = 6, 5
     star = libpysal.weights.W({0: [1, 2, 3, 4, 5], **{i: [0] for i in range(1, n)}})
     star.transform = "r"
-    d = pd.DataFrame({"county": np.tile(np.arange(n), t), "year": np.repeat(np.arange(t), n),
-                      "x1": rng.normal(size=n * t), "x2": rng.normal(size=n * t)})
+    d = pd.DataFrame(
+        {
+            "county": np.tile(np.arange(n), t),
+            "year": np.repeat(np.arange(t), n),
+            "x1": rng.normal(size=n * t),
+            "x2": rng.normal(size=n * t),
+        }
+    )
     d["y"] = d.x1 - d.x2 + rng.normal(size=n * t)
     with pytest.warns(UserWarning, match="islands"):
-        plm(d, "y", ["x1", "x2"], w=star, entity="county", time="year", model="pooled", verbose=False,
-            pred_metrics=True, pred_exclude_neighbors=True)
+        plm(
+            d,
+            "y",
+            ["x1", "x2"],
+            w=star,
+            entity="county",
+            time="year",
+            model="pooled",
+            verbose=False,
+            pred_metrics=True,
+            pred_exclude_neighbors=True,
+        )
 
 
 def test_pred_metrics_exclude_neighbors(sim, panel):
@@ -518,7 +697,14 @@ def test_pred_metrics_exclude_neighbors(sim, panel):
     _, (plain,) = fit(df, w, "pooled", pred_metrics=True)
     assert plain["pred_loo_mae"] != m["pred_loo_mae"]
     with pytest.raises(ValueError, match="group='entity'"):
-        fit(df, w, "pooled", pred_metrics=True, pred_group="time", pred_exclude_neighbors=True)
+        fit(
+            df,
+            w,
+            "pooled",
+            pred_metrics=True,
+            pred_group="time",
+            pred_exclude_neighbors=True,
+        )
     with pytest.raises(ValueError, match="group='entity'"):
         fit(df, None, "pooled", pred_metrics=True, pred_exclude_neighbors=True)
 
@@ -526,7 +712,14 @@ def test_pred_metrics_exclude_neighbors(sim, panel):
 def test_pred_metrics_fe_cannot_predict_new_entities(sim):
     df, w = sim
     with pytest.warns(UserWarning, match="cannot predict new entities"):
-        _, ms = fit(df, w, ["fe", "pooled", "slm_fe"], quiet=False, pred_metrics=True, pred_group="entity")
+        _, ms = fit(
+            df,
+            w,
+            ["fe", "pooled", "slm_fe"],
+            quiet=False,
+            pred_metrics=True,
+            pred_group="entity",
+        )
     assert np.isnan(ms[0]["pred_loo_r_sq"]) and np.isnan(ms[2]["pred_loo_mae"])
     assert np.isfinite(ms[1]["pred_loo_r_sq"])
 
@@ -545,11 +738,15 @@ def test_pred_metrics_spatial_lag_matches_direct_spreg(sim, panel):
             r = spreg.ML_LagFE(y[train].reshape(-1, 1), x[train], w)
         b, rho = np.asarray(r.betas).ravel()[:2], float(np.asarray(r.betas).ravel()[2])
         resid = y - x @ b - rho * wy
-        mu = np.bincount(panel.ent[train], weights=resid[train], minlength=N) / np.bincount(panel.ent[train], minlength=N)
+        mu = np.bincount(
+            panel.ent[train], weights=resid[train], minlength=N
+        ) / np.bincount(panel.ent[train], minlength=N)
         err.append(y[test] - (x[test] @ b + rho * wy[test] + mu[panel.ent[test]]))
         rows.append(np.flatnonzero(test))
     e, rows = np.concatenate(err), np.concatenate(rows)
-    assert m["pred_loo_r_sq"] == pytest.approx(1 - np.sum(e**2) / np.sum((y[rows] - y.mean()) ** 2), rel=1e-6)
+    assert m["pred_loo_r_sq"] == pytest.approx(
+        1 - np.sum(e**2) / np.sum((y[rows] - y.mean()) ** 2), rel=1e-6
+    )
     assert m["pred_loo_mae"] == pytest.approx(np.mean(np.abs(e)), rel=1e-6)
     # the spatial lag helps: better than the non-spatial FE model
     _, (fe,) = fit(df, w, "fe", pred_metrics=True, pred_group="time")
@@ -560,7 +757,9 @@ def test_pred_metrics_report_and_failures(sim, monkeypatch, panel):
     df, w = sim
     r, m = fit(df, w, ["pooled", "fe"], pred_metrics=True, pred_group="time")
     for t in plm_report(r, m):
-        assert all(s in t.iloc[0]["model"] for s in ("R²pred = ", "MAEpred = ", "MADpred = "))
+        assert all(
+            s in t.iloc[0]["model"] for s in ("R²pred = ", "MAEpred = ", "MADpred = ")
+        )
     r, m = fit(df, w, ["pooled"])
     assert "R²pred" not in plm_report(r, m)[0].iloc[0]["model"]
     with pytest.raises(ValueError, match="group must be"):
@@ -578,6 +777,19 @@ def test_pred_metrics_report_and_failures(sim, monkeypatch, panel):
 
 
 def test_model_registry_is_consistent():
-    assert set(SPREG_MODELS) >= {"pooled", "fe", "re", "slm_fe", "slm_re", "sem_pooled", "sem_fe", "sem_re"}
+    assert set(SPREG_MODELS) >= {
+        "pooled",
+        "fe",
+        "re",
+        "slm_fe",
+        "slm_re",
+        "sem_pooled",
+        "sem_fe",
+        "sem_re",
+    }
     for cls_name, effects, spatial in SPREG_MODELS.values():
-        assert hasattr(spreg, cls_name) and effects in ("pooled", "fe", "re") and spatial in (None, "lag", "error")
+        assert (
+            hasattr(spreg, cls_name)
+            and effects in ("pooled", "fe", "re")
+            and spatial in (None, "lag", "error")
+        )

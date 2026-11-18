@@ -14,7 +14,10 @@ REQUIRES = {
     "test_slm.py": ["pandas", "statsmodels", "spreg", "libpysal"],
     "test_plm.py": ["pandas", "spreg", "libpysal", "patsy"],
     "test_sem.py": ["pandas", "semopy"],
-    "test_psm.py": ["pandas", "psmpy"],  # the tests that download example data skip without statsmodels
+    "test_psm.py": [
+        "pandas",
+        "psmpy",
+    ],  # the tests that download example data skip without statsmodels
 }
 
 
@@ -23,5 +26,7 @@ def _installed(name):
 
 
 collect_ignore = [
-    file for file, packages in REQUIRES.items() if not all(_installed(p) for p in packages)
+    file
+    for file, packages in REQUIRES.items()
+    if not all(_installed(p) for p in packages)
 ]

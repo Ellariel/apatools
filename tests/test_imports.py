@@ -55,7 +55,11 @@ def test_version():
 
 def test_all_public_modules_are_listed():
     """Guards against a forgotten module (or a removed one that is still referenced)."""
-    found = {m.name for m in pkgutil.iter_modules(apatools.__path__) if not m.name.startswith("_")}
+    found = {
+        m.name
+        for m in pkgutil.iter_modules(apatools.__path__)
+        if not m.name.startswith("_")
+    }
     assert found == set(REQUIRES)
 
 

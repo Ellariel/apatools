@@ -375,7 +375,9 @@ def test_confidence_intervals():
     assert lo < lo90 < 0.5 < hi90 < hi
     # a normal-theory 95% CI that just excludes zero gives p ~ .05
     est, se = 0.98, 0.5  # z = 1.96, so the interval is (0, 1.96)
-    assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se) == pytest.approx(0.05, abs=2e-3)
+    assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se) == pytest.approx(
+        0.05, abs=2e-3
+    )
     assert p_from_ci(2.0, 1.02, 2.98) == pytest.approx(p_from_z(2.0 / 0.5), abs=1e-3)
     # the t-based version is more conservative
     assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se, n=20) > p_from_ci(
@@ -390,7 +392,11 @@ def test_bootstrap_properties():
     x = np.arange(1, 10)
     lo, m, hi = bootstrap(x, func=np.mean, n_rep=500, seed=1)
     assert lo < m < hi
-    assert bootstrap(x, func=np.mean, n_rep=500, seed=1).tolist() == [lo, m, hi]  # reproducible
+    assert bootstrap(x, func=np.mean, n_rep=500, seed=1).tolist() == [
+        lo,
+        m,
+        hi,
+    ]  # reproducible
     lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, alpha=0.99)
     assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
     # a constant sample has a degenerate interval

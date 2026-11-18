@@ -32,7 +32,6 @@ The Review of Regional Studies, 37(1), 5-27."
 )
 
 
-
 def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
     if isinstance(model, (list, tuple)):
         for m in model:
@@ -85,12 +84,12 @@ def base_metrics(results):
     # ML_Lag but does NOT count lambda for ML_Error (added below).
     n_params = int(results.k)
     n_obs = int(results.n)
-    
+
     if isinstance(results, spr.ML_Error):
-        n_params += 1 # lambda counts
+        n_params += 1  # lambda counts
     df_model = n_params - 1  # predictors (+ rho / lambda), without the constant
     df_resid = n_obs - n_params  # n - k, as in spreg's OLS F-test
-    
+
     if isinstance(results, (spr.ML_Lag, spr.ML_Error)):
         r_sq = results.pr2
         r_sq_adj = 1 - (1 - r_sq) * (n_obs - 1) / df_resid
@@ -100,7 +99,7 @@ def base_metrics(results):
         r_sq = results.r2
         r_sq_adj = results.ar2
         f_stat, f_pvalue = results.f_stat
-        
+
     outputs.update(
         {
             "r_sq": r_sq,
@@ -110,7 +109,7 @@ def base_metrics(results):
             "f_stat": f_stat,
             "f_pvalue": f_pvalue,
             "n_obs": n_obs,
-            "n_params": n_params, 
+            "n_params": n_params,
             "mae": np.mean(np.abs(resid)),
             "mad": np.median(np.abs(resid - np.median(resid))),
             "aic": results.aic,
@@ -184,7 +183,9 @@ def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
         raise ValueError(f"Weights have {w.n} observations but the data {n}.")
 
     _kwargs = kwargs.copy()
-    _kwargs.update(verbose=False, ols_model_spat_diag=False, ols_model_nonspat_diag=False)
+    _kwargs.update(
+        verbose=False, ols_model_spat_diag=False, ols_model_nonspat_diag=False
+    )
     designs = [r.x for r in results]  # n x k design (incl. constant added by spreg)
     wy = None if w is None else w.sparse @ y  # (Wy)_i from the original weights
 
@@ -231,7 +232,9 @@ def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
     outputs = []
     for idx in range(len(results)):
         if idx not in errors:
-            outputs.append({k: np.nan for k in ("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad")})
+            outputs.append(
+                {k: np.nan for k in ("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad")}
+            )
             continue
         pos, err = zip(*errors[idx])
         err = np.asarray(err)
@@ -324,9 +327,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
 
     if formula is None:
         if x is None or y is None or len(x) == 0:
-            raise ValueError(
-                "Either formula or x,y have to be explicitly defined."
-            )
+            raise ValueError("Either formula or x,y have to be explicitly defined.")
 
         df = data[[y] + x]
         if dropna:
@@ -351,13 +352,15 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
             print(f"Formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
 
         if constant:
-            X = add_constant(X) # ignoredin spreg
+            X = add_constant(X)  # ignoredin spreg
     else:
         (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
         if w is not None and len(Y) != len(data):
             # patsy dropped rows with NAs: restrict the weights to the remaining rows
             if not data.index.is_unique:
-                raise ValueError("A unique data index is required to align the weights after NA-dropping.")
+                raise ValueError(
+                    "A unique data index is required to align the weights after NA-dropping."
+                )
             w = w_subset_rows(w, data.index.get_indexer(Y.index))
             warnings.warn(
                 f"Rows with NAs were dropped. Ntotal={len(data)}",
@@ -366,23 +369,23 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
         if verbose:
             print(f"N={len(Y)}")
             print(f"Specified formula: {formula}")
-           
-        if standardize: # need a test
+
+        if standardize:  # need a test
             X = df_standardize(X, func=standardize)
             Y = df_standardize(Y, func=standardize)
 
-    if standardize == 'z' or (isinstance(standardize, bool) and standardize):
+    if standardize == "z" or (isinstance(standardize, bool) and standardize):
         warnings.warn(
             "Using z-transformation sets the intercept estimate to zero. This may lead to wrong results.",
             UserWarning,
         )
-    
+
     results = []
     for r in fit_model(model, Y, X, w, **kwargs):
         results.append(r)
         if verbose:
             print(r.summary)
-    
+
     metrics = []
     if add_base_metrics or add_pred_metrics:
         metrics = [base_metrics(r) for r in results]
@@ -392,8 +395,13 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
                 for m, p in zip(
                     metrics,
                     pred_metrics(
-                        results, model, Y, X, w,
-                        exclude_neighbors=pred_exclude_neighbors, **kwargs
+                        results,
+                        model,
+                        Y,
+                        X,
+                        w,
+                        exclude_neighbors=pred_exclude_neighbors,
+                        **kwargs,
                     ),
                 )
             ]
@@ -401,11 +409,25 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     return results, metrics
 
 
-def slm_report(results, metrics=None, format_pval=True, add_stars=True, decimal=3, 
-              add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
-              add_pred_loo_mae=True, add_pred_loo_mad=True, # shown only if pred_metrics=True was used; no vif for spreg
-              add_n_obs=True, add_n_groups=False, add_vif=False,
-              intercept_name='Intercept'):
+def slm_report(
+    results,
+    metrics=None,
+    format_pval=True,
+    add_stars=True,
+    decimal=3,
+    add_ftest=True,
+    add_aic=True,
+    add_bic=True,
+    add_llf=True,
+    add_mae=True,
+    add_mad=True,
+    add_pred_loo_mae=True,
+    add_pred_loo_mad=True,  # shown only if pred_metrics=True was used; no vif for spreg
+    add_n_obs=True,
+    add_n_groups=False,
+    add_vif=False,
+    intercept_name="Intercept",
+):
     """
     Build one APA-style coefficient table per model from :func:`slm` output.
 
@@ -451,7 +473,7 @@ def slm_report(results, metrics=None, format_pval=True, add_stars=True, decimal=
             s.append(f"G = {i['n_groups']}")
 
         s = ", ".join(s)
-        params = r.output.set_index('var_names')
+        params = r.output.set_index("var_names")
         params = params.apply(to_numeric, errors="coerce").rename(
             columns={
                 "coefficients": "coef",
@@ -460,7 +482,7 @@ def slm_report(results, metrics=None, format_pval=True, add_stars=True, decimal=
                 "zt_stat": "z",
             },
         )
-        alpha_z = scipy.stats.norm.ppf(0.975) # 95% CI
+        alpha_z = scipy.stats.norm.ppf(0.975)  # 95% CI
         params["cil"] = params["coef"] - alpha_z * params["se"]
         params["cir"] = params["coef"] + alpha_z * params["se"]
         if decimal:
@@ -482,7 +504,7 @@ def slm_report(results, metrics=None, format_pval=True, add_stars=True, decimal=
             params = params.join(i["vif"])
         if len(i):
             params.loc[params.index[0], "model"] = s
-        const_name = df_check_intercept(params, params.index)  
+        const_name = df_check_intercept(params, params.index)
         if const_name != intercept_name:
             params.index = params.index.str.replace(const_name, intercept_name)
         output.append(params)

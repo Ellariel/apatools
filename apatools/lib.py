@@ -48,7 +48,9 @@ def gini_from_percentiles(values, percentiles, values_are_shares=False):
         y = y / 100
     else:
         y = y / np.max(y)
-    if x[0] > 0:  # the Lorenz curve always starts in the origin (0% of the population has 0% of the total)
+    if (
+        x[0] > 0
+    ):  # the Lorenz curve always starts in the origin (0% of the population has 0% of the total)
         x, y = np.insert(x, 0, 0.0), np.insert(y, 0, 0.0)
     # Trapezoidal approximation of area under Lorenz curve
     b = (y[1:] + y[:-1]) * np.diff(x) / 2

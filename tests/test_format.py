@@ -35,10 +35,14 @@ def test_format_p_options():
     assert format_p(0.009, keep_spaces=False) == "p=.009"
     assert format_p(0.0004, keep_spaces=False) == "p<.001"
     assert format_p(0.009, no_equals=True) == "p .009"
-    assert format_p(0.009, keep_spaces=False, no_equals=True, use_letter=False) == ".009"
+    assert (
+        format_p(0.009, keep_spaces=False, no_equals=True, use_letter=False) == ".009"
+    )
     # "<" and ">" are kept when the equals sign is dropped
     assert format_p(0.0004, no_equals=True) == "p < .001"
-    assert format_p(0.0004, use_letter=False, keep_spaces=False, no_equals=True) == "<.001"
+    assert (
+        format_p(0.0004, use_letter=False, keep_spaces=False, no_equals=True) == "<.001"
+    )
 
 
 @pytest.mark.parametrize("value", ["n/a", "", None, [0.1]])
@@ -77,7 +81,9 @@ def test_format_r_options():
     assert format_r(0.01, use_letter="R") == "R = .01"
     assert format_r(0.01, use_letter="R", no_equals=True) == "R .01"
     assert format_r(0.01, use_letter="R", keep_spaces=False, no_equals=True) == "R.01"
-    assert format_r(np.nan, use_letter="R:", keep_spaces=False, no_equals=True) == "R:NaN"
+    assert (
+        format_r(np.nan, use_letter="R:", keep_spaces=False, no_equals=True) == "R:NaN"
+    )
     assert format_r(-0.5, use_letter="r", keep_spaces=False) == "r=-.50"
 
 
@@ -102,7 +108,9 @@ def test_get_stars(p, expected):
 
 def test_get_stars_custom_symbols():
     kw = dict(p001="a", p01="b", p05="c", p10="d", p_="e")
-    assert [get_stars(p, **kw) for p in (0.0001, 0.005, 0.03, 0.07, 0.5)] == list("abcde")
+    assert [get_stars(p, **kw) for p in (0.0001, 0.005, 0.03, 0.07, 0.5)] == list(
+        "abcde"
+    )
 
 
 if __name__ == "__main__":
