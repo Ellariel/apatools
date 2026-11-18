@@ -13,11 +13,13 @@ from .citation import Citation
 
 # https://pypi.org/project/psmpy/
 # https://github.com/adriennekline/psmpy
-CITATION = Citation(APA='Kline, A., & Luo, Y. (2022). \
+CITATION = Citation(
+    APA="Kline, A., & Luo, Y. (2022). \
 PsmPy: A Package for Retrospective Cohort Matching in Python. \
 2022 44th Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) (pp. 1354-1357), \
 Glasgow, Scotland, United Kingdom. \
-https://doi.org/10.1109/EMBC48229.2022.9871333')
+https://doi.org/10.1109/EMBC48229.2022.9871333"
+)
 
 
 def psm_effect_size(model):
@@ -34,12 +36,9 @@ def psm_effect_size(model):
 
     data = []
     for cl in model.xvars:
-        data.append([cl, 'before', cohenD(
-                df_preds_b4_float, model.treatment, cl)])
-        data.append([cl, 'after', cohenD(
-                df_preds_after_float, model.treatment, cl)])
-    return pd.DataFrame(
-            data, columns=['variable', 'matching', 'effect_size'])
+        data.append([cl, "before", cohenD(df_preds_b4_float, model.treatment, cl)])
+        data.append([cl, "after", cohenD(df_preds_after_float, model.treatment, cl)])
+    return pd.DataFrame(data, columns=["variable", "matching", "effect_size"])
 
 
 def psm(
@@ -52,7 +51,7 @@ def psm(
     replacement=True,
     drop_unmatched=True,
     return_coupled=False,
-    coupled_suffix='_',
+    coupled_suffix="_",
     return_model=False,
     seed=13,
 ):
@@ -91,7 +90,7 @@ def psm(
     np.random.seed(seed)
     df = data.copy()
     if index_variable is None:
-        index_variable = 'index'
+        index_variable = "index"
         df = df.reset_index(drop=True).reset_index()
     all_vars = []
     include_vars = [] if include_vars is None else include_vars
@@ -101,30 +100,38 @@ def psm(
     if not isinstance(exclude_vars, list):
         exclude_vars = [exclude_vars]
     if len(include_vars):
-        all_vars = set(data.columns) - set(include_vars) - {index_variable, treatment_variable}
+        all_vars = (
+            set(data.columns) - set(include_vars) - {index_variable, treatment_variable}
+        )
     else:
         if len(exclude_vars):
             all_vars = set(exclude_vars)
 
-    model = PsmPy(df, treatment=treatment_variable, 
-                indx=index_variable, 
-                exclude=list(all_vars))
+    model = PsmPy(
+        df, treatment=treatment_variable, indx=index_variable, exclude=list(all_vars)
+    )
     model.logistic_ps(balance=balance)
-    
+
     if hasattr(model, "knn_matched"):
-        matched_method = model.knn_matched # <= v0.3.15
+        matched_method = model.knn_matched  # <= v0.3.15
     else:
-        matched_method = model.kdtree_matched # >= v0.3.16
-            
-    matched_method(matcher='propensity_logit', 
-                    caliper=None, 
-                    replacement=replacement, 
-                    drop_unmatched=drop_unmatched)
-    a = pd.merge(model.matched_ids[[index_variable]], df, 
-                    how='left', on=index_variable)
-    b = pd.merge(model.matched_ids[['matched_ID']]\
-                    .rename(columns={'matched_ID': index_variable}), df, 
-                        how='left', on=index_variable)
+        matched_method = model.kdtree_matched  # >= v0.3.16
+
+    matched_method(
+        matcher="propensity_logit",
+        caliper=None,
+        replacement=replacement,
+        drop_unmatched=drop_unmatched,
+    )
+    a = pd.merge(model.matched_ids[[index_variable]], df, how="left", on=index_variable)
+    b = pd.merge(
+        model.matched_ids[["matched_ID"]].rename(
+            columns={"matched_ID": index_variable}
+        ),
+        df,
+        how="left",
+        on=index_variable,
+    )
     if return_coupled:
         b.columns = [i + coupled_suffix if i in a else i for i in b.columns]
         df = pd.concat([a, b], axis=1)

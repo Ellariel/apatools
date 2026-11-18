@@ -1,7 +1,7 @@
-# A Toolbox for Meta-Analysis and APA-Compliant Reporting
+# A Toolbox for Statistical and Meta-Analysis, and APA-Compliant Reporting
 
 ## About
-This toolbox is a curated collection of utilities I frequently use for statistical analysis and nicely reporting research findings in accordance with APA standards. While some of the included libraries may be slightly outdated, they remain functional and reliable, making them my go-to tools.
+This toolbox is a curated collection of utilities I frequently use for statistical analysis and nicely reporting research findings in accordance with APA standards. While some of the included libraries may be slightly outdated, they remain functional and reliable, making them go-to tools.
 
 ## Install
 ```shell
@@ -84,6 +84,21 @@ _, m, _ = bootstrap(
 ```
 
 
+### *apatools.format*
+Simple APA-compliant functions for formatting numeric results, such as formatting R and r values, p-values, etc.
+
+
+#### Formatting examples
+```python
+from apatools.format import get_stars, format_p, format_r
+# formatting numeric results
+r = format_r(0.999, keep_spaces=True, use_letter="r", no_equals=False) # r = 'r = 1.'
+r = format_r(0.011, keep_spaces=True, use_letter="R", no_equals=False) # r = 'R = .01'
+p = format_p(0.0004, use_letter="p", keep_spaces=True, no_equals=False) # p = 'p < .001'
+s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
+```
+
+
 ### *apatools.lm*
 Fitting of OLS, RLM, GLM, QuantReg and MixedLM models using *statsmodels*. Arguments for the model constructor and for `.fit()` are passed as `<model>_<stage>_<argument>`: the model prefix (`ols_`, `rlm_`, `glm_`, `qlm_`, `mlm_`) followed by `model_` (constructor) or `fit_` (the `.fit()` call), e.g. `ols_fit_cov_type`, `glm_model_family`, `rlm_model_M`.
 
@@ -96,6 +111,7 @@ Specific parameters:
 
 ```python
 from apatools.lm import lm, lm_report
+import statsmodels.api as sm
 results, metrics = lm(
         data,
         y, x,
@@ -212,21 +228,6 @@ results, model = psm(
         return_model=True,
     )
 print(psm_effect_size(model))
-```
-
-
-### *apatools.format*
-Simple APA-compliant functions for formatting numeric results, such as formatting R and r values, p-values, etc.
-
-
-#### Formatting examples
-```python
-from apatools.format import get_stars, format_p, format_r
-# formatting numeric results
-r = format_r(0.999, keep_spaces=True, use_letter="r", no_equals=False) # r = 'r = 1.'
-r = format_r(0.011, keep_spaces=True, use_letter="R", no_equals=False) # r = 'R = .01'
-p = format_p(0.0004, use_letter="p", keep_spaces=True, no_equals=False) # p = 'p < .001'
-s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
 ```
 
 

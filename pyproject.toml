@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "apatools"
 version = "0.1.0"
-description = "A toolbox for meta-analysis and APA-compliant reporting of regression, spatial, panel, SEM and propensity score matching results."
+description = "A toolbox for statistical and meta-analysis, and APA-compliant reporting of quantitative results."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Danila Valko", email = "danila.valko@proton.me" }]
 requires-python = ">=3.10"
 keywords = [
-    "apa", "reporting", "meta-analysis", "effect size", "regression", "statsmodels",
+    "APA", "reporting", "meta-analysis", "effect size", "regression", "statsmodels",
     "spatial regression", "panel data", "SEM", "RLM", "MLM", "propensity score matching",
 ]
 classifiers = [

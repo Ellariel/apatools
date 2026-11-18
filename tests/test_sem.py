@@ -86,7 +86,6 @@ def test_sem_plot(tmp_path):
         format_fig="png",
         method="semopy",
         return_fig=True,
-        show_fig=False,
         decimal=3,
         dpi=600,
         seed=13,
