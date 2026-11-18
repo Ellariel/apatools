@@ -18,10 +18,12 @@ from .format import format_p, get_stars
 # eta1 =~ y1 + y2 + y3
 # eta1 ~ x1
 # """
-CITATION = Citation(APA='Igolkina, A. A., & Meshcheryakov, G. (2020). \
+CITATION = Citation(
+    APA="Igolkina, A. A., & Meshcheryakov, G. (2020). \
 semopy: A Python Package for Structural Equation Modeling. \
 Structural Equation Modeling: A Multidisciplinary Journal, 27(6), 952-963. \
-https://doi.org/10.1080/10705511.2019.1704289')
+https://doi.org/10.1080/10705511.2019.1704289"
+)
 
 
 def sem(
@@ -113,8 +115,13 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
     # select metrics by name: positional slicing would silently break if semopy reorders them
     chi = metrics["value"]
     fit_names = [i for i in ("CFI", "GFI", "AGFI", "NFI", "TLI") if i in chi.index]
-    info_names = [i for i in chi.index if i not in fit_names and i not in (
-        "N", "DoF", "DoF Baseline", "chi2", "chi2 p-value", "chi2 Baseline")]
+    info_names = [
+        i
+        for i in chi.index
+        if i not in fit_names
+        and i
+        not in ("N", "DoF", "DoF Baseline", "chi2", "chi2 p-value", "chi2 Baseline")
+    ]
     r = f"χ²({int(chi['DoF'])}, N = {int(chi['N'])}) = {round(chi['chi2'], decimal)}, {format_p(chi['chi2 p-value'])}"
 
     def _no_zero(v):  # APA: no leading zero for values bounded by 1, keep the sign
@@ -175,7 +182,9 @@ def sem_plot(
     Requires the Graphviz executables (``dot``) on the system PATH.
     """
     if method != "semopy":
-        raise NotImplementedError(f"Plot method '{method}' is not implemented, use 'semopy'.")
+        raise NotImplementedError(
+            f"Plot method '{method}' is not implemented, use 'semopy'."
+        )
     fig = None
     if method == "semopy":
         fig = semopy_plot(
@@ -253,8 +262,13 @@ def semopy_plot(
     import os
     import shutil
     import tempfile
-    import graphviz
-    # It uses graphviz. For windows, use https://graphviz.gitlab.io/download/
+
+    try:
+        import graphviz  # It uses graphviz. For windows, use https://graphviz.gitlab.io/download/
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            "semopy_plot needs the optional dependency: pip install graphviz"
+        ) from e
 
     np.random.seed(seed)
     stats = stats.copy()
@@ -268,9 +282,7 @@ def semopy_plot(
             .apply(
                 format_pval
                 if callable(format_pval)
-                else lambda x: format_p(
-                    x, keep_spaces=False, no_equals=False
-                )
+                else lambda x: format_p(x, keep_spaces=False, no_equals=False)
             )
         )
     stats = stats.round(decimal)

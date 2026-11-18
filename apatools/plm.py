@@ -34,6 +34,7 @@ Pass an ordinary *long* DataFrame with an entity and a time column (or a two-lev
 entities with the rows of the spatial weights ``w`` (by ``w.id_order``, or by ``w_ids``)
 and sorts the data in the layout spreg needs (period blocks, entities in the order of ``w``).
 """
+
 import io
 import inspect
 import contextlib
@@ -53,14 +54,12 @@ from .format import format_r, format_p, get_stars
 from .slm import w_subset_rows
 
 # https://pysal.org/spreg/index.html
+# https://bashtage.github.io/linearmodels/
 CITATION = Citation(
     APA="Rey, S. J., & Anselin, L. (2007). \
 PySAL: A python library of spatial analytical methods. \
-The Review of Regional Studies, 37(1), 5-27."
-)
-# https://bashtage.github.io/linearmodels/
-CITATION_LINEARMODELS = Citation(
-    APA="Sheppard, K. (n.d.). linearmodels: Linear models for panel data, \
+The Review of Regional Studies, 37(1), 5-27. \
+Sheppard, K. (n.d.). linearmodels: Linear models for panel data, \
 instrumental variables and system regression [Computer software]. \
 https://github.com/bashtage/linearmodels"
 )
@@ -81,7 +80,16 @@ SPREG_MODELS = {
 LINEARMODELS_MODELS = ("pooled", "fe", "re")
 
 # rows of a spreg coefficient table that are not slope coefficients
-_NON_SLOPE = {"CONSTANT", "const", "Intercept", "rho", "lambda", "phi", "sigma2_v", "sigma2_1"}
+_NON_SLOPE = {
+    "CONSTANT",
+    "const",
+    "Intercept",
+    "rho",
+    "lambda",
+    "phi",
+    "sigma2_v",
+    "sigma2_1",
+}
 _CONSTANTS = ("CONSTANT", "const", "Intercept")
 
 
@@ -130,7 +138,9 @@ class PanelData:
         ent_kept = np.unique(self.ent[keep])
         tim_kept = np.unique(self.tim[keep])
         if keep.sum() != len(ent_kept) * len(tim_kept):
-            raise ValueError("Subsetting must keep whole entities or whole periods (balanced panel).")
+            raise ValueError(
+                "Subsetting must keep whole entities or whole periods (balanced panel)."
+            )
         w = self.w
         if w is not None and len(ent_kept) != self.N:
             w = w_subset_rows(w, ent_kept)
@@ -156,8 +166,18 @@ def _column(data, key):
     raise KeyError(f"'{key}' is neither a column nor an index level of the data.")
 
 
-def make_panel(data, y=None, x=None, entity=None, time=None, w=None, formula=None,
-               dropna=True, balance="error", w_ids=None):
+def make_panel(
+    data,
+    y=None,
+    x=None,
+    entity=None,
+    time=None,
+    w=None,
+    formula=None,
+    dropna=True,
+    balance="error",
+    w_ids=None,
+):
     """
     Convert a long DataFrame into a :class:`PanelData` in the layout needed by spreg.
 
@@ -196,7 +216,9 @@ def make_panel(data, y=None, x=None, entity=None, time=None, w=None, formula=Non
         raise ValueError("Pass both `entity` and `time`, or none of them (MultiIndex).")
     if entity is None:
         if not isinstance(data.index, MultiIndex) or data.index.nlevels != 2:
-            raise ValueError("Without `entity` and `time` the data need a two-level (entity, time) index.")
+            raise ValueError(
+                "Without `entity` and `time` the data need a two-level (entity, time) index."
+            )
         ent_all = data.index.get_level_values(0).to_numpy()
         tim_all = data.index.get_level_values(1).to_numpy()
     else:
@@ -255,7 +277,9 @@ def make_panel(data, y=None, x=None, entity=None, time=None, w=None, formula=Non
     if w is not None:
         ids = list(w.id_order) if w_ids is None else list(w_ids)
         if len(ids) != w.n:
-            raise ValueError(f"`w_ids` has {len(ids)} labels but w has {w.n} observations.")
+            raise ValueError(
+                f"`w_ids` has {len(ids)} labels but w has {w.n} observations."
+            )
         id2pos = {k: i for i, k in enumerate(ids)}
         unknown = [e for e in present if e not in id2pos]
         if unknown:
@@ -284,7 +308,10 @@ def make_panel(data, y=None, x=None, entity=None, time=None, w=None, formula=Non
     frame, ent_pos, tim_pos = frame.iloc[srt], ent_pos[srt], tim_pos[srt]
 
     index = MultiIndex.from_arrays(
-        [Index(entities).take(ent_pos), Index(times).take(tim_pos)],  # keeps the label dtypes
+        [
+            Index(entities).take(ent_pos),
+            Index(times).take(tim_pos),
+        ],  # keeps the label dtypes
         names=["entity", "time"],
     )
     return PanelData(
@@ -312,7 +339,7 @@ def _dummy_w(n):
 
 def _model_kwargs(kwargs, name, stage="model"):
     prefix = f"{name}_{stage}_"
-    return {k[len(prefix):]: v for k, v in kwargs.items() if k.startswith(prefix)}
+    return {k[len(prefix) :]: v for k, v in kwargs.items() if k.startswith(prefix)}
 
 
 def _fit_spreg(name, panel, kwargs):
@@ -359,14 +386,18 @@ def _fit_linearmodels(name, panel, kwargs):
     else:
         x = x.copy()
         x.insert(0, "const", 1.0)  # like spreg, add the constant ourselves
-        model = (PooledOLS if name == "pooled" else RandomEffects)(panel.y, x, **model_kwargs)
+        model = (PooledOLS if name == "pooled" else RandomEffects)(
+            panel.y, x, **model_kwargs
+        )
     return model.fit(**fit_kwargs)
 
 
 def _fit_one(name, panel, backend, kwargs):
     if backend == "spreg":
         if name not in SPREG_MODELS:
-            raise NotImplementedError(f"'{name}' is not implemented, try {tuple(SPREG_MODELS)}.")
+            raise NotImplementedError(
+                f"'{name}' is not implemented, try {tuple(SPREG_MODELS)}."
+            )
         return _fit_spreg(name, panel, kwargs)
     if backend == "linearmodels":
         return _fit_linearmodels(name, panel, kwargs)
@@ -402,10 +433,22 @@ def _param_table(r):
         if type(r).__name__.startswith("ML_Lag"):
             # spreg names the lag coefficient "W_<name of y>"; call it rho
             name_y = r.name_y[0] if isinstance(r.name_y, (list, tuple)) else r.name_y
-            out["var_names"] = ["rho" if n in ("W_dep_var", f"W_{name_y}") else n for n in out["var_names"]]
+            out["var_names"] = [
+                "rho" if n in ("W_dep_var", f"W_{name_y}") else n
+                for n in out["var_names"]
+            ]
         t = out.set_index("var_names").apply(to_numeric, errors="coerce")
-        stat = "t" if hasattr(r, "t_stat") else "z"  # pooled OLS reports t, the others z
-        t = t.rename(columns={"coefficients": "coef", "std_err": "se", "zt_stat": stat, "prob": "p-value"})
+        stat = (
+            "t" if hasattr(r, "t_stat") else "z"
+        )  # pooled OLS reports t, the others z
+        t = t.rename(
+            columns={
+                "coefficients": "coef",
+                "std_err": "se",
+                "zt_stat": stat,
+                "prob": "p-value",
+            }
+        )
         t.index.name = None
         zc = scipy.stats.norm.ppf(0.975)  # 95% CI, normal approximation
         t["cil"] = t["coef"] - zc * t["se"]
@@ -487,19 +530,29 @@ def base_metrics(r, panel=None):
             r_sq, r_type = float(r.r2), "ols"
             outputs["r_sq_adj"] = float(r.ar2)
             F, p = r.f_stat
-            outputs.update(f_stat=float(F), f_pvalue=float(p), df_model=len(table) - 1,
-                           df_resid=n_obs - len(table))
+            outputs.update(
+                f_stat=float(F),
+                f_pvalue=float(p),
+                df_model=len(table) - 1,
+                df_resid=n_obs - len(table),
+            )
         else:
             r_sq = float(r.pr2)
             r_type = "within" if (effects == "fe" and spatial is None) else "pseudo"
         if effects == "fe" and spatial is None:
-            resid, y_within = _within_resid(r)  # spreg's own u / pr2 leave out the fixed effects
+            resid, y_within = _within_resid(
+                r
+            )  # spreg's own u / pr2 leave out the fixed effects
             r_sq = 1 - np.sum(resid**2) / np.sum(y_within**2)
             df_resid = n_obs - n_ent - k
             outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - n_ent) / df_resid
             f_stat = (r_sq / k) / ((1 - r_sq) / df_resid)
-            outputs.update(f_stat=f_stat, f_pvalue=float(scipy.stats.f.sf(f_stat, k, df_resid)),
-                           df_model=k, df_resid=df_resid)
+            outputs.update(
+                f_stat=f_stat,
+                f_pvalue=float(scipy.stats.f.sf(f_stat, k, df_resid)),
+                df_model=k,
+                df_resid=df_resid,
+            )
         for key, attr in (("aic", "aic"), ("bic", "schwarz"), ("llf", "logll")):
             v = _finite(getattr(r, attr, None))
             if v is not None:
@@ -519,8 +572,12 @@ def base_metrics(r, panel=None):
             outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - int(has_const)) / r.df_resid
         if name != "re":
             f = r.f_statistic if r._cov_type == "Unadjusted" else r.f_statistic_robust
-            outputs.update(f_stat=float(f.stat), f_pvalue=float(f.pval), df_model=int(f.df),
-                           df_resid=int(f.df_denom))
+            outputs.update(
+                f_stat=float(f.stat),
+                f_pvalue=float(f.pval),
+                df_model=int(f.df),
+                df_resid=int(f.df_denom),
+            )
         v = _finite(getattr(r, "loglik", None))
         if v is not None:
             outputs["llf"] = v
@@ -559,7 +616,11 @@ def _coefs(r):
 def _predict_rows(coefs, name, panel_full, wy_full, train_mask, test_mask):
     """Predictions for the rows ``test_mask`` from coefficients fitted on the other rows."""
     spatial = SPREG_MODELS[name][2] if name in SPREG_MODELS else None
-    effects = SPREG_MODELS[name][1] if name in SPREG_MODELS else {"fe": "fe", "re": "re"}.get(name, "pooled")
+    effects = (
+        SPREG_MODELS[name][1]
+        if name in SPREG_MODELS
+        else {"fe": "fe", "re": "re"}.get(name, "pooled")
+    )
     slopes = list(panel_full.x.columns)
     xb = panel_full.x.to_numpy() @ coefs[slopes].to_numpy()
     for c in _CONSTANTS:
@@ -570,13 +631,18 @@ def _predict_rows(coefs, name, panel_full, wy_full, train_mask, test_mask):
     if effects == "fe":
         # entity effect = mean over the training periods of (y - rho*Wy - x*beta)
         resid = panel_full.y.to_numpy() - xb
-        mu = np.bincount(panel_full.ent[train_mask], weights=resid[train_mask],
-                         minlength=panel_full.N) / np.bincount(panel_full.ent[train_mask], minlength=panel_full.N)
+        mu = np.bincount(
+            panel_full.ent[train_mask],
+            weights=resid[train_mask],
+            minlength=panel_full.N,
+        ) / np.bincount(panel_full.ent[train_mask], minlength=panel_full.N)
         xb = xb + mu[panel_full.ent]
     return xb[test_mask]
 
 
-def pred_metrics(results, panel, backend="spreg", group="entity", exclude_neighbors=False, **kwargs):
+def pred_metrics(
+    results, panel, backend="spreg", group="entity", exclude_neighbors=False, **kwargs
+):
     """
     Leave-one-group-out prediction metrics (R²pred, MAEpred, MADpred) for panel models.
 
@@ -622,19 +688,27 @@ def pred_metrics(results, panel, backend="spreg", group="entity", exclude_neighb
     if group not in ("entity", "time"):
         raise ValueError("group must be 'entity' or 'time'.")
     if exclude_neighbors and (group != "entity" or panel.w is None):
-        raise ValueError("exclude_neighbors=True needs group='entity' and spatial weights `w`.")
+        raise ValueError(
+            "exclude_neighbors=True needs group='entity' and spatial weights `w`."
+        )
     if kwargs.get("slx_lags", 0):
         raise NotImplementedError("pred_metrics is not implemented for slx_lags > 0.")
     names = [_model_name(r) for r in results]
     y = panel.y.to_numpy()
     wy = np.zeros_like(y)
-    if panel.w is not None:  # (Wy) of every row, period by period, from the original weights
+    if (
+        panel.w is not None
+    ):  # (Wy) of every row, period by period, from the original weights
         wy = np.asarray(panel.w.sparse @ y.reshape(panel.T, panel.N).T).T.ravel()
     nan_out = {k: np.nan for k in ("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad")}
 
     skip = set()
     if group == "entity":
-        skip = {i for i, n in enumerate(names) if n in SPREG_MODELS and SPREG_MODELS[n][1] == "fe"}
+        skip = {
+            i
+            for i, n in enumerate(names)
+            if n in SPREG_MODELS and SPREG_MODELS[n][1] == "fe"
+        }
         if skip:
             warnings.warn(
                 "Fixed-effects models cannot predict new entities; their pred_* metrics are NaN. "
@@ -649,7 +723,9 @@ def pred_metrics(results, panel, backend="spreg", group="entity", exclude_neighb
         if group == "entity":
             drop = {g}
             if exclude_neighbors:
-                drop |= {int(panel.w.id2i[j]) for j in panel.w.neighbors[panel.w.id_order[g]]}
+                drop |= {
+                    int(panel.w.id2i[j]) for j in panel.w.neighbors[panel.w.id_order[g]]
+                }
             train_mask = ~np.isin(panel.ent, list(drop))
             test_mask = panel.ent == g
         else:
@@ -704,8 +780,18 @@ def pred_metrics(results, panel, backend="spreg", group="entity", exclude_neighb
 ################
 
 
-def plm(data, y=None, x=None, w=None, entity=None, time=None, model="fe", formula=None,
-        backend="spreg", **kwargs):
+def plm(
+    data,
+    y=None,
+    x=None,
+    w=None,
+    entity=None,
+    time=None,
+    model="fe",
+    formula=None,
+    backend="spreg",
+    **kwargs,
+):
     """
     Fit panel regressions (pooled, fixed effects, random effects, optionally spatial).
 
@@ -780,7 +866,13 @@ def plm(data, y=None, x=None, w=None, entity=None, time=None, model="fe", formul
     pred_group = kwargs.pop("pred_group", "entity")
     pred_exclude_neighbors = kwargs.pop("pred_exclude_neighbors", False)
     panel = make_panel(
-        data, y, x, entity=entity, time=time, w=w, formula=formula,
+        data,
+        y,
+        x,
+        entity=entity,
+        time=time,
+        w=w,
+        formula=formula,
         dropna=kwargs.pop("dropna", True),
         balance=kwargs.pop("balance", "error"),
         w_ids=kwargs.pop("w_ids", None),
@@ -807,8 +899,14 @@ def plm(data, y=None, x=None, w=None, entity=None, time=None, model="fe", formul
     if add_base_metrics or add_pred_metrics:
         metrics = [base_metrics(r, panel) for r in results]
         if add_pred_metrics:
-            pm = pred_metrics(results, panel, backend=backend, group=pred_group,
-                              exclude_neighbors=pred_exclude_neighbors, **kwargs)
+            pm = pred_metrics(
+                results,
+                panel,
+                backend=backend,
+                group=pred_group,
+                exclude_neighbors=pred_exclude_neighbors,
+                **kwargs,
+            )
             metrics = [{**m_, **p_} for m_, p_ in zip(metrics, pm)]
     return results, metrics
 
@@ -816,10 +914,24 @@ def plm(data, y=None, x=None, w=None, entity=None, time=None, model="fe", formul
 _R_SQ_SUFFIX = {"ols": "", "within": "within", "overall": "overall", "pseudo": "pseudo"}
 
 
-def plm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
-               add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
-               add_pred_loo_mae=True, add_pred_loo_mad=True, add_n_obs=True, add_panel_dims=True,
-               intercept_name="Intercept"):
+def plm_report(
+    results,
+    metrics={},
+    format_pval=True,
+    add_stars=True,
+    decimal=3,
+    add_ftest=True,
+    add_aic=True,
+    add_bic=True,
+    add_llf=True,
+    add_mae=True,
+    add_mad=True,
+    add_pred_loo_mae=True,
+    add_pred_loo_mad=True,
+    add_n_obs=True,
+    add_panel_dims=True,
+    intercept_name="Intercept",
+):
     """
     Build one APA-style coefficient table per model from :func:`plm` output.
 
@@ -837,13 +949,17 @@ def plm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
     for r, i in zip_longest(results, metrics, fillvalue={}):
         s = []
         if "r_sq" in i:
-            s.append(f"R²{_R_SQ_SUFFIX.get(i.get('r_sq_type', 'ols'), '')} {format_r(i['r_sq'], use_letter=False)}")
+            s.append(
+                f"R²{_R_SQ_SUFFIX.get(i.get('r_sq_type', 'ols'), '')} {format_r(i['r_sq'], use_letter=False)}"
+            )
         if "r_sq_adj" in i:
             s.append(f"R²adj {format_r(i['r_sq_adj'], use_letter=False)}")
         if "pred_loo_r_sq" in i:
             s.append(f"R²pred {format_r(i['pred_loo_r_sq'], use_letter=False)}")
         if add_ftest and "f_stat" in i and "df_model" in i:
-            s.append(f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}")
+            s.append(
+                f"F({i['df_model']}, {i['df_resid']}) = {i['f_stat']:.2f}, {format_p(i['f_pvalue'])}"
+            )
         if add_aic and "aic" in i:
             s.append(f"AIC = {i['aic']:.1f}")
         if add_bic and "bic" in i:
@@ -875,7 +991,9 @@ def plm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
             format_pval = (
                 format_pval
                 if callable(format_pval)
-                else lambda x_: format_p(x_, use_letter=False, keep_spaces=False, no_equals=True)
+                else lambda x_: format_p(
+                    x_, use_letter=False, keep_spaces=False, no_equals=True
+                )
             )
             params["p-value"] = [format_pval(c) for c in params["p-value"]]
         if len(i):
@@ -892,9 +1010,20 @@ def plm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
 
 def _row(test, model, stat, df, p, label, df_denom=None):
     df_txt = f"{df}" if df_denom is None else f"{df}, {df_denom}"
-    report = f"{label}({df_txt}) = {stat:.2f}, {format_p(p)}" if df is not None else f"{label} = {stat:.2f}, {format_p(p)}"
-    return {"test": test, "model": model, "statistic": float(stat), "df": df, "df_denom": df_denom,
-            "p-value": float(p), "report": report}
+    report = (
+        f"{label}({df_txt}) = {stat:.2f}, {format_p(p)}"
+        if df is not None
+        else f"{label} = {stat:.2f}, {format_p(p)}"
+    )
+    return {
+        "test": test,
+        "model": model,
+        "statistic": float(stat),
+        "df": df,
+        "df_denom": df_denom,
+        "p-value": float(p),
+        "report": report,
+    }
 
 
 def hausman(r_fe, r_re):
@@ -912,10 +1041,14 @@ def hausman(r_fe, r_re):
     if not common:
         raise ValueError("No common slope coefficients.")
     d = (t_fe.loc[common, "coef"] - t_re.loc[common, "coef"]).to_numpy()
-    v = (_cov_frame(r_fe).loc[common, common] - _cov_frame(r_re).loc[common, common]).to_numpy()
+    v = (
+        _cov_frame(r_fe).loc[common, common] - _cov_frame(r_re).loc[common, common]
+    ).to_numpy()
     if np.any(np.linalg.eigvalsh((v + v.T) / 2) <= 0):
-        warnings.warn("V_fe - V_re is not positive definite; the Hausman statistic is undefined.",
-                      UserWarning)
+        warnings.warn(
+            "V_fe - V_re is not positive definite; the Hausman statistic is undefined.",
+            UserWarning,
+        )
         return np.nan, len(common), np.nan
     h = float(d @ np.linalg.solve(v, d))
     return h, len(common), float(scipy.stats.chi2.sf(h, len(common)))
@@ -943,12 +1076,16 @@ def mundlak(r_re):
     """
     panel, spec = getattr(r_re, "plm_panel", None), getattr(r_re, "plm_spec", None)
     if panel is None or spec is None:
-        raise ValueError("The model must come from plm() (panel and fit options are stored on it).")
+        raise ValueError(
+            "The model must come from plm() (panel and fit options are stored on it)."
+        )
     name = _model_name(r_re)
     x = panel.x
     means = x.groupby(panel.ent).transform("mean")
     within_sd = (x - means).std()
-    varying = [c for c in x.columns if within_sd[c] > 1e-12]  # time-invariant means are collinear
+    varying = [
+        c for c in x.columns if within_sd[c] > 1e-12
+    ]  # time-invariant means are collinear
     if not varying:
         raise ValueError("No predictor varies over time.")
     aug = concat([x, means[varying].add_suffix("_mean")], axis=1)
@@ -993,21 +1130,46 @@ def plm_tests(results, w=None, format_pval=True):
     by_name = {}
     for r in results:
         by_name.setdefault((_model_name(r), _is_spreg(r)), r)
-    panel = next((getattr(r, "plm_panel", None) for r in results if hasattr(r, "plm_panel")), None)
+    panel = next(
+        (getattr(r, "plm_panel", None) for r in results if hasattr(r, "plm_panel")),
+        None,
+    )
     rows = []
 
-    for fe_name, re_name in (("fe", "re"), ("slm_fe", "slm_re"), ("sem_fe", "sem_re"), ("sem_fe", "sem_re_gm")):
+    for fe_name, re_name in (
+        ("fe", "re"),
+        ("slm_fe", "slm_re"),
+        ("sem_fe", "sem_re"),
+        ("sem_fe", "sem_re_gm"),
+    ):
         for sp in (True, False):
             if (fe_name, sp) in by_name and (re_name, sp) in by_name:
                 h, df, p = hausman(by_name[(fe_name, sp)], by_name[(re_name, sp)])
                 if np.isfinite(h):
-                    rows.append(_row("Hausman (FE vs RE)", f"{fe_name} vs {re_name}", h, df, p, "χ²"))
+                    rows.append(
+                        _row(
+                            "Hausman (FE vs RE)",
+                            f"{fe_name} vs {re_name}",
+                            h,
+                            df,
+                            p,
+                            "χ²",
+                        )
+                    )
 
     for (name, sp), r in by_name.items():
-        if name in SPREG_MODELS and SPREG_MODELS[name][1] == "re" and hasattr(r, "plm_spec"):
+        if (
+            name in SPREG_MODELS
+            and SPREG_MODELS[name][1] == "re"
+            and hasattr(r, "plm_spec")
+        ):
             try:
                 stat, df, p = mundlak(r)
-            except (ValueError, np.linalg.LinAlgError, KeyError):  # e.g. only time-invariant predictors
+            except (
+                ValueError,
+                np.linalg.LinAlgError,
+                KeyError,
+            ):  # e.g. only time-invariant predictors
                 continue
             rows.append(_row("Mundlak (correlated effects)", name, stat, df, p, "χ²"))
 
@@ -1019,13 +1181,23 @@ def plm_tests(results, w=None, format_pval=True):
                 n_ent = n_obs // int(r_fe.t)
                 k = len(_slopes(_param_table(r_fe).index))
                 df1, df2 = n_ent - 1, n_obs - n_ent - k
-                ssr_fe, ssr_p = float(np.sum(np.square(_within_resid(r_fe)[0]))), float(np.sum(np.square(r_p.u)))
+                ssr_fe, ssr_p = (
+                    float(np.sum(np.square(_within_resid(r_fe)[0]))),
+                    float(np.sum(np.square(r_p.u))),
+                )
                 f = ((ssr_p - ssr_fe) / df1) / (ssr_fe / df2)
                 p = float(scipy.stats.f.sf(f, df1, df2))
             else:
                 fp = r_fe.f_pooled
-                f, p, df1, df2 = float(fp.stat), float(fp.pval), int(fp.df), int(fp.df_denom)
-            rows.append(_row("F test of entity effects", "fe vs pooled", f, df1, p, "F", df2))
+                f, p, df1, df2 = (
+                    float(fp.stat),
+                    float(fp.pval),
+                    int(fp.df),
+                    int(fp.df_denom),
+                )
+            rows.append(
+                _row("F test of entity effects", "fe vs pooled", f, df1, p, "F", df2)
+            )
 
     r_p = by_name.get(("pooled", True))
     if r_p is not None:
@@ -1036,11 +1208,23 @@ def plm_tests(results, w=None, format_pval=True):
             bsk = dp.BSK_tests(r_p, w, which=["LM1", "LM2", "LMJ"])
             for _, b in bsk.iterrows():
                 lab = "χ²" if int(b["df"]) > 1 else "LM"
-                rows.append(_row(b["Test"], "pooled", b["Statistic"], int(b["df"]) if lab == "χ²" else None,
-                                 b["p-value"], lab))
+                rows.append(
+                    _row(
+                        b["Test"],
+                        "pooled",
+                        b["Statistic"],
+                        int(b["df"]) if lab == "χ²" else None,
+                        b["p-value"],
+                        lab,
+                    )
+                )
             y, xx = r_p.y, r_p.x[:, 1:]  # without the constant
-            for label, fn in (("LM lag", dp.panel_LMlag), ("LM error", dp.panel_LMerror),
-                              ("Robust LM lag", dp.panel_rLMlag), ("Robust LM error", dp.panel_rLMerror)):
+            for label, fn in (
+                ("LM lag", dp.panel_LMlag),
+                ("LM error", dp.panel_LMerror),
+                ("Robust LM lag", dp.panel_rLMlag),
+                ("Robust LM error", dp.panel_rLMerror),
+            ):
                 stat, p = fn(y, xx, w)
                 rows.append(_row(label, "pooled", stat, 1, p, "χ²"))
 
