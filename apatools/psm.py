@@ -1,10 +1,15 @@
 import numpy as np
-import pandas as pd
-from psmpy import PsmPy
-from psmpy.functions import cohenD
+
+from ._deps import missing_dependency
+
+try:
+    import pandas as pd
+    from psmpy import PsmPy
+    from psmpy.functions import cohenD
+except ImportError as e:  # pragma: no cover
+    missing_dependency("psm", "psm", e)
 
 from .citation import Citation
-
 
 # https://pypi.org/project/psmpy/
 # https://github.com/adriennekline/psmpy
@@ -107,9 +112,9 @@ def psm(
     model.logistic_ps(balance=balance)
     
     if hasattr(model, "knn_matched"):
-        matched_method = getattr(model, "knn_matched") # <= v0.3.15
+        matched_method = model.knn_matched # <= v0.3.15
     else:
-        matched_method = getattr(model, "kdtree_matched") # >= v0.3.16
+        matched_method = model.kdtree_matched # >= v0.3.16
             
     matched_method(matcher='propensity_logit', 
                     caliper=None, 

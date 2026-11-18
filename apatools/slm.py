@@ -1,21 +1,28 @@
-import io
 import contextlib
+import io
 import warnings
-import scipy
-import numpy as np
-import spreg as spr
-from libpysal.weights import WSP
-from pandas import to_numeric
 from itertools import zip_longest
-from statsmodels.api import add_constant
-# from sklearn.model_selection import LeaveOneOut
-from statsmodels.formula.formulatools import handle_formula_data
 
+import numpy as np
+import scipy
+
+from ._deps import missing_dependency
+
+try:
+    import spreg as spr
+    from pandas import to_numeric
+    from statsmodels.api import add_constant
+    from statsmodels.formula.formulatools import handle_formula_data
+except ImportError as e:  # pragma: no cover
+    missing_dependency("slm", "slm", e)
 
 from .citation import Citation
-from .format import format_r, format_p, get_stars
-from .utils import df_standardize, df_check_intercept
-
+from .format import format_p, format_r, get_stars
+from .utils import (
+    df_check_intercept,
+    df_standardize,
+    w_subset_rows,
+)
 
 # https://pysal.org/spreg/index.html
 CITATION = Citation(
@@ -114,29 +121,6 @@ def base_metrics(results):
     return outputs
 
 
-def w_subset_rows(w, positions):
-    """
-    Spatial weights restricted to the observations at ``positions``.
-
-    Unlike ``libpysal.weights.w_subset`` the original weight values are kept (not
-    replaced by binary ones), the transformation of ``w`` (e.g. row-standardization,
-    ``w.transform``) is re-applied to the subset and the ids of the returned
-    object are the new row positions ``0..len(positions)-1``.
-    Observations that lose all their neighbours become islands (see ``.islands``).
-
-    Parameters
-    ----------
-    w : libpysal.weights.W
-        Weights whose ``id_order`` corresponds to the rows of the data.
-    positions : array-like of int
-        Row positions to keep (in the order of the data).
-    """
-    positions = np.asarray(positions, dtype=int)
-    sub = WSP(w.sparse[positions][:, positions]).to_W(silence_warnings=True)
-    sub.transform = w.transform
-    return sub
-
-
 def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
     """
     Leave-one-out prediction metrics (R²pred, MAEpred, MADpred) for spreg models.
@@ -220,7 +204,7 @@ def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
             with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
                 warnings.simplefilter("ignore")  # spreg is chatty on every refit
                 fitted = list(fit_model(model, y[train], x[train], w_train, **_kwargs))
-        except Exception as e:  # e.g. singular design, no convergence
+        except Exception as e:  # noqa: BLE001  (e.g. singular design, no convergence: skipped and reported)
             fit_fails.append(str(e))
             continue
         for idx, r in enumerate(fitted):
@@ -417,7 +401,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     return results, metrics
 
 
-def slm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3, 
+def slm_report(results, metrics=None, format_pval=True, add_stars=True, decimal=3, 
               add_ftest=True, add_aic=True, add_bic=True, add_llf=True, add_mae=True, add_mad=True,
               add_pred_loo_mae=True, add_pred_loo_mad=True, # shown only if pred_metrics=True was used; no vif for spreg
               add_n_obs=True, add_n_groups=False, add_vif=False,
@@ -432,6 +416,8 @@ def slm_report(results, metrics={}, format_pval=True, add_stars=True, decimal=3,
     ``pred_metrics=True`` (leave-one-out, see :func:`pred_metrics`).
     """
 
+    if metrics is None:  # reporting without metrics is allowed
+        metrics = []
     output = []
     for r, i in zip_longest(results, metrics, fillvalue={}):
         s = []

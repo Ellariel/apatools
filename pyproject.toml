@@ -1,37 +1,108 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
 name = "apatools"
 version = "0.1.0"
-description = "A Toolbox for Meta-Analysis and APA-Compliant Reporting."
-authors = [{ name = "Danila Valko", email = "danila.valko@proton.me" }]
-requires-python = ">=3.9"
-keywords = ["apatools", "reporting", "regression", "statsmodels", 
-            "SEM", "EFA", "CFA", "RLM", "MLM", "APA"]
+description = "A toolbox for meta-analysis and APA-compliant reporting of regression, spatial, panel, SEM and propensity score matching results."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Danila Valko", email = "danila.valko@proton.me" }]
+requires-python = ">=3.10"
+keywords = [
+    "apa", "reporting", "meta-analysis", "effect size", "regression", "statsmodels",
+    "spatial regression", "panel data", "SEM", "RLM", "MLM", "propensity score matching",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+# The core (apatools.calc, apatools.format, apatools.citation) only needs numpy and scipy.
+# Everything else is installed through extras named after the module, e.g. apatools[lm].
 dependencies = [
     "numpy>=2.0.2",
-    "pandas>=2.2.3",
     "scipy>=1.13.1",
-    "lxml>=5.3.0",
-    "psmpy>=0.3.13",
-    "semopy>=2.3.11",
-    "spreg>=1.9.0",
-    "statsmodels>=0.14.4",
-    "factor-analyzer>=0.5.1",
-    "krippendorff",
 ]
+
+[project.optional-dependencies]
+# apatools.lm: OLS/RLM/GLM/QuantReg/MixedLM with statsmodels
+lm = [
+    "pandas>=2.2.3",
+    "statsmodels>=0.14.4",
+    "lxml>=5.3.0",        # pandas.read_html in lm_report
+]
+# apatools.slm: spatial regression with spreg
+slm = [
+    "pandas>=2.2.3",
+    "statsmodels>=0.14.4",
+    "spreg>=1.9.0",
+    "libpysal",
+]
+# apatools.plm: panel regression with spreg
+plm = [
+    "pandas>=2.2.3",
+    "spreg>=1.9.0",
+    "libpysal",
+    "patsy",
+]
+# apatools.sem: structural equation models with semopy
+sem = [
+    "pandas>=2.2.3",
+    "semopy>=2.3.11",
+]
+# apatools.psm: propensity score matching with psmpy
+psm = [
+    "pandas>=2.2.3",
+    "psmpy>=0.3.13",
+]
+# apatools.lib: inter-rater agreement, comparison of correlations, Gini, ...
+lib = [
+    "pandas>=2.2.3",
+    "statsmodels>=0.14.4",
+]
+# the linearmodels backend of apatools.plm (includes the plm extra)
+linearmodels = ["apatools[plm]", "linearmodels>=6.0"]
+# SEM path diagrams, apatools.sem.sem_plot (includes the sem extra); the Graphviz executables
+# must also be installed and on the PATH
+graphviz = ["apatools[sem]", "graphviz>=0.20.3"]
+# apatools.lib.krippendorffs_alpha (includes the lib extra); krippendorff is GPL-3.0-or-later
+krippendorff = ["apatools[lib]", "krippendorff"]
+all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,krippendorff]"]
+
+[project.urls]
+Homepage = "https://github.com/Ellariel/apatools"
+Repository = "https://github.com/Ellariel/apatools"
+Issues = "https://github.com/Ellariel/apatools/issues"
+Changelog = "https://github.com/Ellariel/apatools/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
-    "scikit-learn>=1.5.2",
-    "seaborn>=0.13.2",
-    "matplotlib>=3.9.2",
-    "networkx>=3.2.1",
-    "graphviz>=0.20.3",
-    "libpysal",
+    "apatools[all]",
     "pytest>=8.3.4",
-    "ruff>=0.8.4",
-    "nest_asyncio",
+    "ruff~=0.17.5",  # keep in sync with .github/workflows/ci.yml
+    "build",
+    "twine",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["apatools"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/apatools", "/tests", "/README.md", "/LICENSE", "/CHANGELOG.md", "/pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.mypy]
 ignore_missing_imports = true

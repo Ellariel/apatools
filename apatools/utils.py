@@ -1,9 +1,40 @@
-import numpy as np
-import pandas as pd
-import itertools
-import asyncio
 import zipfile
+
+import numpy as np
 import scipy
+
+from ._deps import missing_dependency
+
+try:
+    import pandas as pd
+except ImportError as e:  # pragma: no cover
+    missing_dependency("utils", None, e, hint="pip install pandas")
+
+
+def w_subset_rows(w, positions):
+    """
+    Spatial weights restricted to the observations at ``positions``.
+
+    Unlike ``libpysal.weights.w_subset`` the original weight values are kept (not
+    replaced by binary ones), the transformation of ``w`` (e.g. row-standardization,
+    ``w.transform``) is re-applied to the subset and the ids of the returned
+    object are the new row positions ``0..len(positions)-1``.
+    Observations that lose all their neighbours become islands (see ``.islands``).
+
+    Parameters
+    ----------
+    w : libpysal.weights.W
+        Weights whose ``id_order`` corresponds to the rows of the data.
+    positions : array-like of int
+        Row positions to keep (in the order of the data).
+    """
+    # imported here: only the spatial modules need libpysal
+    from libpysal.weights import WSP
+
+    positions = np.asarray(positions, dtype=int)
+    sub = WSP(w.sparse[positions][:, positions]).to_W(silence_warnings=True)
+    sub.transform = w.transform
+    return sub
 
 
 def df_check_intercept(df=None, columns=None):  # look for the intercept column name
@@ -73,41 +104,3 @@ def read_zip(
         if ".xls" in fname.lower():
             return pd.read_excel(zf.open(fname), **kwargs)
         return pd.read_csv(zf.open(fname), **kwargs)
-
-
-def take_until_timeout(
-    iterator,
-    max_elements=None,
-    per_item_timeout=None,
-    total_timeout=None,
-    loop=None,
-    patch_loop=False,
-):
-    # https://docs.python.org/3/library/asyncio-task.html#asyncio.wait_for
-
-    if patch_loop:
-        import nest_asyncio
-
-        nest_asyncio.apply(loop)
-
-    async def get_elements(start):
-        elements = []
-        for i in itertools.count():
-            if max_elements is not None and i >= max_elements:
-                break
-            if total_timeout is not None and loop.time() - start > total_timeout:
-                break
-            try:
-                item = await asyncio.wait_for(
-                    asyncio.to_thread(next, iterator), timeout=per_item_timeout
-                )
-            except asyncio.TimeoutError:
-                break
-            except StopIteration:
-                break
-
-            elements.append(item)
-        return elements
-
-    loop = asyncio.get_event_loop() if loop is None else loop
-    return loop.run_until_complete(get_elements(loop.time()))

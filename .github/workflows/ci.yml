@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+jobs:
+  core:
+    # the base installation (numpy + scipy only) must work on its own: calc, format and the packaging checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the package WITHOUT extras
+        run: python -m pip install --upgrade pip && python -m pip install . pytest
+      - name: Test the core installation
+        # tests that need an extra are skipped by tests/conftest.py
+        run: |
+          mkdir -p /tmp/run && cp -r tests /tmp/run/tests && cd /tmp/run
+          python -m pytest tests -q
+          python -c "import pandas" 2>/dev/null && { echo "pandas must not be installed in the core job"; exit 1; } || true
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Graphviz (SEM path diagrams)
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+      - name: Install the package with all extras
+        run: python -m pip install --upgrade pip && python -m pip install ".[all]" pytest "ruff~=0.17.5"  # pinned: a new ruff release must not break the build by itself
+      - name: Lint
+        run: ruff check apatools
+      - name: Test the installed package
+        # run from a copy of the tests so that the installed package, not the source tree, is imported
+        run: |
+          mkdir -p /tmp/run && cp -r tests /tmp/run/tests && cd /tmp/run
+          python -m pytest tests -q
