@@ -1,20 +1,25 @@
 import io
 import contextlib
 import warnings
-import scipy
-import numpy as np
-import spreg as spr
-from libpysal.weights import WSP
-from pandas import to_numeric
 from itertools import zip_longest
-from statsmodels.api import add_constant
-# from sklearn.model_selection import LeaveOneOut
-from statsmodels.formula.formulatools import handle_formula_data
 
+import numpy as np
+import scipy
+
+from ._deps import missing_dependency
+
+try:
+    import spreg as spr
+    from pandas import to_numeric
+    from statsmodels.api import add_constant
+    from statsmodels.formula.formulatools import handle_formula_data
+except ImportError as e:  # pragma: no cover
+    missing_dependency("slm", "slm", e)
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
 from .utils import df_standardize, df_check_intercept
+from .utils import w_subset_rows  # noqa: F401  (lives in utils now; re-exported for compatibility)
 
 
 # https://pysal.org/spreg/index.html
@@ -112,29 +117,6 @@ def base_metrics(results):
         }
     )
     return outputs
-
-
-def w_subset_rows(w, positions):
-    """
-    Spatial weights restricted to the observations at ``positions``.
-
-    Unlike ``libpysal.weights.w_subset`` the original weight values are kept (not
-    replaced by binary ones), the transformation of ``w`` (e.g. row-standardization,
-    ``w.transform``) is re-applied to the subset and the ids of the returned
-    object are the new row positions ``0..len(positions)-1``.
-    Observations that lose all their neighbours become islands (see ``.islands``).
-
-    Parameters
-    ----------
-    w : libpysal.weights.W
-        Weights whose ``id_order`` corresponds to the rows of the data.
-    positions : array-like of int
-        Row positions to keep (in the order of the data).
-    """
-    positions = np.asarray(positions, dtype=int)
-    sub = WSP(w.sparse[positions][:, positions]).to_W(silence_warnings=True)
-    sub.transform = w.transform
-    return sub
 
 
 def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):

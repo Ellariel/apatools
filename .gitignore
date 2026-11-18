@@ -1,7 +1,7 @@
 # Byte-compiled / optimized / DLL files
 # manually
 *.json
-uv.lock
+*.lock
 *.png
 *.pdf
 *.csv

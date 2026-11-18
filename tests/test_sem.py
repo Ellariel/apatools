@@ -1,3 +1,6 @@
+import shutil
+
+import pytest
 import semopy
 
 from apatools.sem import sem, sem_report, semopy_plot, sem_plot, CITATION
@@ -22,18 +25,41 @@ def test_sem():
         seed=13,
     )
     assert model is not None
-    assert f"{stats['estimate'].iloc[0]:.3f}" == "1.252"
+    # the fit itself is deterministic ...
+    plain, plain_metrics = sem(data, formula, bootstrap=0, seed=13)
+    assert f"{plain['estimate'].iloc[0]:.3f}" == "1.482"
+    # ... the bias-corrected estimate depends on the random resamples (and thereby on the numpy/pandas
+    # versions), so it is only checked loosely (1.252 with numpy 2.0-2.2 / pandas 2.3)
+    assert abs(stats["estimate"].iloc[0] - plain["estimate"].iloc[0]) < 0.5
 
-    results = sem_report(stats, metrics, format_pval=True, add_stars=True)
+    # the reported fit of the deterministic fit is checked exactly ...
+    results = sem_report(plain, plain_metrics, format_pval=True, add_stars=True)
     assert (
         results.iloc[0]["model"]
-        == "χ²(35, N = 75) = 38.125, p = .329, CFI = .995, GFI = .948, AGFI = .918, NFI = .948, TLI = .993, RMSEA = 0.035, AIC = 60.872, BIC = 132.714, LogLik = 0.564"
+        == "χ²(35, N = 75) = 38.125, p = .329, CFI = .995, GFI = .948, AGFI = .918, NFI = .948, TLI = .993, RMSEA = 0.035, AIC = 60.983, BIC = 132.825, LogLik = 0.508"
     )
+    # ... the one after the bootstrap bias correction only for its structure: AIC, BIC and LogLik are
+    # computed from the corrected (random) estimates, e.g. AIC = 60.872 / 60.874 depending on the versions
+    results = sem_report(stats, metrics, format_pval=True, add_stars=True)
+    summary = results.iloc[0]["model"]
+    assert summary.startswith(
+        "χ²(35, N = 75) = 38.125, p = .329, CFI = .995, GFI = .948, AGFI = .918, NFI = .948, "
+        "TLI = .993, RMSEA = 0.035, AIC = 60.8"
+    )
+    assert summary.count("BIC = 132.7") == 1 and "LogLik = 0.56" in summary
     print(results)
+
+
+@pytest.mark.skipif(shutil.which("dot") is None, reason="the Graphviz executables are not installed")
+def test_sem_plot(tmp_path):
+    pytest.importorskip("graphviz")
+    data = semopy.examples.political_democracy.get_data()
+    formula = semopy.examples.political_democracy.get_model()
+    stats, metrics = sem(data, formula, bootstrap=0, seed=13)
 
     fig = semopy_plot(
         stats,
-        save_to_file="fig1.png",
+        save_to_file=str(tmp_path / "fig1.png"),
         plot_covs=True,
         std_ests=True,
         plot_ests=True,
@@ -46,10 +72,11 @@ def test_sem():
         seed=13,
     )
     assert fig is not None
-    
+    assert (tmp_path / "fig1.png").stat().st_size > 0
+
     fig = sem_plot(
         stats,
-        save_to_file="fig2.png",
+        save_to_file=str(tmp_path / "fig2.png"),
         plot_covs=True,
         std_ests=True,
         show_stars=True,
@@ -63,7 +90,8 @@ def test_sem():
         seed=13,
     )
     assert fig is not None
-    
+    assert (tmp_path / "fig2.png").stat().st_size > 0
+
 
 def test_sem_report_and_plot_details():
     import pandas as pd

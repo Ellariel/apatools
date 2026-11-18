@@ -256,7 +256,8 @@ def test_slx_lags_add_lagged_predictors(sim):
 
 
 @pytest.mark.xfail(raises=TypeError, strict=False,
-                   reason="spreg 1.9.0 ML_ErrorRE fails with complex numbers; use sem_re_gm")
+                   reason="spreg 1.9.0 ML_ErrorRE fails with complex numbers with older numpy/scipy "
+                          "(works with numpy 2.5 / scipy 1.18); use sem_re_gm")
 def test_sem_re_ml_upstream_bug(sim):
     df, w = sim
     fit(df, w, "sem_re")

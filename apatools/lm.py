@@ -1,16 +1,22 @@
 import warnings
-import scipy
-import numpy as np
 from io import StringIO
-import statsmodels.api as sm
 from itertools import zip_longest
-from statsmodels.api import add_constant
-from sklearn.model_selection import LeaveOneOut
-from pandas import read_html, to_numeric, DataFrame, Series
-from statsmodels.formula.formulatools import handle_formula_data
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
 
+import numpy as np
+import scipy
+
+from ._deps import missing_dependency
+
+try:
+    import statsmodels.api as sm
+    from statsmodels.api import add_constant
+    from pandas import read_html, to_numeric, DataFrame, Series
+    from statsmodels.formula.formulatools import handle_formula_data
+    from statsmodels.stats.outliers_influence import variance_inflation_factor
+    from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
+    import lxml  # noqa: F401  (pandas.read_html in lm_report needs it)
+except ImportError as e:  # pragma: no cover
+    missing_dependency("lm", "lm", e)
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
@@ -121,7 +127,9 @@ def pred_metrics(model, Y, X, **kwargs):
     _kwargs["verbose"] = False
     groups = kwargs.get("mlm_model_groups", None)  # mlm
 
-    for train_index, test_index in LeaveOneOut().split(X):
+    all_index = np.arange(len(X))
+    for i in all_index:  # leave one out: train on all rows but i, test on row i
+        train_index, test_index = np.delete(all_index, i), all_index[i : i + 1]
         if groups is not None:  # mlm
             x_train, x_test, _groups = (
                 X.iloc[train_index],

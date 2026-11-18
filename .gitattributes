@@ -1,0 +1,4 @@
+# Normalize line endings so that sdists/wheels are identical no matter where they are built
+* text=auto eol=lf
+*.png binary
+*.pdf binary

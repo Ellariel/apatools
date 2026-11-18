@@ -24,8 +24,9 @@ name             model                                                      back
 ``sem_re_gm``    spatial error, random effects (GMM, Kapoor-Kelejian-Prucha)  spreg
 ===============  =========================================================  =========
 
-Note that ``spreg`` 1.9.0 raises a ``TypeError`` (complex numbers) in ``ML_ErrorRE`` for the data
-we tried; use ``sem_re_gm`` until this is fixed upstream.
+Note that ``sem_re`` (spreg's ``ML_ErrorRE``, version 1.9.0) raised a ``TypeError`` (complex numbers) with
+the older numpy/scipy versions we tested (numpy 2.0-2.2, scipy 1.13-1.15) and worked with recent ones
+(numpy 2.5, scipy 1.18); ``sem_re_gm`` worked everywhere.
 
 Data layout
 -----------
@@ -45,13 +46,20 @@ from itertools import zip_longest
 import numpy as np
 import scipy.stats
 import scipy.sparse as sps
-import spreg as spr
-from libpysal.weights import WSP
-from pandas import DataFrame, Index, Series, MultiIndex, concat, to_numeric
+
+from ._deps import missing_dependency
+
+try:
+    import spreg as spr
+    import patsy  # noqa: F401  (used for formulas)
+    from libpysal.weights import WSP
+    from pandas import DataFrame, Index, Series, MultiIndex, concat, to_numeric
+except ImportError as e:  # pragma: no cover
+    missing_dependency("plm", "plm", e)
 
 from .citation import Citation
 from .format import format_r, format_p, get_stars
-from .slm import w_subset_rows
+from .utils import w_subset_rows
 
 # https://pysal.org/spreg/index.html
 # https://bashtage.github.io/linearmodels/
@@ -364,12 +372,8 @@ def _fit_spreg(name, panel, kwargs):
 
 
 def _fit_linearmodels(name, panel, kwargs):
-    try:
-        from linearmodels.panel import PanelOLS, PooledOLS, RandomEffects
-    except ImportError as e:  # pragma: no cover
-        raise ImportError(
-            "backend='linearmodels' needs the optional dependency: pip install linearmodels"
-        ) from e
+    # check the request first: the message about spatial models is useful whether or not
+    # linearmodels is installed
     if name not in LINEARMODELS_MODELS:
         raise NotImplementedError(
             f"Model '{name}' is not available with backend='linearmodels' "
@@ -377,6 +381,13 @@ def _fit_linearmodels(name, panel, kwargs):
         )
     if kwargs.get("slx_lags", 0):
         raise NotImplementedError("slx_lags needs backend='spreg'.")
+    try:
+        from linearmodels.panel import PanelOLS, PooledOLS, RandomEffects
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            "backend='linearmodels' needs the optional dependency linearmodels: "
+            'pip install "apatools[linearmodels]"'
+        ) from e
     model_kwargs = _model_kwargs(kwargs, name)
     fit_kwargs = _model_kwargs(kwargs, name, "fit")
     x = panel.x

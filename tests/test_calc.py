@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.stats import spearmanr
 
 from apatools.calc import *
@@ -303,13 +304,14 @@ def test_regressions():
     assert abs(unbiased_z(0.5, 10_000) - z_from_r(0.5)) < 1e-3
     # r <-> t <-> p round trip
     assert abs(p_from_r(r_from_p(0.01, 40), 40) - 0.01) < 1e-9
-    # bootstrap is also exposed through the old location
+
+
+def test_bootstrap_is_still_importable_from_lib():
+    pytest.importorskip("pandas")  # apatools.lib needs the lib extra
+    pytest.importorskip("statsmodels")
     from apatools.lib import bootstrap as lib_bootstrap
 
     assert lib_bootstrap is bootstrap
-
-
-import pytest
 
 
 @pytest.mark.parametrize("r", [-0.9, -0.3, 0.0, 0.1, 0.5, 0.95])

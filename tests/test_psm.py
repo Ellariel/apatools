@@ -1,24 +1,54 @@
-import statsmodels.api as sm
+import numpy as np
+import pandas as pd
+import pytest
 
 from apatools.psm import psm, psm_effect_size, CITATION
+
+
+def mtcars():
+    """The example data of psmpy (downloaded by statsmodels; statsmodels is not a dependency of psm)."""
+    sm = pytest.importorskip("statsmodels.api")
+    return sm.datasets.get_rdataset("mtcars", "datasets", cache=True).data.reset_index()
+
+
+def test_psm_smoke():
+    """Runs with the psm extra only (synthetic data, no download)."""
+    rng = np.random.default_rng(0)
+    n = 120
+    d = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n)})
+    d["treated"] = (rng.uniform(size=n) < 1 / (1 + np.exp(-(0.8 * d.x1 - 0.4 * d.x2)))).astype(int)
+    d["y"] = d.x1 + 0.5 * d.treated + rng.normal(size=n)
+
+    df, model = psm(d, treatment_variable="treated", include_vars=["x1", "x2"], return_model=True, seed=1)
+    assert set(df["treated"]) == {0, 1}
+    assert {"x1", "x2", "y", "index"} <= set(df.columns)
+    effects = psm_effect_size(model)
+    assert list(effects.columns) == ["variable", "matching", "effect_size"]
+    assert set(effects["matching"]) == {"before", "after"} and set(effects["variable"]) == {"x1", "x2"}
+    assert np.isfinite(effects["effect_size"]).all()
+    # matching balances the covariates: smaller standardized differences afterwards
+    by = effects.groupby("matching")["effect_size"].apply(lambda s: s.abs().sum())
+    assert by["after"] < by["before"]
+    # reproducible
+    df2 = psm(d, treatment_variable="treated", include_vars=["x1", "x2"], seed=1)
+    pd.testing.assert_frame_equal(df, df2)
+    assert isinstance(CITATION.APA, str)
 
 
 def test_psm():
     # https://pypi.org/project/psmpy/
     # https://github.com/adriennekline/psmpy
-    test_data = sm.datasets.get_rdataset("mtcars", "datasets", cache=True).data
-    test_data.reset_index(inplace=True)
+    test_data = mtcars()
     assert len(test_data) == 32
 
     print(CITATION.APA)
 
     df, model = psm(
         test_data,
-        treatment_variable='vs',
-        include_vars=['mpg', 'cyl'],
-        exclude_vars=['am', 'gear', 
-                      'qsec', 'hp'],
-        index_variable='rownames',
+        treatment_variable="vs",
+        include_vars=["mpg", "cyl"],
+        exclude_vars=["am", "gear", "qsec", "hp"],
+        index_variable="rownames",
         balance=False,
         replacement=True,
         return_model=True,
@@ -30,11 +60,10 @@ def test_psm():
 
     df, model = psm(
         test_data,
-        treatment_variable='vs',
+        treatment_variable="vs",
         include_vars=[],
-        exclude_vars=['am', 'gear', 
-                      'qsec', 'hp'],
-        index_variable='rownames',
+        exclude_vars=["am", "gear", "qsec", "hp"],
+        index_variable="rownames",
         balance=False,
         replacement=True,
         return_model=True,
@@ -44,10 +73,9 @@ def test_psm():
     effects = psm_effect_size(model)
     assert f"{effects.effect_size.sum():.3f}" == "12.349"
 
-    
 
 def test_psm_options():
-    d = sm.datasets.get_rdataset("mtcars", "datasets", cache=True).data.reset_index()
+    d = mtcars()
     kw = dict(treatment_variable="vs", index_variable="rownames", balance=False, seed=13)
 
     a = psm(d, include_vars=["mpg", "cyl"], **kw)

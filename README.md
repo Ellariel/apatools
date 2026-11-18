@@ -5,17 +5,37 @@ This toolbox is a curated collection of utilities I frequently use for statistic
 
 ## Install
 ```shell
-pip install git+https://github.com/ellariel/apatools.git
+pip install apatools
 ```
+Requires Python 3.10 or newer. The latest development version is available with `pip install git+https://github.com/ellariel/apatools.git`.
+
+The base installation is light: it contains `apatools.calc` and `apatools.format` and needs only *numpy* and *scipy*. Every other module has its own heavier dependencies and is installed through an extra of the same name:
+
+| install | module | brings in |
+|---|---|---|
+| `pip install apatools` | `calc`, `format` | numpy, scipy |
+| `pip install "apatools[lm]"` | `lm` | pandas, statsmodels, lxml |
+| `pip install "apatools[slm]"` | `slm` | pandas, statsmodels, spreg, libpysal |
+| `pip install "apatools[plm]"` | `plm` | pandas, spreg, libpysal, patsy |
+| `pip install "apatools[sem]"` | `sem` | pandas, semopy |
+| `pip install "apatools[psm]"` | `psm` | pandas, psmpy |
+| `pip install "apatools[lib]"` | `lib` | pandas, statsmodels |
+| `pip install "apatools[linearmodels]"` | `plm` with the *linearmodels* backend | the `plm` extra and linearmodels |
+| `pip install "apatools[graphviz]"` | `sem_plot` path diagrams | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
+| `pip install "apatools[krippendorff]"` | `lib.krippendorffs_alpha` | the `lib` extra and *krippendorff* (GPL-3.0-or-later) |
+| `pip install "apatools[all]"` | everything | all of the above |
+
+Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a module without its extra gives an `ImportError` that names the extra to install.
 
 ## Content and examples
 * ***apatools.calc*** - *a basic module for statistical conversions and bootstrapping*
-* ***apatools.lm*** - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
-* ***apatools.slm*** - *a module offering wrapper functions for spreg, streamlining the fitting of OLS, spatial lag (SLM) and spatial error (SEM) models, as well as generating detailed tables*
-* ***apatools.plm*** - *a module offering wrapper functions for panel regressions (pooled, fixed and random effects, with optional spatial lag/error terms) with spreg or, optionally, linearmodels, as well as generating detailed tables and specification tests*
-* ***apatools.sem*** - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
-* ***apatools.psm*** - *a module for performing propensity score matching, complete with effect sizes reporting*
 * ***apatools.format*** - *simple APA-compliant formatting functions for numerical results*
+* ***apatools.lm*** (extra `lm`) - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
+* ***apatools.slm*** (extra `slm`) - *a module offering wrapper functions for spreg, streamlining the fitting of OLS, spatial lag (SLM) and spatial error (SEM) models, as well as generating detailed tables*
+* ***apatools.plm*** (extra `plm`) - *a module offering wrapper functions for panel regressions (pooled, fixed and random effects, with optional spatial lag/error terms) with spreg or, optionally, linearmodels, as well as generating detailed tables and specification tests*
+* ***apatools.sem*** (extra `sem`) - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
+* ***apatools.psm*** (extra `psm`) - *a module for performing propensity score matching, complete with effect sizes reporting*
+* ***apatools.lib*** (extra `lib`) - *assorted helpers: inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), pooling and comparing correlations, HTMT ratio, Gini coefficient*
 
 ### *apatools.calc*
 
@@ -126,7 +146,7 @@ Panel regressions (pooled, fixed effects, random effects, optionally with a spat
 
 Data are an ordinary *long* data frame with an entity and a time column (or an `(entity, time)` index). The module checks that the panel is balanced, aligns the entities with the rows of the spatial weights `w` (the entity values must be the ids `w.id_order`, otherwise pass `w_ids`) and brings the rows into the layout spreg needs, so the row order of your data does not matter.
 
-Models (`model=`): `pooled`, `fe`, `re` (both backends), `slm_fe`, `slm_re`, `sem_pooled`, `sem_fe`, `sem_re`, `sem_pooled_gm`, `sem_re_gm` (spreg: spatial lag / spatial error with ML or GMM estimation). *spreg* 1.9.0 fails in `sem_re` (ML); use `sem_re_gm`.
+Models (`model=`): `pooled`, `fe`, `re` (both backends), `slm_fe`, `slm_re`, `sem_pooled`, `sem_fe`, `sem_re`, `sem_pooled_gm`, `sem_re_gm` (spreg: spatial lag / spatial error with ML or GMM estimation). `sem_re` (ML) failed with older numpy/scipy versions (numpy 2.0-2.2, scipy 1.13-1.15) in *spreg* 1.9.0, but worked with recent ones; `sem_re_gm` worked everywhere.
 
 Specific parameters:
 * `entity`, `time` - columns (or index levels) identifying entity and period; `balance="drop"` drops entities that are not observed in all periods instead of raising an error
@@ -211,11 +231,10 @@ s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
 
 
 ## Sources and references
-* [factor-analyzer](https://pypi.org/project/factor-analyzer/) (GPL-2.0 License)
 * [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
+* [linearmodels](https://pypi.org/project/linearmodels/) (NCSA License)
 * [semopy](https://pypi.org/project/semopy/) (MIT License)
 * [spreg](https://pypi.org/project/spreg/) (BSD License)
-* [linearmodels](https://pypi.org/project/linearmodels/) (NCSA License)
 * [psmpy](https://pypi.org/project/psmpy/) (MIT License)
 * [scipy](https://pypi.org/project/scipy/) (BSD License)
 
@@ -225,4 +244,7 @@ Note that APA citations of the original packages can be imported from each speci
 from apatools.psm import CITATION
 print(CITATION.APA) 
 ```
+
+## License
+MIT, see [LICENSE](LICENSE). Note that the optional dependency *krippendorff* is licensed under GPL-3.0-or-later.
 

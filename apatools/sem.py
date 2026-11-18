@@ -1,6 +1,12 @@
 import numpy as np
-import pandas as pd
-import semopy
+
+from ._deps import missing_dependency
+
+try:
+    import pandas as pd
+    import semopy
+except ImportError as e:  # pragma: no cover
+    missing_dependency("sem", "sem", e)
 
 from .citation import Citation
 from .format import format_p, get_stars

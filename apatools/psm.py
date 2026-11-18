@@ -1,7 +1,13 @@
 import numpy as np
-import pandas as pd
-from psmpy import PsmPy
-from psmpy.functions import cohenD
+
+from ._deps import missing_dependency
+
+try:
+    import pandas as pd
+    from psmpy import PsmPy
+    from psmpy.functions import cohenD
+except ImportError as e:  # pragma: no cover
+    missing_dependency("psm", "psm", e)
 
 from .citation import Citation
 
