@@ -5,12 +5,34 @@
 This list is not complete yet: it covers `apatools.lib` and the changes listed below.
 
 ### Fixed
+- `lm(formula=..., model="mlm", mlm_model_groups=...)` failed (IndexError) or used the wrong groups when the data
+  had missing values: the groups are now aligned with the rows that patsy kept.
+- `lm(..., vif=True, base_metrics=False)` silently dropped the VIFs.
+- `mlm_icc` ignored the variance components of `vc_formula` while `mlm_r_sq` included them; both use the same
+  random-effects variance now (the ICC of such models changes).
+- `psm(seed=...)` did not seed psmpy's own sampling (`balance=True` with unequal groups); the seed is passed on now
+  (psmpy versions without a seed argument are still supported).
+- `d_from_r`, `d_from_z`, `d_from_p`, `p_from_d`, `z_from_d` (and the `cohen_*` aliases) assumed two groups while
+  `r_from_d` had `n_groups`: they take `n_groups` too (default 2, unchanged results), so the conversions round-trip.
+- `independent_correlations(..., method="zou")` failed when `n2` was omitted.
 - `krippendorffs_alpha` returned wrong values except for nominal data without missing ratings.
+- `fleiss_kappa`: the standard error was 2-3 times too small (about 30 % false positives at the 5 % level), now the
+  null variance of Fleiss, Nee & Landis (1979) as in R's `irr`; missing ratings no longer count as a category, items
+  with a missing rating are left out (NaN in the per-item agreement); the one-tailed p-value used |z|; the
+  interpretation bands in the docstring were wrong.
 - `lm_report` replaced the coefficient names by NaN for a model without intercept, and `lm_report` and `slm_report`
   renamed every label that merely contains `const` (e.g. a variable `const_income`). Only the intercept is
   renamed now, in `lm_report`, `slm_report` and `plm_report` alike.
 
 ### Changed
+- **Breaking:** one name for the confidence level everywhere: `conf_level` (e.g. 0.95). It replaces `alpha` in
+  `dependent_correlations`, `independent_correlations`, `bootstrap`, `calc.p_from_ci`, `calc.ci_from_r` and
+  `calc.ci_from_p` (where `alpha` was already a confidence level, despite the name) and in `average_correlations`
+  (where `alpha=0.05` was a significance level: `conf_level=0.95` is the equivalent).
+- Docstrings of all public functions completed (parameters, return values, notes) with literature references for the
+  non-trivial methods.
+- `z_transform` returns NaN (instead of dividing by zero and warning) for constant or all-NaN input with
+  `ignore_errors=True`, and raises for all-NaN input with `ignore_errors=False`.
 - `apatools.lib` is a package now (`misc`, `fleiss`, `krippendorff`, `correlations`, `cronbach`, `mcdonald`); everything is
   still imported from `apatools.lib`, only the private helpers moved into the submodules.
 - **Breaking:** `bootstrap` moved from `apatools.calc` to `apatools.lib` (`from apatools.lib import bootstrap`),

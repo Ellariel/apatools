@@ -35,6 +35,35 @@ The Review of Regional Studies, 37(1), 5-27."
 
 
 def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
+    """
+    Generator that fits one or several spreg models and yields the fitted results.
+
+    Parameters
+    ----------
+    model : str, spreg model class, or list/tuple of them
+        ``"ols"`` (``spreg.OLS``), ``"slm"`` (spatial lag, maximum likelihood, ``spreg.ML_Lag``)
+        or ``"sem"`` (spatial error, maximum likelihood, ``spreg.ML_Error``), the classes
+        themselves, or a list/tuple (one result per entry, in order). Other strings raise
+        ``NotImplementedError``. An unknown class is called as ``model(Y, X, w, **kwargs)``
+        with the ``model_``-prefixed keywords.
+    Y : array-like
+        Dependent variable (``n`` or ``n x 1``).
+    X : array-like or pandas.DataFrame
+        Predictors without constant; spreg adds the constant itself.
+    w : libpysal.weights.W or None
+        Spatial weights aligned with the rows (``None`` only for ``"ols"`` without spatial
+        diagnostics).
+    **kwargs
+        ``verbose`` (bool, default False) prints the model name and the arguments passed on.
+        Arguments for spreg are named ``<model>_model_<argument>`` with ``<model>`` in
+        ``ols``/``slm``/``sem`` (the first prefix is dropped, then ``model_``), e.g.
+        ``ols_model_spat_diag=True`` or ``slm_model_method="LU"``. Other keywords are ignored.
+
+    Yields
+    ------
+    spreg model object
+        ``model(Y, X, w, **model_kwargs)`` (spreg models are fitted on construction).
+    """
     if isinstance(model, (list, tuple)):
         for m in model:
             yield next(fit_model(m, Y, X, w, **kwargs))
@@ -78,6 +107,34 @@ def base_metrics(results):
     """
     Collect fit metrics (R²/pseudo R², adjusted R², F-test, AIC/BIC/LL, MAE, MAD) from a
     spreg results object.
+
+    * ``spreg.OLS``: ``r2``, ``ar2`` and the F test (``f_stat``) of spreg.
+    * ``spreg.ML_Lag`` / ``spreg.ML_Error``: ``r_sq`` is spreg's pseudo R² (``pr2``, the
+      squared correlation between observed ``y`` and the predicted ``predy``);
+      ``r_sq_adj = 1 - (1 - R²)(n - 1) / df_resid`` and the F statistic
+      ``(R² / df_model) / ((1 - R²) / df_resid)`` with its F-distribution p-value are computed
+      here (a rough, descriptive analogue; there is no exact F test for ML models).
+      The parameter count ``k`` of spreg includes ``rho`` for the lag model but not ``lambda``
+      of the error model, which is added here.
+
+    Parameters
+    ----------
+    results : spreg model object
+        Fitted ``OLS``, ``ML_Lag`` or ``ML_Error``.
+
+    Returns
+    -------
+    dict
+        ``r_sq``, ``r_sq_adj``, ``df_model`` (number of parameters minus the constant, so
+        including ``rho``/``lambda``), ``df_resid`` (``n - k``), ``f_stat``, ``f_pvalue``,
+        ``n_obs``, ``n_params`` (including the constant and ``rho``/``lambda``), ``mae`` (mean
+        absolute residual ``y - predy``), ``mad`` (median absolute deviation of the residuals,
+        ``median(|e - median(e)|)``, not rescaled), ``aic``, ``bic`` (spreg's Schwarz criterion)
+        and ``llf`` (log-likelihood; spreg's ``logll``).
+
+    References
+    ----------
+    Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
     """
 
     outputs = {}
@@ -175,6 +232,24 @@ def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
         :func:`apatools.lm.pred_metrics`), ``pred_loo_mae`` and ``pred_loo_mad``
         (median absolute deviation of the prediction errors). ``nan`` if every
         refit failed. Failed refits are skipped with a warning.
+
+    Notes
+    -----
+    This is a cross-validation-style metric. With ``e_i = y_i - ŷ_i`` the prediction
+    errors of the successfully refitted observations,
+    ``pred_loo_r_sq = 1 - Σ e_i² / Σ (y_i - ȳ)²`` (``ȳ`` is the mean of all observations,
+    the sums run over the predicted observations), clipped to [-1, 1];
+    ``pred_loo_mae = mean(|e_i|)``; ``pred_loo_mad = median(|e_i - median(e)|)``.
+    A ``UserWarning`` is issued if refits failed or if the training weights of some refits
+    contain islands (observations without neighbours). The ``w`` must have as many
+    observations as the data (``ValueError`` otherwise).
+
+    References
+    ----------
+    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
+    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+
+    Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
     """
     y = np.asarray(Y, dtype=float).reshape(len(Y), -1)
     x = np.asarray(X, dtype=float)
@@ -255,9 +330,14 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     """
     Fit OLS, spatial lag (SLM, ``ML_Lag``) and spatial error (SEM, ``ML_Error``) models with spreg.
 
+    The spatial lag model is ``y = ρWy + Xβ + ε`` and the spatial error model is
+    ``y = Xβ + u``, ``u = λWu + ε`` (Anselin, 1988), both estimated by maximum likelihood.
+    Requires the optional dependencies ``spreg`` and ``libpysal`` (for ``w``).
+
     Parameters
     ----------
     data : pandas.DataFrame
+        The data; its rows must be in the order of ``w.id_order``.
     y : str
         Dependent variable; ignored if ``formula`` is given.
     x : list of str
@@ -272,51 +352,68 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
         Function options (below) and spreg arguments named ``<model>_model_<argument>``
         with ``<model>`` in ols/slm/sem, e.g. ``ols_model_spat_diag=True``.
 
-    Returns
-    -------
-    results : list of spreg model objects
-    metrics : list of dict
-        r_sq (pseudo R² for SLM/SEM), r_sq_adj, f_stat, f_pvalue, df_model, df_resid
-        (n - k), aic, bic, llf, mae, mad (median absolute deviation of residuals), n_obs.
-        With ``pred_metrics=True`` also pred_loo_r_sq, pred_loo_mae, pred_loo_mad
-        (see :func:`pred_metrics` for how the predictions are made and for the
-        caveat on spatial autocorrelation).
-
-    Function options (``**kwargs``)
-    -------------------------------
-    verbose : bool (default True)
+    Other Parameters
+    ----------------
+    verbose : bool, default True
         Print the sample size, the formula and the model summaries.
-    dropna : bool (default True)
-        Drop rows with NAs (not with ``formula``: patsy always drops them).
-        ``w`` is restricted to the remaining rows automatically.
-    intercept : bool (default False)
-        Ignored by spreg, which always adds a constant.
-    standardize : False, True/'z' or callable
-        z-transform (or apply a callable to) the numeric columns.
-    base_metrics : bool (default True)
+    dropna : bool, default True
+        Drop rows with NAs (not with ``formula``: patsy always drops them), with a
+        ``UserWarning``. ``w`` is restricted to the remaining rows automatically
+        (``formula``: needs a unique ``data`` index).
+    intercept : bool, default False
+        Has no effect on the estimates: spreg always includes a constant (a constant column that
+        is already present is not duplicated, so True and False give the same model). It only
+        changes the printed formula. A model without intercept is not possible with spreg.
+    standardize : False, True/``"z"`` or callable, default False
+        z-transform (or apply a callable to) the numeric/boolean columns; other columns are
+        dropped. A ``UserWarning`` is issued for z-transformation, because it sets the intercept
+        estimate to zero.
+    base_metrics : bool, default True
         Compute :func:`base_metrics` for every model.
-    pred_metrics : bool (default False)
+    pred_metrics : bool, default False
         Add leave-one-out prediction metrics, which needs one refit per observation.
         Leave-one-out is optimistic for spatially autocorrelated data, see
         :func:`pred_metrics`.
-    pred_exclude_neighbors : bool (default False)
+    pred_exclude_neighbors : bool, default False
         With ``pred_metrics``: also remove the neighbours of the held-out observation
         from the training sample (less optimistic; needs ``w``).
-    There is no VIF for spreg models.
 
-    Example
+    Returns
     -------
-    slm(test_data, Y, X, w, model=['ols', 'slm'],
-                    verbose=True,
-                    dropna=True,
-                    intercept=False, # ignored, spreg adds it by default
-                    standardize='z' # keeps np.number or bool columns only
-                    base_metrics=True,
-                    pred_metrics=True, # leave-one-out R²pred, MAEpred, MADpred
-                    pred_exclude_neighbors=False,
+    results : list of spreg model objects
+        One fitted ``spreg.OLS`` / ``spreg.ML_Lag`` / ``spreg.ML_Error`` per model.
+    metrics : list of dict
+        One dict per model (see :func:`base_metrics`): ``r_sq`` (pseudo R² for SLM/SEM),
+        ``r_sq_adj``, ``f_stat``, ``f_pvalue``, ``df_model``, ``df_resid`` (n - k),
+        ``n_params``, ``aic``, ``bic``, ``llf``, ``mae``, ``mad`` (median absolute deviation
+        of residuals), ``n_obs``. With ``pred_metrics=True`` also ``pred_loo_r_sq``,
+        ``pred_loo_mae``, ``pred_loo_mad`` (see :func:`pred_metrics` for how the predictions
+        are made and for the caveat on spatial autocorrelation). Empty if neither
+        ``base_metrics`` nor ``pred_metrics`` is requested. There is no VIF for spreg models.
 
-                    ols_model_spat_diag=True,
-                    ols_model_nonspat_diag=True,
+    Raises
+    ------
+    ValueError
+        If neither ``formula`` nor non-empty ``x`` together with ``y`` is given.
+
+    References
+    ----------
+    Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+
+    Examples
+    --------
+    >>> results, metrics = slm(
+    ...     test_data, Y, X, w, model=["ols", "slm"],
+    ...     verbose=True,
+    ...     dropna=True,
+    ...     intercept=False,  # keep False, spreg adds the constant by default
+    ...     standardize="z",  # keeps np.number or bool columns only
+    ...     base_metrics=True,
+    ...     pred_metrics=True,  # leave-one-out R²pred, MAEpred, MADpred
+    ...     pred_exclude_neighbors=False,
+    ...     ols_model_spat_diag=True,
+    ...     ols_model_nonspat_diag=True,
+    ... )  # doctest: +SKIP
     """
 
     verbose = kwargs.get("verbose", True)
@@ -354,7 +451,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
             print(f"Formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
 
         if constant:
-            X = add_constant(X)  # ignoredin spreg
+            X = add_constant(X)  # no effect: spreg adds the constant itself and does not duplicate it
     else:
         (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
         if w is not None and len(Y) != len(data):
@@ -372,7 +469,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
             print(f"N={len(Y)}")
             print(f"Specified formula: {formula}")
 
-        if standardize:  # need a test
+        if standardize:
             X = df_standardize(X, func=standardize)
             Y = df_standardize(Y, func=standardize)
 
@@ -433,11 +530,55 @@ def slm_report(
     """
     Build one APA-style coefficient table per model from :func:`slm` output.
 
-    Columns: coef, se, z/t, p-value, cil, cir (95% CI from the normal approximation),
-    optional ``sig``. The first row's ``model`` column holds the fit summary, e.g.
-    ``R² = .35, R²adj = .31, R²pred = .22, F(3, 45) = 8.06, p < .001, AIC = ..., N = 49``;
-    R²pred, MAEpred and MADpred appear only if :func:`slm` was run with
-    ``pred_metrics=True`` (leave-one-out, see :func:`pred_metrics`).
+    Parameters
+    ----------
+    results : list
+        Fitted spreg models (first value returned by :func:`slm`).
+    metrics : list of dict, optional
+        Metrics (second value returned by :func:`slm`), matched with ``results`` by position;
+        without them the tables have no ``model`` column.
+    format_pval : bool or callable, default True
+        ``False`` keeps the numeric p-values. ``True`` replaces them by APA strings without the
+        ``p =`` prefix (``".009"``, ``"<.001"``; :func:`apatools.format.format_p`). A callable
+        is applied to every p-value and its return value is used. The stars are always
+        computed from the numeric p-values.
+    add_stars : bool or callable, default True
+        ``False``: no ``sig`` column. ``True``: add a ``sig`` column with significance stars
+        (``***`` p < .001, ``**`` p < .01, ``*`` p < .05, ``⁺`` p < .10, otherwise an empty
+        string; :func:`apatools.format.get_stars`). A callable maps one p-value to the marker.
+    decimal : int or None, default 3
+        Round the columns ``coef``, ``se``, ``cil`` and ``cir`` to this many decimals (the
+        statistic and the p-values are not rounded here). ``None`` or 0: no rounding.
+    add_ftest, add_aic, add_bic, add_llf, add_mae, add_mad, add_pred_loo_mae, add_pred_loo_mad, add_n_obs : bool, default True
+        Include the corresponding part (F test, AIC, BIC, ``LL``, ``MAE``, ``MAD``,
+        ``MAEpred``, ``MADpred``, ``N``) in the fit summary string if the metric is available
+        (the pred_* metrics only exist if :func:`slm` was run with ``pred_metrics=True``).
+        R², R²adj and R²pred are always shown when available.
+    add_n_groups : bool, default False
+        Include ``G = ...`` if the metrics have ``n_groups`` (never the case for spreg
+        models; kept for symmetry with :func:`apatools.lm.lm_report`).
+    add_vif : bool, default False
+        Join a ``vif`` column if the metrics contain one (spreg models do not).
+    intercept_name : str, default "Intercept"
+        Row label of the constant (spreg's ``CONSTANT``); other labels are unchanged.
+
+    Returns
+    -------
+    list of pandas.DataFrame
+        One table per model, indexed by the variable names of spreg (the spatial parameter
+        ``W_<y>`` (rho) or ``lambda`` appear as rows), with the columns
+
+        * ``coef``: estimate; ``se``: standard error;
+        * ``z``: the test statistic (spreg's ``zt_stat``; it is a t statistic for OLS but
+          is labelled ``z`` for all models);
+        * ``p-value``: p-value (formatted, see ``format_pval``);
+        * ``cil``, ``cir``: limits of the 95% confidence interval, ``coef ∓ z_0.975 · se``
+          with the normal quantile 1.96 (confidence level 0.95; also for OLS);
+        * ``sig``: significance stars (if ``add_stars``);
+        * ``model``: filled in the first row only (if metrics are given): the fit summary, e.g.
+          ``R² = .35, R²adj = .31, R²pred = .22, F(3, 45) = 8.06, p < .001, AIC = ..., N = 49``.
+          R²pred, MAEpred and MADpred appear only if :func:`slm` was run with
+          ``pred_metrics=True`` (leave-one-out, see :func:`pred_metrics`).
     """
 
     if metrics is None:  # reporting without metrics is allowed

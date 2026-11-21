@@ -444,3 +444,22 @@ def test_slm_report_renames_only_the_intercept(columbus):
 if __name__ == "__main__":
     test_slm()
     print("Tests for apatools.slm are PASSED!")
+
+
+def test_slm_intercept_option_does_not_change_the_model(columbus):
+    df, w = columbus
+    fits = [
+        slm(df, "HOVAL", ["INC", "CRIME"], w, model="ols", intercept=flag, verbose=False)[0][0]
+        for flag in (False, True)
+    ]
+    assert fits[0].name_x == fits[1].name_x == ["CONSTANT", "INC", "CRIME"]  # no duplicated constant
+    assert fits[0].betas.ravel().tolist() == pytest.approx(fits[1].betas.ravel().tolist())
+
+
+def test_slm_formula_with_standardize(columbus):
+    df, w = columbus
+    with pytest.warns(UserWarning, match="z-transformation"):
+        results, _ = slm(df, formula="HOVAL ~ INC + CRIME", w=w, model="ols", standardize="z", verbose=False)
+    z = (df[["HOVAL", "INC", "CRIME"]] - df[["HOVAL", "INC", "CRIME"]].mean()) / df[["HOVAL", "INC", "CRIME"]].std(ddof=0)
+    expected = np.linalg.lstsq(np.column_stack([np.ones(len(z)), z[["INC", "CRIME"]]]), z["HOVAL"], rcond=None)[0]
+    assert results[0].betas.ravel().tolist() == pytest.approx(expected.tolist(), abs=1e-8)

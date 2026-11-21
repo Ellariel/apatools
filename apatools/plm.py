@@ -115,19 +115,24 @@ class PanelData:
     Balanced panel in the *long layout* used by spreg: ``T`` consecutive blocks (periods) of
     ``N`` rows (entities), the entities in the order of the rows of the weights ``w``.
 
+    Usually created by :func:`make_panel` (called by :func:`plm`, which stores the instance on
+    every fitted model as ``plm_panel``).
+
     Attributes
     ----------
     y : pandas.Series
-        Dependent variable, index ``(entity, time)``.
+        Dependent variable (float), ``MultiIndex`` ``(entity, time)`` with level names
+        ``"entity"`` and ``"time"``, sorted by period first and then by entity.
     x : pandas.DataFrame
-        Predictors (without constant), same index.
+        Predictors (float, without constant), same index.
     ent, tim : numpy.ndarray
         Entity / period position (0..N-1 / 0..T-1) of every row.
     w : libpysal.weights.W or None
         Weights aligned with the entities (``w.n == N``), or None.
     N, T : int
+        Number of entities and of periods; ``len(y) == N * T``.
     entities, times : list
-        Labels of the entities (in layout order) and of the periods.
+        Labels of the entities (in layout order) and of the periods (sorted).
     """
 
     y: Series
@@ -144,6 +149,23 @@ class PanelData:
         """
         Panel restricted to the rows ``keep`` (boolean mask). Must remove whole entities
         and/or whole periods so that the panel stays balanced; ``w`` is restricted accordingly.
+
+        Parameters
+        ----------
+        keep : array-like of bool
+            Mask with one element per row of the panel.
+
+        Returns
+        -------
+        PanelData
+            New panel (the positions ``ent`` / ``tim`` are renumbered from 0; ``w`` is
+            restricted with the original weight values kept, and the original transformation
+            re-applied).
+
+        Raises
+        ------
+        ValueError
+            If the kept rows do not form a balanced rectangle (entities x periods).
         """
         keep = np.asarray(keep, dtype=bool)
         ent_kept = np.unique(self.ent[keep])
@@ -192,6 +214,10 @@ def make_panel(
     """
     Convert a long DataFrame into a :class:`PanelData` in the layout needed by spreg.
 
+    The rows are sorted by period first and then by entity; the entities are ordered like
+    the rows of ``w`` (with ``w``) or sorted (without ``w``; in order of appearance if they
+    cannot be sorted). Rows with a missing entity or period label are dropped.
+
     Parameters
     ----------
     data : pandas.DataFrame
@@ -201,25 +227,35 @@ def make_panel(
     x : list of str
         Predictors, without constant (ignored if ``formula`` is given).
     entity, time : str, optional
-        Columns (or index levels) identifying entity and period. If both are None, the
-        index must be a two-level ``(entity, time)`` MultiIndex.
+        Columns (or index levels) identifying entity and period. Pass both or none; if both
+        are None, the index must be a two-level ``(entity, time)`` MultiIndex.
     w : libpysal.weights.W, optional
         Spatial weights. The entity values must be the ids ``w.id_order`` (or ``w_ids``);
-        entities missing in the data are removed from ``w``.
+        entities missing in the data are removed from ``w`` (with a ``UserWarning``).
     formula : str, optional
         patsy formula (``"y ~ x1 + x2"``); the intercept is dropped (spreg and
-        linearmodels handle constants themselves).
-    dropna : bool
-        Drop rows with missing values.
-    balance : {"error", "drop"}
-        What to do with entities that are not observed in every period: raise an error
-        or drop these entities (with a warning).
+        linearmodels handle constants themselves). Rows with NAs are always dropped by patsy.
+    dropna : bool, default True
+        Drop rows with missing values in ``y``/``x`` (not used with ``formula``).
+    balance : {"error", "drop"}, default "error"
+        What to do with entities that are not observed in every period: raise a
+        ``ValueError`` or drop these entities (with a ``UserWarning``).
     w_ids : sequence, optional
         Entity labels in the row order of ``w``. Default: ``w.id_order``.
 
     Returns
     -------
     PanelData
+        The balanced panel (``N`` entities, ``T`` periods, ``N * T`` rows).
+
+    Raises
+    ------
+    ValueError
+        For an invalid ``balance`` / ``entity`` / ``time`` combination, a MultiIndex of the wrong
+        shape, duplicated ``(entity, time)`` pairs, an unbalanced panel with
+        ``balance="error"``, entities that are not ids of ``w``, or missing ``y``/``x``.
+    KeyError
+        If ``entity`` / ``time`` is neither a column nor an index level.
     """
     if balance not in ("error", "drop"):
         raise ValueError("balance must be 'error' or 'drop'.")
@@ -527,6 +563,30 @@ def base_metrics(r, panel=None):
     within R² and the residuals are recomputed here. spreg's FE standard errors use
     ``N·T - N`` instead of ``N·T - N - k`` degrees of freedom (slightly too small), and its
     confidence intervals / p-values are normal-based.
+
+    Parameters
+    ----------
+    r : fitted model
+        A result of :func:`plm` (spreg panel model or linearmodels ``PanelEffectsResults`` /
+        ``PanelResults``).
+    panel : PanelData, optional
+        Not used (kept so that ``base_metrics(r, panel)`` has the same call as the other
+        helpers).
+
+    Returns
+    -------
+    dict
+        See above. ``f_stat`` / ``f_pvalue`` / ``df_model`` / ``df_resid`` are missing for
+        spatial and random-effects models (and for the linearmodels random-effects model);
+        ``r_sq_adj`` exists for pooled OLS and non-spatial FE models only; ``aic`` / ``bic``
+        exist only for spreg models that report them, ``llf`` if the backend provides a finite
+        log-likelihood.
+
+    Notes
+    -----
+    The F test of an FE model compares the within R² with ``df_model = k`` and
+    ``df_resid = N·T - N - k``. The linearmodels F statistic follows the covariance type of
+    the fit (robust version if the covariance is not ``"Unadjusted"``).
     """
     name = _model_name(r)
     table = _param_table(r)
@@ -688,16 +748,38 @@ def pred_metrics(
     results : list
         Fitted models (from :func:`plm`), whose type determines the model names.
     panel : PanelData
-    backend : {"spreg", "linearmodels"}
-    group : {"entity", "time"}
-    exclude_neighbors : bool
+        The panel the models were fitted on (``results[i].plm_panel``).
+    backend : {"spreg", "linearmodels"}, default "spreg"
+        Estimation package used to refit the models.
+    group : {"entity", "time"}, default "entity"
+        Which groups are held out in turn.
+    exclude_neighbors : bool, default False
+        Also remove the neighbours (according to ``panel.w``) of the held-out entity from the
+        training sample; needs ``group="entity"`` and weights (``ValueError`` otherwise).
     **kwargs
-        The model arguments passed to :func:`plm`.
+        The model arguments passed to :func:`plm` (``<model>_model_<argument>`` etc.).
+        ``slx_lags > 0`` raises ``NotImplementedError``.
 
     Returns
     -------
     list of dict
-        ``pred_loo_r_sq`` (clipped to [-1, 1]), ``pred_loo_mae`` and ``pred_loo_mad`` per model.
+        One dict per model with ``pred_loo_r_sq`` (clipped to [-1, 1]), ``pred_loo_mae`` and
+        ``pred_loo_mad`` (median absolute deviation of the prediction errors); all ``nan`` for
+        models that could not be refitted (FE models with ``group="entity"``, or every
+        refit failed). Refits that fail are skipped and reported in a ``UserWarning``;
+        another warning reports training weights with islands.
+
+    Notes
+    -----
+    A cross-validation-style metric (leave-one-group-out). With ``e`` the prediction errors of
+    all held-out rows, ``pred_loo_r_sq = 1 - Σ e² / Σ (y - ȳ)²`` (``ȳ``: mean of all ``y``,
+    the sums run over the predicted rows), ``pred_loo_mae = mean(|e|)`` and
+    ``pred_loo_mad = median(|e - median(e)|)``.
+
+    References
+    ----------
+    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
+    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
     """
     if group not in ("entity", "time"):
         raise ValueError("group must be 'entity' or 'time'.")
@@ -809,6 +891,12 @@ def plm(
     """
     Fit panel regressions (pooled, fixed effects, random effects, optionally spatial).
 
+    The data are converted with :func:`make_panel` (balanced panel in the layout of spreg)
+    and every requested model is fitted on it. Spatial models: spatial lag with fixed or random
+    effects (Elhorst, 2003, 2014), spatial error with pooled, fixed or random effects by
+    maximum likelihood (Anselin, 1988) or the generalized-moments estimator of Kapoor,
+    Kelejian and Prucha (2007).
+
     Parameters
     ----------
     data : pandas.DataFrame
@@ -837,42 +925,73 @@ def plm(
         ``slm_fe_model_method="LU"``) or ``<model>_fit_<argument>`` (passed to
         ``.fit()``, linearmodels only), where ``<model>`` is one of the names above.
 
-    Function options
+    Other Parameters
     ----------------
-    verbose : bool (default True)
+    verbose : bool, default True
         Print the panel dimensions and the model summaries.
-    dropna : bool (default True)
+    dropna : bool, default True
         Drop rows with missing values.
-    balance : {"error", "drop"} (default "error")
+    balance : {"error", "drop"}, default "error"
         Entities not observed in all periods: raise an error or drop them.
     w_ids : sequence, optional
         Entity labels in the row order of ``w`` (default ``w.id_order``).
-    slx_lags : int (default 0)
-        Number of spatial lags of the predictors (spreg models that support it).
-    base_metrics : bool (default True)
+    slx_lags : int, default 0
+        Number of spatial lags of the predictors (spreg models that support it; not with
+        linearmodels).
+    base_metrics : bool, default True
         Compute :func:`base_metrics`.
-    pred_metrics : bool (default False)
+    pred_metrics : bool, default False
         Add leave-one-group-out prediction metrics, see :func:`pred_metrics`.
-    pred_group : {"entity", "time"} (default "entity")
+    pred_group : {"entity", "time"}, default "entity"
         Group that is held out.
-    pred_exclude_neighbors : bool (default False)
+    pred_exclude_neighbors : bool, default False
         Also hold out the neighbours of the held-out entity (needs ``w``).
 
     Returns
     -------
     results : list
-        One fitted model per entry of ``model`` (spreg or linearmodels objects). Each has an
-        attribute ``plm_panel`` with the :class:`PanelData` used.
+        One fitted model per entry of ``model`` (spreg or linearmodels objects). Each has the
+        attributes ``plm_panel`` (the :class:`PanelData` used) and ``plm_spec`` (backend and
+        fitting options), which :func:`mundlak` and :func:`plm_tests` need.
     metrics : list of dict
-        See :func:`base_metrics` (plus ``pred_loo_*`` if requested).
+        See :func:`base_metrics` (plus ``pred_loo_*`` if requested). Empty if neither
+        ``base_metrics`` nor ``pred_metrics`` is requested.
 
-    Example
-    -------
-    plm(df, "y", ["x1", "x2"], w=w, entity="county", time="year",
-        model=["pooled", "fe", "re", "slm_fe"],
-        verbose=True, balance="error", slx_lags=0,
-        base_metrics=True, pred_metrics=True, pred_group="time",
-        slm_fe_model_method="LU")
+    Raises
+    ------
+    ValueError
+        For an unknown ``backend`` or spatial model without ``w`` (and the errors of
+        :func:`make_panel`).
+    NotImplementedError
+        For an unknown model name, or a spatial model / ``slx_lags`` with
+        ``backend="linearmodels"``.
+    ImportError
+        If ``backend="linearmodels"`` and linearmodels is not installed.
+
+    References
+    ----------
+    Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+
+    Elhorst, J. P. (2003). Specification and estimation of spatial panel data models.
+    *International Regional Science Review, 26*(3), 244-268.
+
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
+    Springer.
+
+    Kapoor, M., Kelejian, H. H., & Prucha, I. R. (2007). Panel data models with spatially
+    correlated error components. *Journal of Econometrics, 140*(1), 97-130.
+
+    Baltagi, B. H. *Econometric analysis of panel data*. Wiley.
+
+    Examples
+    --------
+    >>> results, metrics = plm(
+    ...     df, "y", ["x1", "x2"], w=w, entity="county", time="year",
+    ...     model=["pooled", "fe", "re", "slm_fe"],
+    ...     verbose=True, balance="error", slx_lags=0,
+    ...     base_metrics=True, pred_metrics=True, pred_group="time",
+    ...     slm_fe_model_method="LU",
+    ... )  # doctest: +SKIP
     """
     verbose = kwargs.get("verbose", True)
     add_base_metrics = kwargs.pop("base_metrics", True)
@@ -956,8 +1075,47 @@ def plm_report(
     ``R²within`` is the R² of the within-transformed data (FE), ``R²overall`` the overall R² of a
     random-effects model (linearmodels), ``R²pseudo`` the squared correlation of observed and
     predicted y (spreg, spatial and RE models) and a plain ``R²`` is the pooled OLS R².
-    The spatial parameters (``W_dep_var`` = ρ, ``lambda`` = λ) and variance parameters are rows of
-    the table. ``format_pval`` / ``add_stars`` may be True or a callable.
+    The spatial parameters (``rho`` = ρ of the lag models, ``lambda`` = λ of the error models)
+    and the variance parameters of spreg (e.g. ``phi``, ``sigma2_v``) are rows of the table.
+
+    Parameters
+    ----------
+    results : list
+        Fitted models (first value returned by :func:`plm`).
+    metrics : list of dict, optional
+        Metrics (second value returned by :func:`plm`), matched with ``results`` by position;
+        without them the tables have no ``model`` column.
+    format_pval : bool or callable, default True
+        ``False`` keeps the numeric p-values. ``True`` replaces them by APA strings without the
+        ``p =`` prefix (``".009"``, ``"<.001"``; :func:`apatools.format.format_p`). A callable
+        is applied to every p-value and its return value is used. The stars are always
+        computed from the numeric p-values.
+    add_stars : bool or callable, default True
+        ``False``: no ``sig`` column. ``True``: add a ``sig`` column with significance stars
+        (``***`` p < .001, ``**`` p < .01, ``*`` p < .05, ``⁺`` p < .10, otherwise an empty
+        string; :func:`apatools.format.get_stars`). A callable maps one p-value to the marker.
+    decimal : int or None, default 3
+        Round the columns ``coef``, ``se``, ``cil`` and ``cir`` to this many decimals (the
+        statistic and the p-values are not rounded here). ``None`` or 0: no rounding.
+    add_ftest, add_aic, add_bic, add_llf, add_mae, add_mad, add_pred_loo_mae, add_pred_loo_mad, add_n_obs : bool, default True
+        Include the corresponding part (F test, AIC, BIC, ``LL``, ``MAE``, ``MAD``,
+        ``MAEpred``, ``MADpred``, ``N``) in the fit summary string if the metric is available.
+        R² (with its type, see above), R²adj and R²pred are always shown when available.
+    add_panel_dims : bool, default True
+        Append the number of entities and periods, ``n = ..., T = ...``.
+    intercept_name : str, default "Intercept"
+        Row label of the constant (``CONSTANT`` of spreg, ``const`` of linearmodels); other
+        labels are unchanged.
+
+    Returns
+    -------
+    list of pandas.DataFrame
+        One table per model, indexed by the coefficient names, with the columns ``coef``,
+        ``se``, ``z`` (spreg models other than pooled OLS) or ``t`` (pooled OLS and linearmodels),
+        ``p-value``, ``cil`` / ``cir`` (limits of the 95% confidence interval, confidence level
+        0.95: normal approximation ``coef ∓ 1.96 · se`` for spreg, the interval of
+        linearmodels otherwise), ``sig`` (if ``add_stars``) and ``model`` (fit summary, first
+        row only, if metrics are given). Fixed effects are not listed as coefficients.
     """
     if metrics is None:  # reporting without metrics is allowed
         metrics = []
@@ -1038,6 +1196,33 @@ def hausman(r_fe, r_re):
     ``nan`` (with a warning) if ``V_fe - V_re`` is not positive definite. This is common when the
     effects are correlated with the predictors (the random-effects variance is then too large),
     i.e. exactly when the test should reject; use :func:`mundlak` in that case.
+
+    Parameters
+    ----------
+    r_fe, r_re : fitted models
+        Fixed- and random-effects results from :func:`plm` of the same backend and spatial
+        structure (e.g. ``fe`` and ``re``, or ``slm_fe`` and ``slm_re``). The statistic uses the
+        slope coefficients (not the constant, ``rho``, ``lambda`` or variance parameters)
+        present in both.
+
+    Returns
+    -------
+    statistic : float
+        The Hausman statistic ``H``.
+    df : int
+        Degrees of freedom, the number of compared slope coefficients.
+    p_value : float
+        ``P(χ²(df) > H)``.
+
+    Raises
+    ------
+    ValueError
+        If there is no common slope coefficient.
+
+    References
+    ----------
+    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6),
+    1251-1271.
     """
     t_fe, t_re = _param_table(r_fe), _param_table(r_re)
     common = [n for n in _slopes(t_fe.index) if n in t_re.index]
@@ -1075,7 +1260,23 @@ def mundlak(r_re):
 
     Returns
     -------
-    (statistic, df, p-value) of the χ²(df) Wald test.
+    statistic : float
+        Wald statistic ``b' V⁻¹ b`` of the coefficients ``b`` (covariance ``V``) of the added
+        ``<x>_mean`` regressors; only predictors that vary within entities get a mean.
+    df : int
+        Number of added regressors.
+    p_value : float
+        ``P(χ²(df) > statistic)``.
+
+    Raises
+    ------
+    ValueError
+        If the model does not come from :func:`plm` or no predictor varies over time.
+
+    References
+    ----------
+    Mundlak, Y. (1978). On the pooling of time series and cross section data.
+    *Econometrica, 46*(1), 69-85.
     """
     panel, spec = getattr(r_re, "plm_panel", None), getattr(r_re, "plm_spec", None)
     if panel is None or spec is None:
@@ -1140,6 +1341,30 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
         unless ``format_pval=False``), optionally ``sig``, and an APA-style string ``report``.
         The table is empty (with these columns) if none of the tests applies to ``results``.
         Use ``format_pval=False, add_stars=False, decimal=None`` for the raw numbers.
+
+    Notes
+    -----
+    The ``model`` column holds the compared models (``"fe vs re"``) or the model name. ``df``
+    is None for the LM tests with one degree of freedom reported as ``LM``; ``df_denom`` is
+    set only for the F test. The Baltagi-Song-Koh and Anselin LM tests need spreg and
+    ``w``, and are computed from the pooled spreg model (``spreg.diagnostics_panel``).
+
+    References
+    ----------
+    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6),
+    1251-1271.
+
+    Mundlak, Y. (1978). On the pooling of time series and cross section data.
+    *Econometrica, 46*(1), 69-85.
+
+    Baltagi, B. H., Song, S. H., & Koh, W. (2003). Testing panel data regression models with
+    spatial error correlation. *Journal of Econometrics, 117*(1), 123-150.
+
+    Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications
+    to model specification in econometrics. *Review of Economic Studies, 47*(1), 239-253.
+
+    Anselin, L., Le Gallo, J., & Jayet, H. (2008). Spatial panel econometrics. In L. Mátyás &
+    P. Sevestre (Eds.), *The econometrics of panel data* (pp. 625-660). Springer.
     """
     by_name = {}
     for r in results:

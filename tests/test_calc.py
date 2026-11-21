@@ -327,7 +327,7 @@ def test_confidence_intervals():
     assert lo == pytest.approx(np.tanh(np.atanh(0.5) - 1.959964 * 0.1), abs=1e-5)
     assert hi == pytest.approx(np.tanh(np.atanh(0.5) + 1.959964 * 0.1), abs=1e-5)
     # narrower interval for a lower confidence level
-    lo90, hi90 = ci_from_r(0.5, 103, alpha=0.90)
+    lo90, hi90 = ci_from_r(0.5, 103, conf_level=0.90)
     assert lo < lo90 < 0.5 < hi90 < hi
     # a normal-theory 95% CI that just excludes zero gives p ~ .05
     est, se = 0.98, 0.5  # z = 1.96, so the interval is (0, 1.96)
@@ -348,3 +348,21 @@ if __name__ == "__main__":
     test_conversion()
     test_regressions()
     print("Tests for apatools.calc are PASSED!")
+
+
+def test_d_r_z_p_conversions_round_trip_for_any_number_of_groups():
+    for k in (2, 3, 4):
+        for d in (-1.2, 0.0, 0.3, 2.0):
+            r = r_from_d(d, n_groups=k)
+            assert d_from_r(r, n_groups=k) == pytest.approx(d)
+            assert d_from_z(z_from_d(d, n_groups=k), n_groups=k) == pytest.approx(d)
+            assert cohen_d_from_r(r, n_groups=k) == pytest.approx(d)
+            assert cohen_d_from_z(z_from_r(r), n_groups=k) == pytest.approx(d)
+            assert d_from_p(p_from_d(d, 80, n_groups=k), 80, n_groups=k) == pytest.approx(abs(d), abs=1e-6) or d == 0
+            assert cohen_d_from_p(p_from_d(1.0, 80, n_groups=k), 80, n_groups=k) == pytest.approx(1.0)
+    # the default is two groups: d = 2r / sqrt(1 - r^2)
+    assert d_from_r(0.5) == pytest.approx(2 * 0.5 / np.sqrt(0.75))
+    assert d_from_r(0.5) == d_from_r(0.5, n_groups=2)
+    assert d_from_z(0.5) == d_from_z(0.5, n_groups=2) and z_from_d(0.5) == z_from_d(0.5, n_groups=2)
+    # more groups: the same r belongs to a larger d
+    assert d_from_r(0.5, n_groups=4) > d_from_r(0.5, n_groups=2)

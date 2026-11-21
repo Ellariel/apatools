@@ -40,9 +40,38 @@ https://doi.org/10.25080/Majora-92bf1922-011"
 
 def vif(results, sort=False, decimal=2):
     """
-    VIF, the variance inflation factor, is a measure of multicollinearity.
-    VIF > 5 for a variable indicates that it is highly collinear with the
-    other input variables.
+    Variance inflation factors (VIF), a measure of multicollinearity.
+
+    The VIF of a predictor is ``1 / (1 - R²_j)``, where ``R²_j`` is the R² of the regression
+    of that column of the design matrix on all the other columns (see
+    :func:`statsmodels.stats.outliers_influence.variance_inflation_factor`). As a rule of
+    thumb, VIF > 5 (some authors use 10) indicates that the variable is highly collinear
+    with the other input variables. The VIF is computed for every column of
+    ``results.model.exog``, **including the constant**; the VIF of the constant is
+    not interpretable as a collinearity diagnostic (and is large when the predictors are
+    not centered), ignore it.
+
+    Parameters
+    ----------
+    results : statsmodels results object
+        Fitted model (OLS, RLM, GLM, QuantReg, MixedLM) with ``results.model.exog`` and
+        ``results.model.exog_names``.
+    sort : bool, default False
+        If True, sort the rows by VIF in ascending order.
+    decimal : int or None, default 2
+        Round the VIFs to this number of decimals; ``None`` or 0 keeps the full precision.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        A single column ``vif``, indexed by the names of the design matrix columns
+        (``results.model.exog_names``). If the calculation fails for any reason, a
+        ``UserWarning`` is issued and ``None`` is returned.
+
+    References
+    ----------
+    Belsley, D. A., Kuh, E., & Welsch, R. E. (1980). *Regression diagnostics:
+    Identifying influential data and sources of collinearity*. Wiley.
     """
     try:
         vif_df = DataFrame()
@@ -64,11 +93,69 @@ def vif(results, sort=False, decimal=2):
 
 
 def mlm_wrapper(Y, X, **kwargs):
+    """
+    Constructor of :class:`statsmodels.regression.mixed_linear_model.MixedLM` with ``groups`` as a keyword.
+
+    ``MixedLM(endog, exog, groups, ...)`` takes the grouping variable as the third *positional*
+    argument, whereas :func:`fit_model` calls every model class as ``model(Y, X, **model_kwargs)``.
+    This wrapper makes ``groups`` an ordinary keyword argument (``mlm_model_groups`` in
+    :func:`lm`).
+
+    Parameters
+    ----------
+    Y : array-like or pandas.Series
+        Dependent variable.
+    X : array-like or pandas.DataFrame
+        Design matrix of the fixed effects (include the constant yourself if wanted).
+    **kwargs
+        ``groups`` (required, array-like of group labels, one per row; ``KeyError`` if missing),
+        and any other keyword argument of ``MixedLM`` (e.g. ``exog_re``, ``re_formula``,
+        ``use_sqrt``).
+
+    Returns
+    -------
+    statsmodels.regression.mixed_linear_model.MixedLM
+        The unfitted model.
+    """
     groups = kwargs.pop("groups")
     return sm.MixedLM(Y, X, groups, **kwargs)
 
 
 def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
+    """
+    Generator that fits one or several statsmodels models and yields the fitted results.
+
+    Parameters
+    ----------
+    model : str, statsmodels model class, or list/tuple of them
+        A string is one of ``"ols"`` (``sm.OLS``), ``"rlm"`` (``sm.RLM``), ``"glm"``
+        (``sm.GLM``), ``"qlm"`` (``sm.QuantReg``) or ``"mlm"`` (``sm.MixedLM``, built with
+        :func:`mlm_wrapper`); anything else raises ``NotImplementedError``. A class (e.g. a
+        custom model with the signature ``model(Y, X, **kw).fit(**kw)``) is used as is. A list or
+        tuple yields one result per entry, in order.
+    Y : array-like or pandas.Series
+        Dependent variable.
+    X : array-like or pandas.DataFrame
+        Design matrix (the constant is not added here).
+    **kwargs
+        ``verbose`` (bool, default False) prints the model name and the arguments passed on.
+        Arguments for statsmodels are selected by prefix, ``<model>_<stage>_<argument>``:
+        ``<model>`` is ``ols``, ``rlm``, ``glm``, ``qlm`` or ``mlm`` (the prefix is dropped
+        first; for a custom class the keywords are used without a model prefix), ``<stage>`` is
+        ``model`` (passed to the constructor, e.g. ``glm_model_family`` or ``mlm_model_groups``) or
+        ``fit`` (passed to ``.fit()``, e.g. ``ols_fit_cov_type="HC1"``, ``qlm_fit_q=0.5``).
+        Keywords that match none of the prefixes are ignored.
+
+    Yields
+    ------
+    statsmodels results object
+        The result of ``model(Y, X, **model_kwargs).fit(**fit_kwargs)``.
+
+    Raises
+    ------
+    NotImplementedError
+        For an unknown model name.
+    """
     if isinstance(model, (list, tuple)):
         for m in model:
             yield next(fit_model(m, Y, X, **kwargs))
@@ -123,8 +210,57 @@ def fit_model(model, Y, X, **kwargs):  # model.fit() generator function
 
 def pred_metrics(model, Y, X, **kwargs):
     """
-    Calculating R²pred etc.
-    https://stats.stackexchange.com/questions/592653/how-to-get-predicted-r-square-from-statmodels
+    Leave-one-out prediction metrics (R²pred, MAEpred, MADpred) of statsmodels models.
+
+    A cross-validation-style metric: every observation ``i`` is held out in turn, the model
+    is refitted on the remaining ``n - 1`` rows and ``y_i`` is predicted from ``x_i``
+    (the prediction error is the PRESS residual; for OLS see Allen, 1974). It needs one refit
+    per observation and model (``n`` fits). Refits that fail are skipped and reported in a
+    single ``UserWarning``.
+
+    The metrics are, with ``e_i = y_i - ŷ_(i)`` the leave-one-out errors:
+
+    * ``pred_loo_r_sq`` = ``1 - Σ e_i² / (n · var(y))``, i.e. ``1 - PRESS / SST`` with the
+      total sum of squares around the mean of all ``y``, clipped to [-1, 1]
+      (also known as predicted R² or Q²);
+    * ``pred_loo_mae`` = mean of ``|e_i|``;
+    * ``pred_loo_mad`` = median of ``|e_i - median(e)|`` (median absolute deviation, not
+      rescaled to the normal SD).
+
+    .. warning::
+       Plain leave-one-out treats rows as independent. For grouped (``mlm``), spatial or
+       temporal data the rows that are held out stay correlated with the training sample, which
+       makes the metrics optimistic; see Roberts et al. (2017) and, for spatial data,
+       :func:`apatools.slm.pred_metrics`. For mixed models the held-out observation is
+       predicted from the fixed effects only (``results.predict``) while its group stays in
+       the training sample.
+
+    Parameters
+    ----------
+    model : str, class, or list of them
+        The model(s) as in :func:`fit_model`.
+    Y : pandas.Series
+        Dependent variable (positional indexing with ``.iloc`` is used).
+    X : pandas.DataFrame
+        Design matrix, including the constant if the model has one.
+    **kwargs
+        The model arguments as passed to :func:`lm`, see :func:`fit_model`. ``verbose`` is
+        switched off. ``mlm_model_groups`` must be a ``pandas.Series`` aligned with ``X`` (it
+        is subset together with the training rows).
+
+    Returns
+    -------
+    list of dict
+        One dict per model with the keys ``pred_loo_r_sq``, ``pred_loo_mae`` and
+        ``pred_loo_mad``.
+
+    References
+    ----------
+    Allen, D. M. (1974). The relationship between variable selection and data augmentation
+    and a method for prediction. *Technometrics, 16*(1), 125-127.
+
+    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
+    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
     """
     errors = {}
     fit_fails = []
@@ -172,13 +308,46 @@ def pred_metrics(model, Y, X, **kwargs):
     ]
 
 
+def _random_effects_variance(results):
+    """Variance of the random effects: diagonal of ``cov_re`` plus the ``vc_formula`` components."""
+    variance = 0.0
+    if results.cov_re.shape[0] > 0:
+        variance += np.sum(np.diag(results.cov_re))
+    vcomp = getattr(results, "vcomp", None)
+    if vcomp is not None:
+        variance += float(np.sum(vcomp))
+    return variance
+
+
 def mlm_icc(results):
     """
-    Intraclass Correlation Coefficient (ICC) (approx.)
+    Intraclass correlation coefficient (ICC) of a fitted mixed model (approximate).
+
+    ``ICC = τ² / (τ² + σ²)``, the share of the (non-fixed-effect) variance that lies between
+    groups. ``τ²`` is the random-effects variance, the sum of the diagonal of the
+    random-effects covariance matrix ``results.cov_re`` plus the variance components declared
+    with ``vc_formula`` (``results.vcomp``, if any; the same ``τ²`` as in :func:`mlm_r_sq`), and
+    ``σ²`` is the residual variance ``results.scale``. For a random-intercept model ``cov_re``
+    is 1x1 and this is the usual ICC. For random-slope models the sum of the variances of
+    intercepts and slopes is used, which is not a proper ICC (it also depends on the values of
+    the predictors), so a ``UserWarning`` is issued whenever ``cov_re`` is not 1x1.
+
+    Parameters
+    ----------
+    results : statsmodels.regression.mixed_linear_model.MixedLMResults
+        Fitted mixed model (``model="mlm"`` of :func:`lm`).
+
+    Returns
+    -------
+    float
+        ICC in [0, 1].
+
+    References
+    ----------
+    Nakagawa, S., & Schielzeth, H. (2010). Repeatability for Gaussian and non-Gaussian data: A
+    practical guide for biologists. *Biological Reviews, 85*(4), 935-956.
     """
-    var_random = 0.0  # Random effects variance
-    if results.cov_re.shape[0] > 0:
-        var_random += np.sum(np.diag(results.cov_re))
+    var_random = _random_effects_variance(results)
     var_resid = results.scale  # Residual variance
     if results.cov_re.shape != (1, 1):
         warnings.warn(
@@ -189,14 +358,45 @@ def mlm_icc(results):
 
 
 def mlm_r_sq(results):
+    """
+    Marginal and conditional R² of a fitted linear mixed model (Nakagawa & Schielzeth).
+
+    With ``σ²_f`` the variance of the fixed-effects linear predictor
+    (``np.var(X @ fe_params)``), ``σ²_r`` the random-effects variance (sum of the diagonal of
+    ``results.cov_re`` plus the variance components ``results.vcomp``, if any) and ``σ²_e`` the
+    residual variance (``results.scale``)::
+
+        R²_m = σ²_f / (σ²_f + σ²_r + σ²_e)
+        R²_c = (σ²_f + σ²_r) / (σ²_f + σ²_r + σ²_e)
+
+    ``R²_m`` is the variance explained by the fixed effects alone, ``R²_c`` the variance
+    explained by fixed and random effects together. For random-slope models summing the
+    diagonal of ``cov_re`` is only an approximation of the random-effects variance (the
+    exact value depends on the predictors); Nakagawa & Schielzeth (2013) and Johnson (2014)
+    give the full formulas.
+
+    Parameters
+    ----------
+    results : statsmodels.regression.mixed_linear_model.MixedLMResults
+        Fitted mixed model.
+
+    Returns
+    -------
+    r2_m, r2_c : float
+        Marginal and conditional R².
+
+    References
+    ----------
+    Nakagawa, S., & Schielzeth, H. (2013). A general and simple method for obtaining R²
+    from generalized linear mixed-effects models. *Methods in Ecology and Evolution, 4*(2),
+    133-142.
+
+    Johnson, P. C. D. (2014). Extension of Nakagawa & Schielzeth's R²GLMM to random slopes
+    models. *Methods in Ecology and Evolution, 5*(9), 944-946.
+    """
     # Fixed effects variance
     var_fixed = np.var(np.dot(results.model.exog, results.fe_params.values))
-    var_random = 0.0  # Random effects variance
-    if results.cov_re.shape[0] > 0:
-        var_random += np.sum(np.diag(results.cov_re))
-    # Add variance components
-    if hasattr(results, "vcomp") and results.vcomp is not None:
-        var_random += sum(results.vcomp)
+    var_random = _random_effects_variance(results)
     var_resid = results.scale  # Residual variance
     # Marginal R² (r2_m) → variance explained by fixed effects only
     r2_m = var_fixed / (var_fixed + var_random + var_resid)
@@ -207,11 +407,55 @@ def mlm_r_sq(results):
 
 def base_metrics(results):
     """
-    Calculating/retrieving R²/R²pseudo, R²adj
-    for OLS, RLM, GLM, MLM from statsmodels fitting results
+    Calculating/retrieving R²/R²pseudo, R²adj and other fit metrics
+    for OLS, RLM, GLM, QuantReg and MLM from statsmodels fitting results.
 
-    https://stats.stackexchange.com/questions/83826/is-a-weighted-r2-in-robust-linear-model-meaningful-for-goodness-of-fit-analys
-    https://stats.stackexchange.com/questions/55236/prove-f-test-is-equal-to-t-test-squared
+    Every value is taken from the results object when statsmodels provides a finite one
+    and is computed here otherwise (so the function also works for results objects that lack
+    some attributes). Non-finite values from statsmodels are replaced by the computed ones.
+
+    * ``r_sq``: for mixed models the conditional R² (``r_sq_c``, see :func:`mlm_r_sq`); for
+      other models ``pseudo_rsquared`` (QuantReg, GLM where available) or ``prsquared``, then
+      ``rsquared`` (OLS, RLM), else ``1 - SSe / SSt`` with the (weighted) sums of squares
+      of the residuals and of the observed values around their mean.
+    * ``r_sq_adj``: ``rsquared_adj`` if available, else
+      ``1 - (1 - R²)(n - c) / df_resid`` with ``c = 1`` if the model has a constant, else 0.
+    * ``f_stat`` / ``f_pvalue``: ``fvalue`` / ``f_pvalue`` of the results, else
+      ``(R² / df_model) / ((1 - R²) / df_resid)`` and its F-distribution p-value.
+    * ``df_model`` and ``df_resid`` are corrected to be at least the number of predictors
+      (without constant) and ``n - df_model``, respectively.
+
+    Parameters
+    ----------
+    results : statsmodels results object
+        Fitted OLS, RLM, GLM, QuantReg or MixedLM results.
+
+    Returns
+    -------
+    dict
+        Always present: ``r_sq``, ``r_sq_adj``, ``df_model``, ``df_resid``, ``f_stat``,
+        ``f_pvalue``, ``n_obs``, ``n_params`` (predictors without the constant),
+        ``mae`` (mean absolute residual) and ``mad`` (median absolute deviation of the
+        residuals: ``median(|e - median(e)|)``, not rescaled). Present when finite/available:
+        ``aic``, ``bic`` (``bic_llf`` if the results have it, else ``bic``), ``llf``.
+        Mixed models add ``r_sq_c`` (= ``r_sq``), ``r_sq_m`` (marginal R²) and, if the model
+        has that attribute, ``n_groups``.
+
+    Warns
+    -----
+    UserWarning
+        If the model has no predictors or zero model degrees of freedom.
+
+    Notes
+    -----
+    For robust (RLM) and weighted models there is no single accepted R²; the value
+    reported is the one returned by statsmodels (see Rousseeuw & Leroy, 1987, p. 42, and
+    https://stats.stackexchange.com/questions/83826). The F statistic of a mixed model is
+    only a rough heuristic computed from the conditional R².
+
+    References
+    ----------
+    Rousseeuw, P. J., & Leroy, A. M. (1987). *Robust regression and outlier detection*. Wiley.
     """
 
     outputs = {}
@@ -364,47 +608,83 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
     Parameters
     ----------
     data : pandas.DataFrame
+        The data.
     y : str
         Dependent variable (column name). Not used if ``formula`` is given.
     x : list of str
-        Predictor column names. Not used if ``formula`` is given.
+        Predictor column names (without the constant). Not used if ``formula`` is given.
     model : str or list of str
-        ``"ols"``, ``"rlm"``, ``"glm"``, ``"qlm"``, ``"mlm"`` or a list of them.
+        ``"ols"``, ``"rlm"`` (robust linear model), ``"glm"`` (generalized linear model),
+        ``"qlm"`` (quantile regression) or ``"mlm"`` (linear mixed model), or a list of them.
+        Every entry is fitted on the same data.
     formula : str, optional
-        statsmodels/patsy formula; overrides ``y``/``x``, ``intercept`` and ``dropna``.
+        statsmodels/patsy formula; overrides ``y``/``x``, ``intercept`` and ``dropna`` (patsy
+        always drops rows with NAs and adds an intercept unless ``- 1`` is used).
     **kwargs
-        Options of this function (see the example below) and arguments for statsmodels,
-        named ``<model>_<stage>_<argument>``: ``<model>`` is ``ols``/``rlm``/``glm``/
-        ``qlm``/``mlm``; ``<stage>`` is ``model`` (passed to the constructor) or ``fit``
-        (passed to ``.fit()``), e.g. ``ols_fit_cov_type`` or ``glm_model_family``.
-        ``mlm_model_groups`` may be a column name.
+        Options of this function (below) and arguments for statsmodels, named
+        ``<model>_<stage>_<argument>``: ``<model>`` is ``ols``/``rlm``/``glm``/``qlm``/``mlm``;
+        ``<stage>`` is ``model`` (passed to the constructor) or ``fit`` (passed to ``.fit()``),
+        e.g. ``ols_fit_cov_type`` or ``glm_model_family``. ``mlm_model_groups`` may be a
+        column name of ``data`` (required for ``"mlm"``).
+
+    Other Parameters
+    ----------------
+    verbose : bool, default True
+        Print the sample size, the formula and the statsmodels summary of every model.
+    dropna : bool, default True
+        Drop rows with NAs in ``y``/``x`` (a ``UserWarning`` reports it). Ignored with ``formula``.
+    intercept : bool, default True
+        Add a constant to ``x``. Ignored with ``formula``.
+    standardize : False, True/``"z"`` or callable, default False
+        z-transform (or apply the callable to) every numeric/boolean column; other columns
+        are dropped. The constant is left untouched. Combined with an intercept, z-scored
+        data give an intercept estimate of zero and a ``UserWarning`` is issued.
+    base_metrics : bool, default True
+        Compute :func:`base_metrics` for every model.
+    pred_metrics : bool, default False
+        Add leave-one-out metrics (:func:`pred_metrics`); one refit per observation and model.
+    vif : bool, default False
+        Add the :func:`vif` table of every model to the metrics (key ``"vif"``).
 
     Returns
     -------
     results : list
         One fitted statsmodels results object per model.
     metrics : list of dict
-        One dict per model: r_sq, r_sq_adj, f_stat, df_*, aic/bic/llf (if available),
-        mae, mad (median absolute deviation of residuals), n_obs, optional pred_loo_*
-        (leave-one-out) and vif.
+        One dict per model, see :func:`base_metrics`: ``r_sq``, ``r_sq_adj``, ``f_stat``,
+        ``f_pvalue``, ``df_model``, ``df_resid``, ``aic``/``bic``/``llf`` (if available), ``mae``,
+        ``mad`` (median absolute deviation of the residuals), ``n_obs``, ``n_params``;
+        mixed models also ``r_sq_m``, ``r_sq_c`` and ``n_groups``. With ``pred_metrics=True``
+        also ``pred_loo_r_sq``, ``pred_loo_mae``, ``pred_loo_mad``; with ``vif=True`` also
+        ``vif`` (a DataFrame, or None if it failed). The list is empty if neither
+        ``base_metrics`` nor ``pred_metrics`` nor ``vif`` is requested.
 
-    Example
-    -------
-    lm(test_data, Y, X, model=['ols', 'rlm'],
-                    verbose=True,
-                    intercept=True, # ignored when formula is defined
-                    dropna=True, # ignored when formula is defined
-                    standardize='z' # keeps np.number or bool columns only
-                    base_metrics=True,
-                    pred_metrics=False,
-                    vif=False,
+    Raises
+    ------
+    ValueError
+        If neither ``formula`` nor non-empty ``x`` together with ``y`` is given.
 
-                    qlm_fit_q=0.5,
-                    qlm_fit_cov_type='boot',
-                    qlm_fit_cov_kwds={'n_boot': 100},
-                    ols_fit_cov_type='HC1',
-                    rlm_model_M=sm.robust.norms.RamsayE()),
-                    mlm_model_groups='country',
+    Notes
+    -----
+    Requires statsmodels (and lxml/pandas for :func:`lm_report`).
+
+    Examples
+    --------
+    >>> results, metrics = lm(
+    ...     test_data, Y, X, model=["ols", "rlm"],
+    ...     verbose=True,
+    ...     intercept=True,  # ignored when formula is defined
+    ...     dropna=True,  # ignored when formula is defined
+    ...     standardize="z",  # keeps np.number or bool columns only
+    ...     base_metrics=True,
+    ...     pred_metrics=False,
+    ...     vif=False,
+    ...     qlm_fit_q=0.5,
+    ...     qlm_fit_cov_type="boot",
+    ...     qlm_fit_cov_kwds={"n_boot": 100},
+    ...     ols_fit_cov_type="HC1",
+    ...     rlm_model_M=sm.robust.norms.RamsayE(),
+    ... )  # doctest: +SKIP
     """
 
     verbose = kwargs.get("verbose", True)
@@ -448,11 +728,14 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
             X = add_constant(X)
     else:
         (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
+        if isinstance(kwargs.get("mlm_model_groups"), Series):
+            # patsy dropped the rows with NAs: keep the grouping variable aligned with the rest
+            kwargs["mlm_model_groups"] = kwargs["mlm_model_groups"].loc[Y.index]
         if verbose:
             print(f"N={len(Y)}")
             print(f"Specified formula: {formula}")
 
-        if standardize:  # need a test
+        if standardize:
             X = df_standardize(X, func=standardize)
             Y = df_standardize(Y, func=standardize)
 
@@ -482,6 +765,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
                 for r, m in zip(metrics, pred_metrics(model, Y, X, **kwargs))
             ]
     if calc_vif:
+        metrics = metrics or [{} for _ in results]  # also without base / pred metrics
         metrics = [{**i, "vif": vif(r)} for i, r in zip(metrics, results)]
 
     return results, metrics
@@ -509,11 +793,64 @@ def lm_report(
     """
     Build one APA-style coefficient table per model from :func:`lm` output.
 
-    Each DataFrame has columns coef, se, test statistic, p-value, cil, cir (95% CI),
-    optional ``sig`` stars and ``vif``. The first row's ``model`` column holds a fit
-    summary such as ``R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009``.
-    ``format_pval`` / ``add_stars`` may be True or a callable; the ``add_*`` flags
-    switch the summary parts on and off; the constant is renamed to ``intercept_name``.
+    Parameters
+    ----------
+    results : list
+        Fitted statsmodels results (first value returned by :func:`lm`).
+    metrics : list of dict, optional
+        Metrics (second value returned by :func:`lm`), matched with ``results`` by position.
+        If None or shorter than ``results``, the tables of the models without metrics have no
+        ``model`` column.
+    format_pval : bool or callable, default True
+        ``False`` keeps the numeric p-values. ``True`` replaces them by APA strings without the
+        ``p =`` prefix (``".009"``, ``"<.001"``; :func:`apatools.format.format_p`). A callable
+        is applied to every p-value and its return value is used. The stars are always
+        computed from the numeric p-values, whatever the value of this argument.
+    add_stars : bool or callable, default True
+        ``False``: no ``sig`` column. ``True``: add a ``sig`` column with significance stars
+        (``***`` p < .001, ``**`` p < .01, ``*`` p < .05, ``⁺`` p < .10, otherwise an empty
+        string; :func:`apatools.format.get_stars`). A callable maps one p-value to the
+        marker.
+    decimal : int or None, default 3
+        Round the columns ``coef``, ``se``, ``cil`` and ``cir`` to this many decimals; the
+        test statistic, the p-values and the VIFs are not rounded here. ``None`` or 0
+        switches the rounding off.
+    add_ftest, add_aic, add_bic, add_llf, add_mae, add_mad, add_pred_loo_mae, add_pred_loo_mad, add_n_obs, add_n_groups : bool, default True
+        Include the corresponding part (F test, AIC, BIC, log-likelihood ``LL``, ``MAE``,
+        ``MAD``, ``MAEpred``, ``MADpred``, number of observations ``N``, number of groups
+        ``G``) in the fit summary string, if the metric is available. (R², R²adj and
+        R²pred are always shown when available.)
+    add_vif : bool, default True
+        Join the ``vif`` column to the table if ``lm(..., vif=True)`` was used.
+    intercept_name : str, default "Intercept"
+        Row label of the constant (``const``, ``Intercept`` or ``CONSTANT``); other labels are
+        unchanged.
+
+    Returns
+    -------
+    list of pandas.DataFrame
+        One table per model (as many as the longer of ``results`` and ``metrics``), indexed
+        by the coefficient names, with the columns
+
+        * ``coef``: estimate; ``se``: standard error;
+        * the test statistic, named by statsmodels: ``t`` (OLS, QuantReg) or ``z`` (RLM, GLM,
+          MixedLM);
+        * ``p-value``: p-value (formatted, see ``format_pval``);
+        * ``cil``, ``cir``: lower and upper limits of the 95% confidence interval
+          (confidence level 0.95, as in the statsmodels summary);
+        * ``sig``: significance stars (if ``add_stars``);
+        * ``vif``: variance inflation factor (if available and ``add_vif``);
+        * ``model``: filled in the first row only (if metrics are given), the fit summary
+          such as ``R² = .34, R²adj = .34, R²pred = .34, F(1, 416) = 6.71, p = .009, N = 418``.
+
+        For mixed models the table also contains the variance parameters (e.g. ``Group Var``)
+        as rows.
+
+    Notes
+    -----
+    The table is built from the summary table of the statsmodels results
+    (``results.summary().tables[1]``), so the confidence level is always 95%. Requires
+    ``lxml`` for non-mixed models (``pandas.read_html``).
     """
 
     if metrics is None:  # reporting without metrics is allowed

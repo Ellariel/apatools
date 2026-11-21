@@ -1,3 +1,25 @@
+"""Structural equation modeling (SEM) with APA-style reporting.
+
+Wraps `semopy <https://semopy.com>`_: :func:`sem` fits a model given in lavaan-like
+syntax and returns a parameter table plus fit statistics, :func:`sem_report` formats
+them for a manuscript (p-values, stars, a one-line fit summary) and :func:`sem_plot`
+draws the path diagram with Graphviz.
+
+Requires the optional dependencies ``pandas`` and ``semopy``
+(``pip install "apatools[sem]"``); plotting additionally needs the ``graphviz``
+Python package (extra ``graphviz``) and the Graphviz executables (``dot``) on the system PATH.
+
+References
+----------
+Igolkina, A. A., & Meshcheryakov, G. (2020). semopy: A Python package for structural
+equation modeling. *Structural Equation Modeling: A Multidisciplinary Journal, 27*(6),
+952-963. https://doi.org/10.1080/10705511.2019.1704289
+
+Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance
+structure analysis: Conventional criteria versus new alternatives. *Structural
+Equation Modeling, 6*(1), 1-55.
+"""
+
 import numpy as np
 
 from ._deps import missing_dependency
@@ -44,36 +66,98 @@ def sem(
 ):
     """Fit a structural equation model with semopy.
 
+    The model is specified in lavaan-like syntax, fitted with
+    :class:`semopy.Model`, optionally bias-corrected by a bootstrap, and returned as
+    a parameter table together with the fit statistics. Pass both to
+    :func:`sem_report` or :func:`sem_plot`.
+
     Parameters
     ----------
     data : pandas.DataFrame
-        Observed variables.
+        Observed variables (one row per observation, columns named as in ``formula``).
     formula : str
         Model description in semopy syntax: ``=~`` measurement part (latent
-        =~ indicators), ``~`` structural part, ``~~`` (co)variances.
-    method : str
-        Objective function: MLW, ULS, GLS, FIML, DWLS or WLS.
-    solver : str
-        scipy optimizer name.
-    bootstrap : int or falsy
-        If truthy, ``semopy.bias_correction`` with this many resamples is applied,
-        which *changes* the parameter estimates.
-    se_robust : bool
-        Use Huber-White robust standard errors.
-    return_model : bool
+        =~ indicators), ``~`` structural part (regressions), ``~~`` (co)variances.
+        Example: ``"eta1 =~ y1 + y2 + y3"``; use one line per equation for several.
+    method : str, default "MLW"
+        Objective function passed to ``semopy.Model.fit(obj=...)``: ``"MLW"``
+        (Wishart maximum likelihood), ``"ULS"``, ``"GLS"``, ``"FIML"``, ``"DWLS"``
+        or ``"WLS"``.
+    solver : str, default "SLSQP"
+        Name of the scipy optimizer used to minimize the objective.
+    bootstrap : int or falsy, default 100
+        If truthy, ``semopy.bias_correction(model, n=bootstrap, resample_mean=True)``
+        is applied after fitting. This *replaces* the parameter estimates by
+        bias-corrected ones; use ``0`` or ``None`` to keep the plain estimates and to
+        save time.
+    se_robust : bool, default True
+        Report Huber-White robust standard errors (``model.inspect(se_robust=...)``).
+    return_model : bool, default False
         Also return the fitted ``semopy.Model``.
-    seed : int
-        Seed for numpy's global random generator.
+    seed : int, default 13
+        Seed for numpy's *global* random generator (``np.random.seed``), which makes
+        the bootstrap and the optimizer's starting values reproducible. The global
+        state is changed as a side effect.
 
     Returns
     -------
     stats : pandas.DataFrame
-        Parameter table (``lval``, ``op``, ``rval``, ``estimate``, ``se``, ``z``,
-        ``p-value``, ``est_std``, ...). ``stats.attrs["latent"]`` lists latent variables.
+        One row per model parameter with semopy's ``inspect`` columns in lower case
+        (``lval``, ``op``, ``rval``, ``estimate``, ``se``, ``z``, ``p-value``) and
+        the standardized estimate ``est_std``. Entries semopy reports as ``"-"`` are
+        converted to NaN. ``op`` is ``"~"`` for regressions *and* measurement paths
+        (semopy does not distinguish them), ``"~~"`` for (co)variances.
+        ``stats.attrs["latent"]`` is the sorted list of latent variables, which
+        :func:`sem_plot` uses to draw latent variables as circles.
     metrics : pandas.DataFrame
-        ``N`` followed by semopy's fit statistics (column ``value``).
+        Single column ``value``, indexed by ``N`` (rows in ``data``) followed by
+        semopy's fit statistics (``DoF``, ``chi2``, ``chi2 p-value``, ``CFI``,
+        ``GFI``, ``AGFI``, ``NFI``, ``TLI``, ``RMSEA``, ``AIC``, ``BIC``, ``LogLik``,
+        ...).
     model : semopy.Model
-        Only if ``return_model`` is True.
+        The fitted model; only if ``return_model`` is True.
+
+    Notes
+    -----
+    Commonly used fit indices are CFI (Bentler, 1990), TLI (Tucker & Lewis, 1973) and
+    RMSEA (Steiger & Lind, 1980; Browne & Cudeck, 1993). Hu and Bentler (1999)
+    suggest CFI/TLI of about .95 or higher and RMSEA of about .06 or lower as
+    indicators of good fit; these are rules of thumb, not tests. Robust standard
+    errors follow the sandwich estimator of White (1980).
+
+    Requires the optional dependency ``semopy`` (``pip install "apatools[sem]"``).
+
+    References
+    ----------
+    Igolkina, A. A., & Meshcheryakov, G. (2020). semopy: A Python package for
+    structural equation modeling. *Structural Equation Modeling: A Multidisciplinary
+    Journal, 27*(6), 952-963. https://doi.org/10.1080/10705511.2019.1704289
+
+    Bentler, P. M. (1990). Comparative fit indexes in structural models.
+    *Psychological Bulletin, 107*(2), 238-246.
+
+    Tucker, L. R., & Lewis, C. (1973). A reliability coefficient for maximum
+    likelihood factor analysis. *Psychometrika, 38*(1), 1-10.
+
+    Steiger, J. H., & Lind, J. C. (1980, May). *Statistically based tests for the
+    number of common factors* [Paper presentation]. Annual meeting of the
+    Psychometric Society, Iowa City, IA.
+
+    Browne, M. W., & Cudeck, R. (1993). Alternative ways of assessing model fit. In
+    K. A. Bollen & J. S. Long (Eds.), *Testing structural equation models*
+    (pp. 136-162). Sage.
+
+    Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance
+    structure analysis: Conventional criteria versus new alternatives. *Structural
+    Equation Modeling, 6*(1), 1-55.
+
+    White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator and
+    a direct test for heteroskedasticity. *Econometrica, 48*(4), 817-838.
+
+    Examples
+    --------
+    >>> stats, metrics = sem(df, "eta =~ y1 + y2 + y3", bootstrap=0)  # doctest: +SKIP
+    >>> sem_report(stats, metrics)  # doctest: +SKIP
     """
     np.random.seed(seed)
     model = semopy.Model(formula)
@@ -96,10 +180,42 @@ def sem(
 def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
     """Format the output of :func:`sem` for reporting.
 
-    Returns a copy of ``stats`` (p-values formatted, optional ``sig`` column, rounded)
-    whose first row carries an APA-style fit summary in the ``model`` column, e.g.
-    ``χ²(48, N = 500) = 303.80, p < .001, CFI = .90, TLI = .86, ...``.
-    ``format_pval`` / ``add_stars`` may be ``True`` or a callable.
+    Parameters
+    ----------
+    stats : pandas.DataFrame
+        Parameter table returned by :func:`sem` (not modified; a copy is returned).
+    metrics : pandas.DataFrame
+        Fit statistics returned by :func:`sem`. Must contain ``N``, ``DoF``, ``chi2``
+        and ``chi2 p-value``; the other statistics are looked up by name.
+    format_pval : bool or callable, default True
+        Replace the ``p-value`` column by APA-formatted strings without the ``p``
+        prefix and without spaces (``".009"``, ``"<.001"``, see
+        :func:`apatools.format.format_p`). A callable receives one p-value; False
+        keeps the numbers. When formatting, missing p-values become empty strings.
+    add_stars : bool or callable, default False
+        Add a ``sig`` column with significance markers
+        (:func:`apatools.format.get_stars` if True, or the callable). Stars are
+        computed from the unformatted p-values.
+    decimal : int, default 3
+        Number of decimals for the table and the fit summary; falsy skips rounding
+        of the table.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``stats`` with formatted p-values, the optional ``sig`` column,
+        rounded numbers and a new column ``model`` that is empty except for the
+        first row, which holds the fit summary, e.g.
+        ``"χ²(48, N = 500) = 303.8, p < .001, CFI = .9, TLI = .86, ..., RMSEA = 0.1"``.
+        In it, CFI, GFI, AGFI, NFI and TLI are written without leading zero (APA style
+        for values bounded by 1); the remaining statistics (RMSEA, AIC, BIC, LogLik,
+        ...) are reported as returned by semopy, rounded to ``decimal``. Trailing zeros
+        are not kept, since values are rounded as floats.
+
+    Notes
+    -----
+    Because the fit summary is stored in the first row of ``stats``, the table is meant
+    for display or export (e.g. to a spreadsheet), not for further numerical work.
     """
 
     stats = stats.copy()
@@ -145,32 +261,57 @@ def sem_plot(
 ):
     """Plot a SEM path diagram from the ``stats`` table returned by :func:`sem`.
 
+    Latent variables are drawn as circles, observed variables as boxes, regressions
+    and measurement paths as arrows from predictor/indicator to outcome/latent and
+    covariances as dashed double-headed arrows. Edges are labelled with the
+    estimate and, below it, the formatted p-value (or stars). The work is done by
+    :func:`semopy_plot`.
+
     Parameters
     ----------
     stats : pandas.DataFrame
         Parameter table from :func:`sem`.
     save_to_file : str, optional
-        Copy the rendered figure to this path.
-    plot_covs : bool
-        Draw covariances (dashed, double-headed arrows).
-    std_ests : bool
-        Show standardized instead of raw estimates.
-    show_stars : bool or callable
-        Show significance stars instead of formatted p-values.
-    format_pval : bool or callable
-        Format p-values (ignored if ``show_stars`` is set).
-    format_fig : str
-        Graphviz output format (``"png"``, ``"svg"``, ...).
-    method : str
-        Plotting backend; only ``"semopy"`` (Graphviz) is implemented.
-    return_fig : bool
-        Return the ``graphviz.Digraph``.
-    decimal : int
+        Copy the rendered figure to this path (the file type follows ``format_fig``).
+    plot_covs : bool, default True
+        Draw covariances between different variables (dashed, double-headed arrows).
+    std_ests : bool, default True
+        Show standardized estimates (``est_std``) instead of raw ``estimate``.
+    show_stars : bool or callable, default False
+        Show significance stars instead of p-values (:func:`apatools.format.get_stars`
+        if True, or a callable).
+    format_pval : bool or callable, default True
+        Format p-values as e.g. ``"p=.009"`` / ``"p<.001"``
+        (:func:`apatools.format.format_p`); a callable receives one p-value. Ignored
+        if ``show_stars`` is set. False prints the raw numbers.
+    format_fig : str, default "png"
+        Graphviz output format (``"png"``, ``"svg"``, ``"pdf"``, ...).
+    method : str, default "semopy"
+        Plotting backend; only ``"semopy"`` (Graphviz) is implemented, anything else
+        raises ``NotImplementedError``.
+    return_fig : bool, default True
+        Return the ``graphviz.Digraph``; if False the function returns None (the
+        figure is still written to ``save_to_file``).
+    decimal : int, default 3
         Rounding of the estimates.
+    dpi : int, default 600
+        Accepted for compatibility; it is passed on to :func:`semopy_plot` but
+        currently has no effect on the output.
+    seed : int, default 13
+        Seed for numpy's global random generator.
     **kwargs
-        Passed through (currently unused by the Graphviz backend).
+        Passed through to :func:`semopy_plot` (currently unused by the Graphviz
+        backend).
 
-    Requires the Graphviz executables (``dot``) on the system PATH.
+    Returns
+    -------
+    graphviz.Digraph or None
+        The graph (displays inline in Jupyter), or None if ``return_fig`` is False.
+
+    Notes
+    -----
+    Requires the ``graphviz`` Python package and the Graphviz executables (``dot``) on
+    the system PATH (on Windows, add the Graphviz ``bin`` folder to ``PATH``).
     """
     if method != "semopy":
         raise NotImplementedError(
@@ -215,7 +356,13 @@ def semopy_plot(
     **kwargs,
 ):
     """
-    Draw a SEM diagram adapted from semopy.semplot
+    Draw a SEM diagram adapted from ``semopy.semplot``.
+
+    Builds a Graphviz graph from the parameter table and renders it once (to a
+    temporary directory that is removed afterwards) so that errors in the Graphviz
+    installation surface immediately and ``save_to_file`` can be written. Edges
+    with the intercept pseudo-variable ``"1"`` are skipped, and variance
+    (self-covariance) rows are not drawn.
 
     Parameters
     ----------
@@ -224,31 +371,44 @@ def semopy_plot(
         ``stats.attrs["latent"]``; without it every right-hand-side variable is drawn
         as latent (circle).
     save_to_file : str or None
-        Path where the rendered figure is copied to.
+        Path where the rendered figure is copied to; None only returns the graph.
     plot_covs : bool, optional
         Draw covariances as dashed double-headed edges. Default True.
     std_ests : bool, optional
-        Plot standardized instead of raw estimates. Default True.
+        Plot standardized (``est_std``) instead of raw (``estimate``) estimates.
+        Default True.
     plot_ests : bool, optional
-        Label edges with estimates. Default True.
+        Label edges with estimates and p-values. Default True.
     engine : str, optional
         Graphviz layout engine. Default 'dot'.
     latshape : str, optional
         Graphviz node shape for latent variables. Default 'circle'.
     show_stars : bool or callable, optional
-        Append significance stars to labels instead of p-values.
+        Append significance stars to the labels instead of p-values
+        (:func:`apatools.format.get_stars` if True, or the callable).
     format_pval : bool or callable, optional
-        Format p-values in labels (ignored when ``show_stars`` is set).
+        Format p-values in labels as ``"p=.009"`` (see :func:`apatools.format.format_p`;
+        ignored when ``show_stars`` is set); a callable receives one p-value.
     format_fig : str, optional
         Graphviz output format. Default 'png'.
     decimal : int, optional
         Rounding of estimates. Default 3.
     seed : int, optional
-        Seed for numpy's global random generator.
+        Seed for numpy's global random generator. Default 13.
+    **kwargs
+        Accepted and ignored (lets :func:`sem_plot` forward its extra options).
 
     Returns
     -------
     graphviz.Digraph
+        The graph, which can be displayed or re-rendered with other options.
+
+    Raises
+    ------
+    ImportError
+        If the ``graphviz`` Python package is not installed.
+    graphviz.ExecutableNotFound
+        If the Graphviz executables are not on the PATH.
     """
     import os
     import shutil

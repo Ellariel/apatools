@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 import statsmodels.api as sm
 
 from apatools.lm import lm, lm_report
@@ -229,3 +230,70 @@ def test_lm_report_names_the_coefficients_of_models_without_intercept():
 if __name__ == "__main__":
     test_lm()
     print("Tests for apatools.lm are PASSED!")
+
+
+def test_lm_formula_with_nas_keeps_the_groups_of_a_mixed_model_aligned():
+    rng = np.random.default_rng(1)
+    d = pd.DataFrame(rng.normal(size=(60, 2)), columns=["x1", "x2"])
+    d["y"] = d.x1 + rng.normal(size=60)
+    d["g"] = np.repeat(range(6), 10)
+    d.loc[[3, 59], "x1"] = np.nan  # patsy drops these rows; the last one is the highest group index
+    results, _ = lm(d, formula="y ~ x1 + x2", model="mlm", mlm_model_groups="g", verbose=False)
+    clean = d.dropna()
+    reference, _ = lm(clean, "y", ["x1", "x2"], model="mlm", mlm_model_groups="g", verbose=False)
+    assert results[0].nobs == len(clean)
+    assert results[0].params.tolist() == pytest.approx(reference[0].params.tolist(), abs=1e-6)
+    # a Series of groups is aligned in the same way
+    as_series, _ = lm(d, formula="y ~ x1 + x2", model="mlm", mlm_model_groups=d["g"], verbose=False)
+    assert as_series[0].params.tolist() == pytest.approx(results[0].params.tolist())
+
+
+def test_lm_vif_without_the_other_metrics():
+    rng = np.random.default_rng(2)
+    d = pd.DataFrame(rng.normal(size=(50, 2)), columns=["x1", "x2"])
+    d["y"] = d.x1 + rng.normal(size=50)
+    results, metrics = lm(d, "y", ["x1", "x2"], base_metrics=False, vif=True, verbose=False)
+    assert len(metrics) == len(results) == 1 and list(metrics[0]) == ["vif"]
+    full = lm(d, "y", ["x1", "x2"], vif=True, verbose=False)[1][0]["vif"]
+    pd.testing.assert_frame_equal(metrics[0]["vif"], full)
+    # without any metrics the list stays empty
+    assert lm(d, "y", ["x1", "x2"], base_metrics=False, verbose=False)[1] == []
+
+
+def test_lm_formula_with_standardize_gives_standardized_coefficients():
+    rng = np.random.default_rng(3)
+    d = pd.DataFrame(rng.normal(size=(80, 2)), columns=["x1", "x2"])
+    d["y"] = 2 * d.x1 - d.x2 + rng.normal(size=80)
+    with pytest.warns(UserWarning, match="intercept"):
+        results, _ = lm(d, formula="y ~ x1 + x2", standardize="z", verbose=False)
+    z = (d - d.mean()) / d.std(ddof=0)
+    manual = sm.OLS(z["y"], sm.add_constant(z[["x1", "x2"]])).fit()
+    assert results[0].params.tolist() == pytest.approx(manual.params.tolist(), abs=1e-8)
+    assert abs(results[0].params.iloc[0]) < 1e-10
+
+
+def test_mlm_icc_and_r_sq_use_the_same_random_effects_variance():
+    import statsmodels.formula.api as smf
+
+    from apatools.lm import mlm_icc, mlm_r_sq
+
+    rng = np.random.default_rng(4)
+    n_groups, per_group = 25, 12
+    d = pd.DataFrame({"g": np.repeat(range(n_groups), per_group), "x": rng.normal(size=n_groups * per_group)})
+    d["h"] = np.tile(np.repeat(range(3), 4), n_groups)  # a second, crossed grouping used as variance component
+    d["y"] = (
+        d.x + rng.normal(size=n_groups)[d.g] + rng.normal(size=3)[d.h] * 0.8 + rng.normal(size=len(d))
+    )
+    plain = smf.mixedlm("y ~ x", d, groups="g").fit()
+    with_vc = smf.mixedlm("y ~ x", d, groups="g", re_formula="1", vc_formula={"h": "0 + C(h)"}).fit()
+
+    # random-intercept model: the usual ICC
+    tau2, sigma2 = float(plain.cov_re.iloc[0, 0]), plain.scale
+    assert mlm_icc(plain) == pytest.approx(tau2 / (tau2 + sigma2))
+    # variance components are part of the random-effects variance in both functions
+    tau2_vc = float(with_vc.cov_re.iloc[0, 0]) + float(np.sum(with_vc.vcomp))
+    assert float(np.sum(with_vc.vcomp)) > 0
+    assert mlm_icc(with_vc) == pytest.approx(tau2_vc / (tau2_vc + with_vc.scale))
+    r2_m, r2_c = mlm_r_sq(with_vc)
+    var_fixed = np.var(with_vc.model.exog @ with_vc.fe_params.values)
+    assert r2_c - r2_m == pytest.approx(tau2_vc / (var_fixed + tau2_vc + with_vc.scale))

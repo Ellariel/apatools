@@ -1,6 +1,19 @@
-"""Helpers shared by the regression and sem modules (lm, slm, plm, sem): intercept handling,
-standardization, subsetting of spatial weights, rounding and significance formatting of report
-tables. Private: not part of the documented API."""
+"""Helpers shared by the regression and sem modules (lm, slm, plm, sem).
+
+Private: not part of the documented API and may change without notice.
+
+* Intercept handling: :data:`INTERCEPT_NAMES`, :func:`df_check_intercept`,
+  :func:`rename_intercept` (the labels differ between spreg, statsmodels / linearmodels and
+  patsy).
+* :func:`df_standardize`: z-scores or another transformation of the numeric columns of a
+  design matrix, leaving the intercept column alone.
+* :func:`w_subset_rows`: subsetting of spatial weights (needs ``libpysal``, imported lazily).
+* :func:`round_columns` and :func:`format_significance`: rounding, significance stars and
+  APA formatting of p-values in coefficient / report tables.
+
+Requires pandas (``missing_dependency`` raises an ``ImportError`` naming the package if it is
+absent); scipy is needed for the z-scores.
+"""
 
 import numpy as np
 from scipy.stats import zscore
@@ -27,12 +40,26 @@ def w_subset_rows(w, positions):
     object are the new row positions ``0..len(positions)-1``.
     Observations that lose all their neighbours become islands (see ``.islands``).
 
+    Typical use: after listwise deletion of rows with missing values, the weights
+    matrix has to be reduced to the rows that remain in the data.
+
     Parameters
     ----------
     w : libpysal.weights.W
         Weights whose ``id_order`` corresponds to the rows of the data.
     positions : array-like of int
-        Row positions to keep (in the order of the data).
+        Row positions to keep (in the order of the data); the rows and columns of the
+        sparse weights matrix are taken in this order.
+
+    Returns
+    -------
+    libpysal.weights.W
+        New weights object for the subset, with the same ``transform`` as ``w``. Island
+        warnings of libpysal are silenced.
+
+    Notes
+    -----
+    Requires the optional dependency ``libpysal`` (``pip install "apatools[slm]"``).
     """
     # imported here: only the spatial modules need libpysal
     from libpysal.weights import WSP
@@ -47,6 +74,21 @@ def df_check_intercept(df=None, columns=None):
     """
     Label of the intercept among the columns of ``df`` (or among ``columns``, e.g. the index of a
     coefficient table): the first of ``INTERCEPT_NAMES`` that occurs, ``None`` if there is none.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame, optional
+        Table whose columns are searched; used only if ``columns`` is None.
+    columns : iterable of str, optional
+        Labels to search, e.g. ``coef_table.index``. Takes precedence over ``df``. One of the
+        two must be given (if ``df`` is not a DataFrame and ``columns`` is None a ``TypeError``
+        is raised).
+
+    Returns
+    -------
+    str or None
+        ``"CONSTANT"`` (spreg), ``"const"`` (statsmodels / linearmodels) or ``"Intercept"``
+        (patsy), in this order of precedence (not in the order of the columns), or None.
     """
     if columns is None and isinstance(df, pd.DataFrame):
         columns = df.columns
@@ -62,6 +104,18 @@ def rename_intercept(index, name="Intercept"):
 
     Other labels are left unchanged, also those that merely contain such a name (``"const_income"``),
     and an index without intercept is returned as it is.
+
+    Parameters
+    ----------
+    index : iterable of str
+        Labels, e.g. the index of a coefficient table or the columns of a design matrix.
+    name : str, default "Intercept"
+        The unified label for the intercept in the reports.
+
+    Returns
+    -------
+    pandas.Index
+        New index of the same length and order; the input is not modified.
     """
     return pd.Index(index).map(
         lambda label: name if label in INTERCEPT_NAMES else label
@@ -69,7 +123,24 @@ def rename_intercept(index, name="Intercept"):
 
 
 def round_columns(table, decimal, columns=("coef", "se", "cil", "cir")):
-    """Round the ``columns`` of ``table`` (in place) to ``decimal`` places; no-op if ``decimal`` is falsy."""
+    """Round the ``columns`` of ``table`` (in place) to ``decimal`` places; no-op if ``decimal`` is falsy.
+
+    Parameters
+    ----------
+    table : pandas.DataFrame
+        Coefficient table; modified in place.
+    decimal : int or falsy
+        Number of decimals; ``0``, ``None`` or False leaves the table unrounded.
+    columns : iterable of str, default ("coef", "se", "cil", "cir")
+        Columns to round (estimate, standard error and the confidence limits). Each must
+        exist in ``table`` (``KeyError`` otherwise); other columns, such as p-values, are
+        not touched.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``table`` itself (the same object), for chaining.
+    """
     if decimal:
         for column in columns:
             table[column] = table[column].round(decimal)
@@ -92,6 +163,33 @@ def format_significance(
     takes one p-value. The stars are computed from the unformatted p-values, so the order of the
     two steps does not matter to the caller. ``na_rep`` replaces missing p-values before both
     steps (``None``: leave them as they are).
+
+    Parameters
+    ----------
+    table : pandas.DataFrame
+        Report table with a column of numeric p-values; modified in place.
+    add_stars : bool or callable, default True
+        Write a significance marker per row to ``stars_column``. True uses
+        :func:`apatools.format.get_stars` (``***`` < .001, ``**`` < .01, ``*`` < .05,
+        ``⁺`` < .10); a callable is applied to every p-value instead.
+    format_pval : bool or callable, default True
+        Replace ``p_column`` by strings. True gives the bare APA number without ``p``, equals
+        sign and spaces (``".009"``, ``"<.001"``, i.e. ``format_p(p, use_letter=False,
+        keep_spaces=False, no_equals=True)``); a callable is applied to every p-value instead.
+    p_column : str, default "p-value"
+        Name of the column with the p-values.
+    stars_column : str, default "sig"
+        Name of the column created for the stars (appended at the end, or overwritten).
+    na_rep : object, optional
+        Value substituted for missing p-values (e.g. ``""``) before both steps; the
+        substitute is passed through ``get_stars`` / ``format_p`` like any other value, which
+        return non-numeric input unchanged. None keeps the missing values (NaN then gets
+        no star and is formatted as ``NaN``).
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``table`` itself. If both options are falsy it is returned unchanged.
     """
     pvalues = table[p_column] if na_rep is None else table[p_column].fillna(na_rep)
     if add_stars:
@@ -114,6 +212,27 @@ def df_standardize(df, func="z"):
     Numeric and boolean columns of ``df``, standardized (``"z"`` or ``True``: z-scores) or transformed
     by ``func``, a callable that is applied to every column. Other columns are dropped; an intercept
     column is kept unchanged at its position.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Design matrix or data; not modified (a filtered copy is processed).
+    func : {"z", True} or callable, default "z"
+        ``"z"`` / True: z-scores (``scipy.stats.zscore``: mean 0, population standard deviation
+        1, ``ddof=0``; a constant column gives NaN). A callable is passed to ``DataFrame.apply``
+        and so receives each column as a Series.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The numeric/boolean columns in their original order, transformed; the intercept column
+        (see :func:`df_check_intercept`) is excluded from the transformation and keeps its
+        position. If the intercept is the only column the frame is returned as it is.
+
+    Raises
+    ------
+    NotImplementedError
+        If ``func`` is neither ``"z"``, True nor a callable (including False and other strings).
     """
     df = df.select_dtypes(include=[np.number, "bool"])
     const_name = df_check_intercept(df)

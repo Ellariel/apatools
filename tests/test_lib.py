@@ -58,10 +58,11 @@ def test_lib():
         }
     )
     kappa, z_score, p_value, per_item = fleiss_kappa(df, return_per_item_agreement=True)
-    assert s(kappa) == "0.727"
-    assert s(z_score) == "10.808"
-    assert s(p_value) == "0.000"
-    assert len(per_item) == len(df)
+    # the last item has no ratings at all and is left out (it is not a "missing" category)
+    assert s(kappa) == "0.583"
+    assert s(z_score) == "3.195"
+    assert s(p_value) == "0.001"
+    assert len(per_item) == len(df) and per_item.iloc[:5].notna().all() and np.isnan(per_item.iloc[5])
 
 
 ###########
@@ -148,11 +149,18 @@ def test_log_and_z_transform():
     # NaNs are ignored for mean and sd and stay NaN
     z = z_transform([1.0, np.nan, 3.0])
     assert z[0] == pytest.approx(-1) and z[2] == pytest.approx(1) and np.isnan(z[1])
-    # constant input
+    # constant or empty input: sd is 0 / undefined; NaN (or an error), never a division by zero
     with pytest.raises(ValueError, match="zero"):
         z_transform([5, 5, 5], ignore_errors=False)
-    with np.errstate(all="ignore"):
+    with pytest.raises(ValueError, match="zero"):
+        z_transform([np.nan, np.nan], ignore_errors=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # no RuntimeWarning (division by zero, mean of empty slice)
         assert np.isnan(z_transform([5, 5, 5])).all()
+        assert np.isnan(z_transform([np.nan, np.nan])).all()
+        z, m, sd = z_transform([5.0, np.nan, 5.0], return_params=True)
+        assert (m, sd) == (5.0, 0.0) and np.isnan(z).all()
+        assert z_transform([]).size == 0
 
 
 ######################
@@ -197,6 +205,30 @@ def test_fleiss_kappa_reference_values():
     table = aggregate_raters(rnd.astype(str))[0]
     assert fleiss_kappa(rnd)[0] == pytest.approx(sm_fleiss_kappa(table), abs=1e-12)
     assert abs(fleiss_kappa(rnd)[0]) < 0.1
+    # the standard error under H0 (Fleiss, Nee & Landis, 1979; irr::kappam.fleiss): z = .2099 / SE0
+    assert z == pytest.approx(12.374, abs=1e-3)
+    # ... and it is the right one: simulated kappas of independent raters scatter as the formula says
+    sims = []
+    for _ in range(300):
+        x = pd.DataFrame(rng.choice(3, size=(60, 4), p=[0.5, 0.3, 0.2]))
+        k_, z_, _ = fleiss_kappa(x)
+        sims.append((k_, k_ / z_))
+    kappas, ses = np.array(sims).T
+    assert np.std(kappas) == pytest.approx(np.mean(ses), rel=0.15)
+    assert np.mean(np.abs(kappas / ses) > 1.96) < 0.1  # about 5 % false positives, not 30 %
+    # one-tailed p tests agreement better than chance: tiny for good agreement, large for negative kappa
+    assert fleiss_kappa(df, method="one-tailed")[2] < 1e-6
+    anti = pd.DataFrame({"a": list("xyxyxyxy"), "b": list("yxyxyxyx"), "c": list("xxyyxxyy")})
+    k_anti, _, p_anti = fleiss_kappa(anti, method="one-tailed")
+    assert k_anti < 0 and p_anti > 0.5
+    # missing ratings: incomplete items are dropped, the others are untouched
+    gappy = df.copy().astype(float)
+    gappy.iloc[0, 0] = np.nan
+    assert fleiss_kappa(gappy)[:3] == pytest.approx(fleiss_kappa(df.iloc[1:])[:3])
+    _, _, _, per_item_gappy = fleiss_kappa(gappy, return_per_item_agreement=True)
+    assert np.isnan(per_item_gappy.iloc[0]) and per_item_gappy.iloc[1:].notna().all()
+    with pytest.raises(ValueError, match="completely rated"):
+        fleiss_kappa(pd.DataFrame({"a": [np.nan], "b": [1.0]}))
     # per-item agreement is in [0, 1] and 1 for unanimous items
     _, _, _, per_item = fleiss_kappa(df, return_per_item_agreement=True)
     assert per_item.between(0, 1).all() and per_item.iloc[0] == pytest.approx(1.0)
@@ -490,11 +522,11 @@ def test_average_correlations():
     # a single study returns itself
     one = average_correlations([0.4], [103])
     assert one["r_mean"] == pytest.approx(0.4) and one["se"] == pytest.approx(0.1)
-    # one-tailed p is half of the two-tailed p; wider interval for a smaller alpha
+    # one-tailed p is half of the two-tailed p; wider interval for a higher confidence level
     assert average_correlations(r, n, method="one-tailed")["p-value"] == pytest.approx(
         res["p-value"] / 2
     )
-    narrow = average_correlations(r, n, alpha=0.2)
+    narrow = average_correlations(r, n, conf_level=0.8)
     assert narrow["cil"] > res["cil"] and narrow["cir"] < res["cir"]
 
 
@@ -564,7 +596,7 @@ def test_dependent_correlations_zou():
     lo_sw, hi_sw = dependent_correlations(0.2, 0.7, 0.4, n=200, method="zou")
     assert (lo_sw, hi_sw) == pytest.approx((-hi, -lo))
     # a lower confidence level gives a narrower interval
-    lo90, hi90 = dependent_correlations(0.7, 0.2, 0.4, n=200, method="zou", alpha=0.90)
+    lo90, hi90 = dependent_correlations(0.7, 0.2, 0.4, n=200, method="zou", conf_level=0.90)
     assert lo < lo90 < hi90 < hi
     with pytest.raises(ValueError, match="Wrong method"):
         dependent_correlations(0.7, 0.2, 0.4, n=200, method="x")
@@ -600,6 +632,19 @@ def test_independent_correlations_fisher():
         ]
         rejections += independent_correlations(r[0], r[1], n)[1] < 0.05
     assert 0.025 < rejections / reps < 0.085
+
+
+def test_correlation_comparisons_take_the_confidence_level_as_conf_level():
+    import inspect
+
+    for func in (dependent_correlations, independent_correlations):
+        assert "conf_level" in inspect.signature(func).parameters
+        assert "alpha" not in inspect.signature(func).parameters
+    lo95, hi95 = independent_correlations(0.6, 0.2, 100, 100, method="zou")
+    lo99, hi99 = independent_correlations(0.6, 0.2, 100, 100, method="zou", conf_level=0.99)
+    assert lo99 < lo95 < hi95 < hi99
+    # n2 defaults to n1 for the Zou interval, too
+    assert independent_correlations(0.6, 0.2, 100, method="zou") == pytest.approx((lo95, hi95))
 
 
 def test_independent_correlations_zou():
@@ -1062,8 +1107,8 @@ def test_bootstrap_random_state_and_seed():
     assert np.random.rand() == expected
     # a higher confidence level gives a wider interval
     wide, narrow = (
-        bootstrap(data, n_rep=500, alpha=0.99),
-        bootstrap(data, n_rep=500, alpha=0.8),
+        bootstrap(data, n_rep=500, conf_level=0.99),
+        bootstrap(data, n_rep=500, conf_level=0.8),
     )
     assert wide[2] - wide[0] > narrow[2] - narrow[0]
 
@@ -1077,7 +1122,7 @@ def test_bootstrap_properties():
         m,
         hi,
     ]  # reproducible
-    lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, alpha=0.99)
+    lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, conf_level=0.99)
     assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
     # a constant sample has a degenerate interval
     assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]

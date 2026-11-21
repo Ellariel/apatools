@@ -117,3 +117,17 @@ def test_psm_options():
 if __name__ == "__main__":
     test_psm()
     print("Tests for apatools.psm are PASSED!")
+
+
+def test_psm_seed_controls_psmpy_sampling():
+    """With unequal groups and balance=True psmpy samples the larger group: the seed must reach it."""
+    rng = np.random.default_rng(5)
+    n = 300
+    d = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n)})
+    d["treated"] = (rng.uniform(size=n) < 1 / (1 + np.exp(-(1.5 * d.x1 - 2.5)))).astype(int)
+    assert 10 < d["treated"].sum() < n / 4  # a clear minority
+    kw = dict(treatment_variable="treated", include_vars=["x1", "x2"], balance=True)
+    first = psm(d, seed=1, **kw)
+    pd.testing.assert_frame_equal(first, psm(d, seed=1, **kw))
+    others = [psm(d, seed=s, **kw) for s in (2, 3, 4)]
+    assert any(not o.equals(first) for o in others)
