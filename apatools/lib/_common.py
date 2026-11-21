@@ -97,8 +97,8 @@ def percentile_bootstrap(x, statistic, iterations, conf_level, seed):
     x : numpy.ndarray
         Data matrix, one row per observation (resampled with replacement, rows kept together).
     statistic : callable
-        Function mapping a resampled matrix to a float. If it returns NaN the resample counts
-        as unusable.
+        Function mapping a resampled matrix to a float, or to an array of several statistics. If it
+        returns NaN (or raises a ``LinAlgError``) the resample counts as unusable.
     iterations : int
         Number of resamples.
     conf_level : float
@@ -110,8 +110,8 @@ def percentile_bootstrap(x, statistic, iterations, conf_level, seed):
 
     Returns
     -------
-    tuple of float
-        ``(lower, upper)`` limit.
+    tuple of float or of numpy.ndarray
+        ``(lower, upper)`` limit; arrays with one limit per statistic if ``statistic`` returns an array.
 
     Warns
     -----
@@ -124,19 +124,32 @@ def percentile_bootstrap(x, statistic, iterations, conf_level, seed):
     """
     rng = np.random.default_rng(seed)
     n = len(x)
-    values = np.full(int(iterations), np.nan)
+    results = []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        for i in range(len(values)):
+        for _ in range(int(iterations)):
             sample = x[rng.integers(0, n, size=n)]
             if np.any(sample.std(axis=0) == 0):
+                results.append(None)
                 continue
-            values[i] = statistic(sample)
-    failed = int(np.isnan(values).sum())
+            try:
+                results.append(np.asarray(statistic(sample), dtype=float))
+            except np.linalg.LinAlgError:  # e.g. a singular covariance matrix in a resample
+                results.append(None)
+    usable = [r for r in results if r is not None]
+    scalar = bool(usable) and usable[0].ndim == 0
+    width = 1 if not usable else max(usable[0].size, 1)
+    values = np.full((len(results), width), np.nan)
+    for i, r in enumerate(results):
+        if r is not None:
+            values[i] = r.ravel()
+    failed = int(np.isnan(values).any(axis=1).sum())
     if failed:
         warnings.warn(
-            f"{failed} of {len(values)} bootstrap resamples could not be used.", UserWarning
+            f"{failed} of {len(results)} bootstrap resamples could not be used.", UserWarning
         )
     lower = 100 * (1 - conf_level) / 2
-    low, high = np.nanpercentile(values, [lower, 100 - lower])
-    return float(low), float(high)
+    low, high = np.nanpercentile(values, [lower, 100 - lower], axis=0)
+    if scalar:
+        return float(low[0]), float(high[0])
+    return low, high

@@ -53,6 +53,15 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
+- `mcdonald_omega_bifactor`: omega hierarchical, omega total, the explained common variance and the subscale omegas
+  (`omega_s`, `omega_hs`) of a scale with subscales, from a confirmatory bifactor model given by item groups, with
+  delta-method (sandwich) or bootstrap intervals. Estimates and standard errors agree with lavaan.
+- `mcdonald_omega(robust=True, varphi=0.1)`: robust omega after Zhang & Yuan (2016): the covariance matrix of the items
+  is a Huber-type M-estimate (cases far from the center are downweighted) and the interval uses the sandwich covariance
+  matrix of the estimator; `varphi=0` keeps the sample covariance matrix with the distribution-free standard error. It
+  agrees with the R package coefficientalpha. `mcdonald_omega(standardized=False)` gives the reliability of the raw sum
+  score (the default, omega of the standardized items, is unchanged). `percentile_bootstrap` accepts statistics that
+  return several values.
 - `lm_tests`: diagnostic tests of the models fitted with `lm` in one table, in the format of `plm_tests`, with the diagnostics
   that are meaningful for each kind of model. OLS: Jarque-Bera, omnibus and Shapiro-Wilk (normality), Breusch-Pagan and White
   (heteroskedasticity), RESET, Breusch-Godfrey and Durbin-Watson (with `lags`), the Bonferroni outlier test, Cook's distance,

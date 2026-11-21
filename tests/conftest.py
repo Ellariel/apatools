@@ -12,6 +12,7 @@ REQUIRES = {
     "test_common.py": ["pandas"],
     "test_lavaan.py": ["pandas"],
     "test_lib.py": ["pandas", "statsmodels"],
+    "test_mcdonald.py": ["pandas", "statsmodels"],
     "test_lm.py": ["pandas", "statsmodels", "lxml"],
     "test_slm.py": ["pandas", "statsmodels", "spreg", "libpysal"],
     "test_plm.py": ["pandas", "spreg", "libpysal", "patsy"],

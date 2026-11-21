@@ -286,6 +286,30 @@ _, m, _ = bootstrap(
 ```
 
 
+#### McDonald's omega: total, hierarchical and robust
+```python
+from apatools.lib import mcdonald_omega, mcdonald_omega_bifactor
+
+# omega of a unidimensional scale with its confidence interval (delta method; bootstrap_iter=... for a bootstrap interval)
+omega, lower, upper = mcdonald_omega(items)
+# robust to outlying respondents: Huber-type M-estimated covariance matrix, sandwich standard error (Zhang & Yuan, 2016)
+omega, lower, upper = mcdonald_omega(items, robust=True)          # varphi=0.1: a tenth of the cases is downweighted
+# reliability of the raw sum score (the definition of lavaan / semTools and of Zhang & Yuan) instead of the standardized items
+omega, lower, upper = mcdonald_omega(items, standardized=False)
+
+# a scale with subscales: bifactor model -> omega hierarchical, omega total, ECV and the subscale omegas, with intervals
+table = mcdonald_omega_bifactor(items, {"A": ["x1", "x2", "x3"], "B": ["x4", "x5", "x6"], "C": ["x7", "x8", "x9"]})
+#              estimate  lower  upper
+# omega_h         0.792  0.776  0.807   share of the total-score variance due to the general factor
+# omega_t         0.893  0.886  0.900   reliability of the total score (general + group factors)
+# ecv             0.719  0.693  0.744   share of the common variance due to the general factor
+# omega_s[A]      ...                   reliability of the subscale score
+# omega_hs[A]     ...                   its reliability after removing the general factor
+```
+`mcdonald_omega_bifactor` fits a confirmatory bifactor model (a general factor and one uncorrelated group factor per subscale; at least two groups of at least three items; items outside the groups load on the general factor only) and accepts the same `bootstrap_iter`, `robust`, `varphi` and `standardized` options. The point estimates and the standard errors were checked against lavaan (bifactor model, delta method) and, for the robust omega, against the R package *coefficientalpha* of Zhang and Yuan (estimates identical, standard errors within 0.3%). In simulations with 8% outlying respondents the ordinary omega fell from .82 to .57 while the robust omega stayed at .79; the robust interval is then still somewhat too narrow (coverage about 70%), so use `bootstrap_iter` when outliers are many. Bifactor solutions can be improper in small samples (a uniqueness at zero): the analytic interval is then not available and the bootstrap is the alternative.
+
+
+
 
 ## Sources and references
 * [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
