@@ -189,6 +189,8 @@ fig = sem_plot(
     )
 ```
 
+`stats` holds, besides semopy's columns, the standardized estimate `est_std` with its standard error `se_std`, z-value `z_std` and p-value `p_std` (delta method, like lavaan's `standardizedSolution()`). The first loading of each latent variable is fixed to 1 for identification, so it has no p-value in the raw solution (`p-value` is NaN, in lavaan as well), but its standardized loading is estimated and does have a `p_std`. `sem_plot` labels the arrows with the p-values that belong to the estimates it shows: `p_std` for the standardized (default) and `p-value` for the raw estimates (`std_ests=False`).
+
 `sem_plot` has two engines that draw the same diagram (circles for latent and boxes for observed variables, arrows labelled with the estimate and the p-value or stars, dashed arrows for covariances):
 
 * `engine="semopy"` (default) - the diagram of `semopy.semplot`, drawn by Graphviz (extra `graphviz`, needs the Graphviz executables); returns a `graphviz.Digraph`. The Graphviz layout program can be chosen with `layout="dot"` (default), `"neato"`, ...

@@ -25,6 +25,7 @@ Equation Modeling, 6*(1), 1-55.
 import os
 
 import numpy as np
+from scipy.stats import norm
 
 from ._deps import missing_dependency
 
@@ -56,6 +57,55 @@ semopy: A Python Package for Structural Equation Modeling. \
 Structural Equation Modeling: A Multidisciplinary Journal, 27(6), 952-963. \
 https://doi.org/10.1080/10705511.2019.1704289"
 )
+
+
+def _standardized_inference(model, robust):
+    """
+    Standard errors, z-values and p-values of the standardized estimates (delta method).
+
+    semopy reports a standardized estimate (``Est. Std``) but no standard error for it. The
+    standardized estimates are functions of the free parameters, so their covariance matrix is
+    ``J S J'`` with ``S`` the covariance matrix of the free parameters (the one behind semopy's
+    standard errors: expected information, with the Huber-White sandwich if ``robust``) and ``J``
+    the numerical Jacobian of the standardized estimates (central differences). This is the
+    approach of lavaan's ``standardizedSolution()``. Also parameters that are fixed in the
+    unstandardized solution (the first loading of a latent variable, fixed to 1) get a standard
+    error, because their standardized value is estimated.
+
+    Returns three arrays aligned with the rows of ``model.inspect(std_est=True)``; NaN where the
+    standardized value does not depend on any free parameter or the covariance matrix is not
+    usable.
+    """
+    theta = np.array(model.param_vals, dtype=float)
+
+    def standardized(values):
+        model.param_vals = values
+        model.update_matrices(values)
+        table = model.inspect(std_est=True, information=None)
+        return pd.to_numeric(table["Est. Std"], errors="coerce").to_numpy(dtype=float)
+
+    cov = model.calc_fim(inverse=True)[1]
+    if robust:
+        g = sum(np.outer(g, g) for g in model.grad_se_g(model.param_vals))
+        cov = cov @ g @ cov
+    try:
+        estimate = standardized(theta)
+        jacobian = np.empty((len(estimate), len(theta)))
+        for i in range(len(theta)):
+            step = 1e-6 * max(1.0, abs(theta[i]))
+            up, down = theta.copy(), theta.copy()
+            up[i] += step
+            down[i] -= step
+            jacobian[:, i] = (standardized(up) - standardized(down)) / (2 * step)
+    finally:  # leave the fitted model as it was
+        model.param_vals = theta
+        model.update_matrices(theta)
+    variance = np.einsum("ij,jk,ik->i", jacobian, cov, jacobian)
+    variance[(variance < 0) & (variance > -1e-10)] = 0.0
+    se = np.sqrt(np.where(variance >= 0, variance, np.nan))
+    se[se < 1e-10] = np.nan  # a constant has no standard error
+    z = estimate / se
+    return se, z, 2 * norm.sf(np.abs(z))
 
 
 def sem(
@@ -107,9 +157,12 @@ def sem(
     -------
     stats : pandas.DataFrame
         One row per model parameter with semopy's ``inspect`` columns in lower case
-        (``lval``, ``op``, ``rval``, ``estimate``, ``se``, ``z``, ``p-value``) and
-        the standardized estimate ``est_std``. Entries semopy reports as ``"-"`` are
-        converted to NaN. ``op`` is ``"~"`` for regressions *and* measurement paths
+        (``lval``, ``op``, ``rval``, ``estimate``, ``std_err``, ``z-value``, ``p-value``), the
+        standardized estimate ``est_std`` and its standard error ``se_std``, z-value
+        ``z_std`` and p-value ``p_std`` (delta method, as in lavaan's
+        ``standardizedSolution()``; the loadings that are fixed to 1 in the unstandardized
+        solution have no ``p-value`` but do have a ``p_std``). Entries semopy reports as
+        ``"-"`` are converted to NaN. ``op`` is ``"~"`` for regressions *and* measurement paths
         (semopy does not distinguish them), ``"~~"`` for (co)variances.
         ``stats.attrs["latent"]`` is the sorted list of latent variables, which
         :func:`sem_plot` uses to draw latent variables as circles.
@@ -173,6 +226,8 @@ def sem(
     stats = model.inspect(std_est=True, se_robust=se_robust)
     stats.columns = [i.lower().replace(". ", "_") for i in stats.columns]
     stats = stats.replace("-", np.nan).infer_objects().copy()
+    se_std, z_std, p_std = _standardized_inference(model, se_robust)
+    stats["se_std"], stats["z_std"], stats["p_std"] = se_std, z_std, p_std
     # semopy reports measurement paths ("=~") as "~" rows, so keep the latent
     # variable names for sem_plot() to be able to tell latent from observed nodes
     stats.attrs["latent"] = sorted(model.vars.get("latent", []))
@@ -224,6 +279,8 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
 
     stats = stats.copy()
     format_significance(stats, add_stars, format_pval, na_rep="")
+    if "p_std" in stats:  # p-values of the standardized estimates, formatted like the others
+        format_significance(stats, False, format_pval, p_column="p_std", na_rep="")
     # select metrics by name: positional slicing would silently break if semopy reorders them
     chi = metrics["value"]
     fit_names = [i for i in ("CFI", "GFI", "AGFI", "NFI", "TLI") if i in chi.index]
@@ -369,12 +426,15 @@ def _path_diagram(stats, plot_covs, std_ests, plot_ests, show_stars, format_pval
     Edges with the intercept pseudo-variable ``"1"`` and variances are left out.
     """
     stats = stats.copy()
+    # the p-values must belong to the estimates that are shown (tables from older versions of
+    # sem() have no p_std: then the p-values of the unstandardized estimates are used)
+    pcol = "p_std" if std_ests and "p_std" in stats else "p-value"
     if show_stars:
         show_stars = get_stars if not callable(show_stars) else show_stars
-        stats["p-value"] = stats["p-value"].fillna("").apply(show_stars)
+        stats[pcol] = stats[pcol].fillna("").apply(show_stars)
     elif format_pval:
-        stats["p-value"] = (
-            stats["p-value"]
+        stats[pcol] = (
+            stats[pcol]
             .fillna("")
             .apply(
                 format_pval
@@ -394,7 +454,7 @@ def _path_diagram(stats, plot_covs, std_ests, plot_ests, show_stars, format_pval
 
     def label(row):
         est = row["estimate"] if not std_ests else row["est_std"]
-        pval = row["p-value"]
+        pval = row[pcol]
         text = ""
         if plot_ests:
             text = str(est)

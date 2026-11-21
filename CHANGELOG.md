@@ -5,6 +5,8 @@
 This list is not complete yet: it covers `apatools.lib` and the changes listed below.
 
 ### Fixed
+- `sem_plot` labelled the arrows with the p-values of the raw estimates although it shows standardized estimates by
+  default (and none for the loadings fixed to 1): the labels use `p_std` now when `std_ests=True`.
 - `lm(formula=..., model="mlm", mlm_model_groups=...)` failed (IndexError) or used the wrong groups when the data
   had missing values: the groups are now aligned with the rows that patsy kept.
 - `lm(..., vif=True, base_metrics=False)` silently dropped the VIFs.
@@ -44,6 +46,9 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
+- `sem`: standard error, z-value and p-value of the standardized estimates (`se_std`, `z_std`, `p_std`; delta method
+  as in lavaan's `standardizedSolution()`). They also exist for the loadings that are fixed to 1 in the raw solution.
+  `sem_report` formats `p_std` like `p-value`.
 - `sem_plot(engine="networkx")` (new extra `networkx`): the same path diagram drawn with networkx and matplotlib, without
   the Graphviz executables; returns a matplotlib figure, honours `dpi`, and offers the layouts `layered` (default),
   `spring`, `kamada_kawai` and `circular` (`networkx_plot`).

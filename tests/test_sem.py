@@ -1,7 +1,10 @@
 import shutil
 
+import numpy as np
+import pandas as pd
 import pytest
 import semopy
+from scipy.stats import norm
 
 from apatools.sem import sem, sem_report, semopy_plot, sem_plot, CITATION
 
@@ -140,10 +143,15 @@ def test_sem_report_and_plot_details():
 
 
 @pytest.fixture(scope="module")
-def democracy_stats():
+def democracy_fit():
     data = semopy.examples.political_democracy.get_data()
     formula = semopy.examples.political_democracy.get_model()
-    return sem(data, formula, bootstrap=0, seed=13)[0]
+    return sem(data, formula, bootstrap=0, seed=13)
+
+
+@pytest.fixture(scope="module")
+def democracy_stats(democracy_fit):
+    return democracy_fit[0]
 
 
 @pytest.fixture
@@ -274,6 +282,103 @@ def test_networkx_plot_names_the_extra_when_a_package_is_missing(monkeypatch, de
             m.setitem(sys.modules, missing, None)
             with pytest.raises(ImportError, match=r"apatools\[networkx\]"):
                 networkx_plot(democracy_stats)
+
+
+##############################################
+# inference for the standardized estimates   #
+##############################################
+
+
+def test_standardized_estimates_have_standard_errors_and_p_values(democracy_stats):
+    stats = democracy_stats
+    assert {"est_std", "se_std", "z_std", "p_std"} <= set(stats.columns)
+    paths = stats[stats["op"] == "~"]
+    # the first loading of every latent variable is fixed to 1: no test of the raw loading ...
+    fixed = paths[paths["std_err"].isna()]
+    assert set(fixed["lval"]) == {"x1", "y1", "y5"} and fixed["p-value"].isna().all()
+    # ... but its standardized value is estimated and has a standard error and a p-value
+    assert fixed["se_std"].between(0.01, 0.1).all() and (fixed["p_std"] < 1e-6).all()
+    assert np.allclose(paths["z_std"], paths["est_std"] / paths["se_std"])
+    assert np.allclose(paths["p_std"], 2 * norm.sf(np.abs(paths["z_std"])))
+    # regression values (expected information): x1, x2, x3 on ind60
+    plain = sem(
+        semopy.examples.political_democracy.get_data(),
+        semopy.examples.political_democracy.get_model(),
+        bootstrap=0,
+        se_robust=False,
+    )[0]
+    loadings = plain[(plain["rval"] == "ind60") & plain["lval"].isin(["x1", "x2", "x3"])]
+    assert loadings["est_std"].round(3).tolist() == [0.92, 0.973, 0.872]
+    assert loadings["se_std"].round(3).tolist() == [0.023, 0.016, 0.031]
+
+
+def test_standardized_standard_errors_match_theory_and_bootstrap():
+    rng = np.random.default_rng(7)
+    n = 400
+    x = rng.normal(size=n)
+    data = pd.DataFrame({"x": x, "y": 0.5 * x + rng.normal(size=n)})
+    stats = sem(data, "y ~ x", bootstrap=0, se_robust=False)[0]
+    row = stats[(stats["lval"] == "y") & (stats["rval"] == "x")].iloc[0]
+    r = row["est_std"]
+    assert r == pytest.approx(np.corrcoef(data.x, data.y)[0, 1], abs=1e-3)
+    # standard error of a correlation / standardized simple regression coefficient: (1 - r^2) / sqrt(n)
+    assert row["se_std"] == pytest.approx((1 - r**2) / np.sqrt(n), rel=0.05)
+
+    # one factor: the delta method agrees with the spread of the standardized loadings in bootstrap samples
+    n = 300
+    factor = rng.normal(size=n)
+    items = pd.DataFrame({f"i{k}": l * factor + rng.normal(size=n) for k, l in enumerate([1.0, 0.8, 0.7, 0.9], 1)})
+    formula = "f =~ i1 + i2 + i3 + i4"
+    fit = sem(items, formula, bootstrap=0, se_robust=False)[0]
+    loadings = fit[(fit["rval"] == "f") & (fit["op"] == "~")].reset_index(drop=True)
+    draws = [
+        sem(items.sample(n, replace=True, random_state=b), formula, bootstrap=0, se_robust=False)[0]
+        .query("rval == 'f' and op == '~'")["est_std"]
+        .to_numpy()
+        for b in range(80)
+    ]
+    assert np.std(draws, axis=0, ddof=1) == pytest.approx(loadings["se_std"].to_numpy(), rel=0.3)
+
+
+def test_standardized_inference_leaves_the_fitted_model_untouched():
+    data = semopy.examples.political_democracy.get_data()
+    formula = semopy.examples.political_democracy.get_model()
+    stats, _, model = sem(data, formula, bootstrap=0, return_model=True)
+    again = semopy.Model(formula)
+    np.random.seed(13)
+    again.fit(data)
+    assert np.allclose(model.param_vals, again.param_vals, atol=1e-6)
+    std = model.inspect(std_est=True, information=None)["Est. Std"].astype(float).to_numpy()
+    assert np.allclose(std, stats["est_std"].to_numpy())
+
+
+def test_sem_report_formats_the_standardized_p_values(democracy_fit):
+    democracy_stats, metrics = democracy_fit
+    before = democracy_stats.copy()
+    rep = sem_report(democracy_stats, metrics)
+    pd.testing.assert_frame_equal(democracy_stats, before)
+    assert rep["p_std"].map(lambda v: isinstance(v, str)).all()
+    assert (rep["p_std"] == "<.001").sum() > 10 and rep["p_std"].iloc[0] != ""
+    raw = sem_report(democracy_stats, metrics, format_pval=False)
+    assert raw["p_std"].notna().sum() > 20
+
+
+def test_sem_plot_labels_use_the_p_values_of_the_shown_estimates(mpl, democracy_stats):
+    from matplotlib.text import Annotation
+
+    def labels(fig):
+        return [t.get_text() for t in fig.axes[0].texts if not isinstance(t, Annotation) and t.get_text()[:1].isdigit()]
+
+    n_paths = int((democracy_stats["op"] == "~").sum())
+    std = [t for t in labels(sem_plot(democracy_stats, engine="networkx", plot_covs=False)) if "p" in t]
+    assert len(std) == n_paths  # every standardized path has a p-value, also the loadings fixed to 1
+    assert "0.92\np<.001" in labels(sem_plot(democracy_stats, engine="networkx", plot_covs=False))
+    raw = labels(sem_plot(democracy_stats, engine="networkx", plot_covs=False, std_ests=False))
+    assert len([t for t in raw if "p" in t]) == n_paths - 3  # the three loadings fixed to 1 have no test
+    # tables without the standardized p-values (older versions) are still plotted
+    old = democracy_stats.drop(columns=["se_std", "z_std", "p_std"])
+    old.attrs.update(democracy_stats.attrs)
+    assert len([t for t in labels(sem_plot(old, engine="networkx", plot_covs=False)) if "p" in t]) == n_paths - 3
 
 
 if __name__ == "__main__":
