@@ -27,6 +27,13 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   renamed now, in `lm_report`, `slm_report` and `plm_report` alike.
 
 ### Changed
+- **Breaking:** the one-field `Citation` class and the `CITATION` constants of `lm`, `slm`, `plm`, `sem` and `psm` are
+  replaced by `apatools.citation.cite(module, engine=None)`: name the engines you used (a string or a list, for
+  fitting and for drawing alike, e.g. `cite("sem", engine=["lavaan", "semPlot"])`) and get their APA references
+  without duplicates. The references are written once in `apatools.citation.REFERENCES`; they were checked against
+  Crossref and other sources: the statsmodels page range is corrected (92-96), DOIs are added (PySAL, NetworkX,
+  Graphviz, linearmodels), Python is capitalized and the editors of the proceedings are given. New references:
+  lavaan, semPlot, R, NetworkX, matplotlib and Graphviz.
 - **Breaking:** `sem_plot(method=...)` is now `sem_plot(engine=...)` (`"semopy"`, as before, or the new `"networkx"`), and the
   Graphviz layout program of `semopy_plot` is `layout=` (was `engine=`), so that `engine` always names the drawing
   engine. The diagram of the `"semopy"` engine is unchanged.

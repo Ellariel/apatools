@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from apatools.psm import psm, psm_effect_size, CITATION
+from apatools.citation import cite
+from apatools.psm import psm, psm_effect_size
 
 
 def mtcars():
@@ -42,7 +43,7 @@ def test_psm_smoke():
     # reproducible
     df2 = psm(d, treatment_variable="treated", include_vars=["x1", "x2"], seed=1)
     pd.testing.assert_frame_equal(df, df2)
-    assert isinstance(CITATION.APA, str)
+    assert cite("psm")[0].startswith("Kline")
 
 
 def test_psm():
@@ -51,7 +52,7 @@ def test_psm():
     test_data = mtcars()
     assert len(test_data) == 32
 
-    print(CITATION.APA)
+    print(cite("psm")[0])
 
     df, model = psm(
         test_data,

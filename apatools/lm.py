@@ -25,19 +25,10 @@ from ._common import (
     rename_intercept,
     round_columns,
 )
-from .citation import Citation
 from .format import format_p, format_r
 
+
 # https://www.statsmodels.org/stable/index.html
-CITATION = Citation(
-    APA="Seabold, S., & Perktold, J. (2010). \
-statsmodels: Econometric and statistical modeling with python. \
-9th Python in Science Conference (pp. 57-61), \
-Austin, Texas, United States. \
-https://doi.org/10.25080/Majora-92bf1922-011"
-)
-
-
 def vif(results, sort=False, decimal=2):
     """
     Variance inflation factors (VIF), a measure of multicollinearity.

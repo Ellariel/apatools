@@ -23,17 +23,10 @@ from ._common import (
     round_columns,
     w_subset_rows,
 )
-from .citation import Citation
 from .format import format_p, format_r
 
+
 # https://pysal.org/spreg/index.html
-CITATION = Citation(
-    APA="Rey, S. J., & Anselin, L. (2007). \
-PySAL: A python library of spatial analytical methods. \
-The Review of Regional Studies, 37(1), 5-27."
-)
-
-
 def fit_model(model, Y, X, w, **kwargs):  # model.fit() generator function
     """
     Generator that fits one or several spreg models and yields the fitted results.

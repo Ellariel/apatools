@@ -270,12 +270,15 @@ _, m, _ = bootstrap(
 * [psmpy](https://pypi.org/project/psmpy/) (MIT License)
 * [scipy](https://pypi.org/project/scipy/) (BSD License)
 
-Note that APA citations of the original packages can be imported from each specific implementation as follows:
+What to cite for the results of a module is given by `cite(module, engine=None)`, which returns the APA references of the software that did the work, without duplicates. Name the engines you used, for fitting and for drawing alike (a string or a list); the default is the first engine of the module:
 ```python
-# e.g., for psmpy
-from apatools.psm import CITATION
-print(CITATION.APA) 
+from apatools.citation import cite
+print("\n\n".join(cite("psm")))                                         # psmpy
+print("\n\n".join(cite("plm", engine="linearmodels")))                  # PySAL, linearmodels
+print("\n\n".join(cite("sem", engine=["lavaan", "semPlot"])))           # R, lavaan, semPlot
+print("\n\n".join(cite("sem", engine=["semopy", "networkx"])))          # semopy, NetworkX, matplotlib
 ```
+Engines: `lm`: `statsmodels`; `slm`: `spreg`; `plm`: `spreg`, `linearmodels`; `sem`: `semopy`, `lavaan`, `semPlot`, `networkx`, `graphviz`; `psm`: `psmpy`. `cite` needs no extra; the references (DOIs checked against Crossref) are collected in `apatools.citation.REFERENCES`. Check the year and version of the software you used.
 
 ## License
 MIT, see [LICENSE](LICENSE).

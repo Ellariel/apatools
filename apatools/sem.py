@@ -36,8 +36,8 @@ except ImportError as e:  # pragma: no cover
     missing_dependency("sem", "sem", e)
 
 from ._common import format_significance
-from .citation import Citation
 from .format import format_p, get_stars
+
 
 # https://arxiv.org/pdf/2106.01140.pdf
 # https://semopy.com/cite.html
@@ -51,14 +51,6 @@ from .format import format_p, get_stars
 # eta1 =~ y1 + y2 + y3
 # eta1 ~ x1
 # """
-CITATION = Citation(
-    APA="Igolkina, A. A., & Meshcheryakov, G. (2020). \
-semopy: A Python Package for Structural Equation Modeling. \
-Structural Equation Modeling: A Multidisciplinary Journal, 27(6), 952-963. \
-https://doi.org/10.1080/10705511.2019.1704289"
-)
-
-
 def _standardized_inference(model, robust):
     """
     Standard errors, z-values and p-values of the standardized estimates (delta method).

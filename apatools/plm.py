@@ -64,20 +64,10 @@ from ._common import (
     round_columns,
     w_subset_rows,
 )
-from .citation import Citation
 from .format import format_p, format_r
 
 # https://pysal.org/spreg/index.html
 # https://bashtage.github.io/linearmodels/
-CITATION = Citation(
-    APA="Rey, S. J., & Anselin, L. (2007). \
-PySAL: A python library of spatial analytical methods. \
-The Review of Regional Studies, 37(1), 5-27.; \
-Sheppard, K. (n.d.). linearmodels: Linear models for panel data, \
-instrumental variables and system regression [Computer software]. \
-https://github.com/bashtage/linearmodels"
-)
-
 # name -> (spreg class, effects, spatial interaction)
 SPREG_MODELS = {
     "pooled": ("PooledOLS", "pooled", None),
