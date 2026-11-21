@@ -19,10 +19,23 @@ try:  # checked once for the whole package, so that the message names the extra 
 except ImportError as e:  # pragma: no cover
     missing_dependency("lib", "lib", e)
 
-from .correlations import average_correlations, dependent_correlations, independent_correlations, rho_rxy_rxz, rz_ci
+from .correlations import (
+    average_correlations,
+    dependent_correlations,
+    independent_correlations,
+    rho_rxy_rxz,
+    rz_ci,
+)
 from .fleiss import fleiss_kappa
 from .krippendorff import krippendorffs_alpha
-from .misc import bootstrap, gini, gini_from_percentiles, htmt_ratio, log_transform, z_transform
+from .misc import (
+    bootstrap,
+    gini,
+    gini_from_percentiles,
+    htmt_ratio,
+    log_transform,
+    z_transform,
+)
 from .omega import mcdonald_omega
 
 __all__ = [

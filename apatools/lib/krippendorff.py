@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-
 _KRIPPENDORFF_LEVELS = ("nominal", "ordinal", "interval", "ratio")
 
 

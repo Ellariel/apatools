@@ -19,7 +19,7 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | `pip install "apatools[plm]"` | `plm` | pandas, spreg, libpysal, patsy |
 | `pip install "apatools[sem]"` | `sem` | pandas, semopy |
 | `pip install "apatools[psm]"` | `psm` | pandas, psmpy |
-| `pip install "apatools[lib]"` | `lib` | pandas, statsmodels |
+| `pip install "apatools[lib]"` | `lib` | pandas, , scipy, statsmodels |
 | `pip install "apatools[linearmodels]"` | `plm` with the *linearmodels* backend | the `plm` extra and linearmodels |
 | `pip install "apatools[graphviz]"` | `sem_plot` path diagrams | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
 | `pip install "apatools[all]"` | everything | all of the above |
