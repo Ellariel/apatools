@@ -3,11 +3,13 @@
 Wraps `semopy <https://semopy.com>`_: :func:`sem` fits a model given in lavaan-like
 syntax and returns a parameter table plus fit statistics, :func:`sem_report` formats
 them for a manuscript (p-values, stars, a one-line fit summary) and :func:`sem_plot`
-draws the path diagram with Graphviz.
+draws the path diagram, with Graphviz (``engine="semopy"``) or with networkx and matplotlib
+(``engine="networkx"``).
 
 Requires the optional dependencies ``pandas`` and ``semopy``
-(``pip install "apatools[sem]"``); plotting additionally needs the ``graphviz``
-Python package (extra ``graphviz``) and the Graphviz executables (``dot``) on the system PATH.
+(``pip install "apatools[sem]"``). Plotting with the ``"semopy"`` engine additionally needs the
+``graphviz`` Python package (extra ``graphviz``) and the Graphviz executables (``dot``) on the
+system PATH; the ``"networkx"`` engine needs only networkx and matplotlib (extra ``networkx``).
 
 References
 ----------
@@ -19,6 +21,8 @@ Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance
 structure analysis: Conventional criteria versus new alternatives. *Structural
 Equation Modeling, 6*(1), 1-55.
 """
+
+import os
 
 import numpy as np
 
@@ -244,6 +248,9 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
     return stats
 
 
+PLOT_ENGINES = ("semopy", "networkx")
+
+
 def sem_plot(
     stats,
     save_to_file=None,
@@ -252,7 +259,7 @@ def sem_plot(
     show_stars=False,
     format_pval=True,
     format_fig="png",
-    method="semopy",
+    engine="semopy",
     return_fig=True,
     decimal=3,
     dpi=600,
@@ -264,15 +271,22 @@ def sem_plot(
     Latent variables are drawn as circles, observed variables as boxes, regressions
     and measurement paths as arrows from predictor/indicator to outcome/latent and
     covariances as dashed double-headed arrows. Edges are labelled with the
-    estimate and, below it, the formatted p-value (or stars). The work is done by
-    :func:`semopy_plot`.
+    estimate and, below it, the formatted p-value (or stars). The drawing is done by one
+    of two engines that show the same diagram:
+
+    * ``"semopy"`` (default): the diagram of ``semopy.semplot`` drawn by Graphviz
+      (:func:`semopy_plot`); needs the Graphviz executables.
+    * ``"networkx"``: a pure Python drawing with networkx and matplotlib
+      (:func:`networkx_plot`); needs no external program and also supports ``dpi``.
 
     Parameters
     ----------
     stats : pandas.DataFrame
         Parameter table from :func:`sem`.
     save_to_file : str, optional
-        Copy the rendered figure to this path (the file type follows ``format_fig``).
+        Write the figure to this path. The file type follows ``format_fig`` for the ``"semopy"``
+        engine; for ``"networkx"`` it follows the extension of the path (``format_fig`` if the
+        path has none).
     plot_covs : bool, default True
         Draw covariances between different variables (dashed, double-headed arrows).
     std_ests : bool, default True
@@ -285,59 +299,123 @@ def sem_plot(
         (:func:`apatools.format.format_p`); a callable receives one p-value. Ignored
         if ``show_stars`` is set. False prints the raw numbers.
     format_fig : str, default "png"
-        Graphviz output format (``"png"``, ``"svg"``, ``"pdf"``, ...).
-    method : str, default "semopy"
-        Plotting backend; only ``"semopy"`` (Graphviz) is implemented, anything else
-        raises ``NotImplementedError``.
+        Output format (``"png"``, ``"svg"``, ``"pdf"``, ...), see ``save_to_file``.
+    engine : {"semopy", "networkx"}, default "semopy"
+        Drawing engine. Any other value raises ``NotImplementedError``.
     return_fig : bool, default True
-        Return the ``graphviz.Digraph``; if False the function returns None (the
-        figure is still written to ``save_to_file``).
+        Return the figure object; if False the function returns None (the figure is still
+        written to ``save_to_file``, and a matplotlib figure is closed).
     decimal : int, default 3
         Rounding of the estimates.
     dpi : int, default 600
-        Accepted for compatibility; it is passed on to :func:`semopy_plot` but
-        currently has no effect on the output.
+        Resolution of the saved figure; used by the ``"networkx"`` engine only (the
+        ``"semopy"`` engine accepts it but ignores it).
     seed : int, default 13
         Seed for numpy's global random generator.
     **kwargs
-        Passed through to :func:`semopy_plot` (currently unused by the Graphviz
-        backend).
+        Passed through to the engine function: ``layout`` for both engines (a Graphviz layout
+        program such as ``"dot"`` / ``"neato"`` for ``"semopy"``, see :func:`semopy_plot`; ``"layered"``,
+        ``"spring"``, ``"kamada_kawai"``, ``"circular"`` for ``"networkx"``), and
+        ``figsize`` and ``fontsize`` for ``"networkx"``, see :func:`networkx_plot`.
 
     Returns
     -------
-    graphviz.Digraph or None
-        The graph (displays inline in Jupyter), or None if ``return_fig`` is False.
+    graphviz.Digraph, matplotlib.figure.Figure or None
+        ``"semopy"``: the Graphviz graph (displays inline in Jupyter). ``"networkx"``: the
+        matplotlib figure. None if ``return_fig`` is False.
 
     Notes
     -----
-    Requires the ``graphviz`` Python package and the Graphviz executables (``dot``) on
-    the system PATH (on Windows, add the Graphviz ``bin`` folder to ``PATH``).
+    The ``"semopy"`` engine needs the ``graphviz`` Python package and the Graphviz executables
+    (``dot``) on the system PATH (on Windows, add the Graphviz ``bin`` folder to ``PATH``):
+    ``pip install "apatools[graphviz]"``. The ``"networkx"`` engine needs networkx and
+    matplotlib: ``pip install "apatools[networkx]"``.
     """
-    if method != "semopy":
+    if engine not in PLOT_ENGINES:
         raise NotImplementedError(
-            f"Plot method '{method}' is not implemented, use 'semopy'."
+            f"Plot engine '{engine}' is not implemented, use one of {PLOT_ENGINES}."
         )
-    fig = None
-    if method == "semopy":
-        fig = semopy_plot(
-            stats,
-            save_to_file=save_to_file,
-            plot_covs=plot_covs,
-            std_ests=std_ests,
-            plot_ests=True,
-            engine="dot",
-            latshape="circle",
-            show_stars=show_stars,
-            format_pval=format_pval,
-            format_fig=format_fig,
-            decimal=decimal,
-            seed=seed,
-            dpi=dpi,
-            **kwargs,
-        )
+    common = {
+        "save_to_file": save_to_file,
+        "plot_covs": plot_covs,
+        "std_ests": std_ests,
+        "plot_ests": True,
+        "show_stars": show_stars,
+        "format_pval": format_pval,
+        "format_fig": format_fig,
+        "decimal": decimal,
+        "seed": seed,
+    }
+    if engine == "semopy":
+        fig = semopy_plot(stats, latshape="circle", dpi=dpi, **common, **kwargs)
+    else:
+        fig = networkx_plot(stats, dpi=dpi, **common, **kwargs)
+        if not return_fig:
+            import matplotlib.pyplot as plt
+
+            plt.close(fig)
 
     if return_fig:
         return fig
+
+
+def _path_diagram(stats, plot_covs, std_ests, plot_ests, show_stars, format_pval, decimal):
+    """
+    Nodes and labelled edges of the path diagram, shared by the plotting engines.
+
+    Returns ``(latent, observed, edges, covs, order)``: the sets of latent and observed
+    variables, the regression / measurement edges ``(predictor, outcome, label)``, the
+    covariance edges (empty unless ``plot_covs``) and the variables in order of appearance.
+    Edges with the intercept pseudo-variable ``"1"`` and variances are left out.
+    """
+    stats = stats.copy()
+    if show_stars:
+        show_stars = get_stars if not callable(show_stars) else show_stars
+        stats["p-value"] = stats["p-value"].fillna("").apply(show_stars)
+    elif format_pval:
+        stats["p-value"] = (
+            stats["p-value"]
+            .fillna("")
+            .apply(
+                format_pval
+                if callable(format_pval)
+                else lambda x: format_p(x, keep_spaces=False, no_equals=False)
+            )
+        )
+    stats = stats.round(decimal)
+    elements = stats[stats["op"] == "~"]
+    latent = set(stats.attrs.get("latent", []))
+    if not latent:  # fallback for tables without metadata: old heuristic
+        latent = set(elements["rval"].to_list())
+    nodes = set(elements["lval"].to_list()) | set(elements["rval"].to_list())
+    nodes.discard("1")  # semopy's intercept pseudo-variable
+    observed = nodes - latent
+    latent = latent & nodes
+
+    def label(row):
+        est = row["estimate"] if not std_ests else row["est_std"]
+        pval = row["p-value"]
+        text = ""
+        if plot_ests:
+            text = str(est)
+            if pval != "" and pd.notna(pval):
+                text += pval if show_stars else f"\n{pval}"
+        return text
+
+    edges = [
+        (row["rval"], row["lval"], label(row))
+        for _, row in elements.iterrows()
+        if row["rval"] != "1"
+    ]
+    covs = []
+    if plot_covs:
+        elements = stats[(stats["op"] == "~~") & (stats["lval"] != stats["rval"])]
+        covs = [
+            (row["rval"], row["lval"], label(row)) for _, row in elements.iterrows()
+        ]
+    order = list(dict.fromkeys(n for rval, lval, _ in edges for n in (rval, lval)))
+    order += sorted(nodes - set(order))
+    return latent, observed, edges, covs, order
 
 
 def semopy_plot(
@@ -346,7 +424,7 @@ def semopy_plot(
     plot_covs=True,
     std_ests=True,
     plot_ests=True,
-    engine="dot",
+    layout="dot",
     latshape="circle",
     show_stars=False,
     format_pval=True,
@@ -356,7 +434,7 @@ def semopy_plot(
     **kwargs,
 ):
     """
-    Draw a SEM diagram adapted from ``semopy.semplot``.
+    Draw a SEM diagram adapted from ``semopy.semplot`` (the ``"semopy"`` engine of :func:`sem_plot`).
 
     Builds a Graphviz graph from the parameter table and renders it once (to a
     temporary directory that is removed afterwards) so that errors in the Graphviz
@@ -379,8 +457,8 @@ def semopy_plot(
         Default True.
     plot_ests : bool, optional
         Label edges with estimates and p-values. Default True.
-    engine : str, optional
-        Graphviz layout engine. Default 'dot'.
+    layout : str, optional
+        Graphviz layout program (``"dot"``, ``"neato"``, ``"fdp"``, ...). Default 'dot'.
     latshape : str, optional
         Graphviz node shape for latent variables. Default 'circle'.
     show_stars : bool or callable, optional
@@ -410,7 +488,6 @@ def semopy_plot(
     graphviz.ExecutableNotFound
         If the Graphviz executables are not on the PATH.
     """
-    import os
     import shutil
     import tempfile
 
@@ -422,30 +499,10 @@ def semopy_plot(
         ) from e
 
     np.random.seed(seed)
-    stats = stats.copy()
-    if show_stars:
-        show_stars = get_stars if not callable(show_stars) else show_stars
-        stats["p-value"] = stats["p-value"].fillna("").apply(show_stars)
-    elif format_pval:
-        stats["p-value"] = (
-            stats["p-value"]
-            .fillna("")
-            .apply(
-                format_pval
-                if callable(format_pval)
-                else lambda x: format_p(x, keep_spaces=False, no_equals=False)
-            )
-        )
-    stats = stats.round(decimal)
-    elements = stats[stats["op"] == "~"]
-    latent = set(stats.attrs.get("latent", []))
-    if not latent:  # fallback for tables without metadata: old heuristic
-        latent = set(elements["rval"].to_list())
-    nodes = set(elements["lval"].to_list()) | set(elements["rval"].to_list())
-    nodes.discard("1")  # semopy's intercept pseudo-variable
-    observed = nodes - latent
-    latent = latent & nodes
-    g = graphviz.Digraph("G", format=format_fig, engine=engine)
+    latent, observed, edges, covs, _ = _path_diagram(
+        stats, plot_covs, std_ests, plot_ests, show_stars, format_pval, decimal
+    )
+    g = graphviz.Digraph("G", format=format_fig, engine=layout)
     g.attr(overlap="scale", splines="true")
     g.attr("edge", fontsize="12")
     g.attr("node", shape=latshape, fillcolor="#cae6df", style="filled")
@@ -454,42 +511,10 @@ def semopy_plot(
     g.attr("node", shape="box", style="")
     for obs in observed:
         g.node(obs, label=obs)
-    for _, row in elements.iterrows():
-        lval, rval, pval, est = (
-            row["lval"],
-            row["rval"],
-            row["p-value"],
-            row["estimate"] if not std_ests else row["est_std"],
-        )
-        if rval == "1":
-            continue
-        label = ""
-        if plot_ests:
-            label = str(est)
-            if pval != "" and pd.notna(pval):
-                if show_stars:
-                    label += pval
-                else:
-                    label += f"\n{pval}"
+    for rval, lval, label in edges:
         g.edge(rval, lval, label=label)
-    if plot_covs:
-        elements = stats[(stats["op"] == "~~") & (stats["lval"] != stats["rval"])]
-        for _, row in elements.iterrows():
-            lval, rval, pval, est = (
-                row["lval"],
-                row["rval"],
-                row["p-value"],
-                row["estimate"] if not std_ests else row["est_std"],
-            )
-            label = ""
-            if plot_ests:
-                label = str(est)
-                if pval != "" and pd.notna(pval):
-                    if show_stars:
-                        label += pval
-                    else:
-                        label += f"\n{pval}"
-            g.edge(rval, lval, label=label, dir="both", style="dashed")
+    for rval, lval, label in covs:
+        g.edge(rval, lval, label=label, dir="both", style="dashed")
     tdir = tempfile.mkdtemp(prefix="semplot_")  # unique dir: no clashes between runs
     try:
         tfile = os.path.join(tdir, "semplot_tmp_fig")
@@ -499,3 +524,240 @@ def semopy_plot(
     finally:
         shutil.rmtree(tdir, ignore_errors=True)
     return g
+
+
+def _layered_positions(nx, order, arrows, dx=3.6, dy=1.7):
+    """
+    Left-to-right layers for a path diagram: predictors on the left, outcomes on the right.
+
+    The layer of a variable is the length of the longest path that leads to it (variables
+    in a feedback loop share a layer; variables without predictors are moved next to their
+    first outcome). Within a layer the order is improved by a few barycenter sweeps to
+    reduce crossing edges. Deterministic. Returns ``{variable: (x, y)}``.
+    """
+    graph = nx.DiGraph()
+    graph.add_nodes_from(order)
+    graph.add_edges_from(arrows)
+    condensed = nx.condensation(graph)  # feedback loops collapse into one node
+    mapping = condensed.graph["mapping"]
+    layer_of = {}
+    for k, generation in enumerate(nx.topological_generations(condensed)):
+        for component in generation:
+            layer_of[component] = k
+    layer = {n: layer_of[mapping[n]] for n in graph}
+    for n in order:
+        if graph.in_degree(n) == 0 and graph.out_degree(n) > 0:
+            layer[n] = min(layer[s] for s in graph.successors(n)) - 1
+
+    layers = {}
+    for n in order:
+        layers.setdefault(layer[n], []).append(n)
+    ks = sorted(layers)
+    y = {}
+
+    def recenter(k):
+        for i, n in enumerate(layers[k]):
+            y[n] = (len(layers[k]) - 1) / 2 - i
+
+    for k in ks:
+        recenter(k)
+    undirected = graph.to_undirected()
+    for sweep in range(8):
+        for k in ks if sweep % 2 == 0 else ks[::-1]:
+
+            def key(n, k=k):
+                above = [y[v] for v in undirected[n] if layer[v] != k]
+                return -(sum(above) / len(above)) if above else -y[n]
+
+            layers[k].sort(key=key)  # stable: ties keep the order of appearance
+            recenter(k)
+    return {n: (layer[n] * dx, y[n] * dy) for n in graph}
+
+
+def networkx_plot(
+    stats,
+    save_to_file=None,
+    plot_covs=True,
+    std_ests=True,
+    plot_ests=True,
+    layout="layered",
+    show_stars=False,
+    format_pval=True,
+    format_fig="png",
+    decimal=3,
+    dpi=600,
+    seed=13,
+    figsize=None,
+    fontsize=10,
+    **kwargs,
+):
+    """
+    Draw a SEM path diagram with networkx and matplotlib (the ``"networkx"`` engine of :func:`sem_plot`).
+
+    The same diagram as :func:`semopy_plot` (circles for latent and boxes for observed variables,
+    arrows from predictor / indicator to outcome / latent, dashed double-headed arrows for
+    covariances, edge labels with the estimate and the p-value or stars) but drawn in Python:
+    no Graphviz executable is needed, the output is a matplotlib figure and the resolution can be
+    set with ``dpi``. Edges with the intercept pseudo-variable ``"1"`` and variances are not
+    drawn.
+
+    Parameters
+    ----------
+    stats : pandas.DataFrame
+        Parameter table from :func:`sem` (latent variables are read from
+        ``stats.attrs["latent"]``, as in :func:`semopy_plot`).
+    save_to_file : str or None
+        Write the figure to this path (``dpi`` resolution, cropped to the diagram). The file type
+        follows the extension; ``format_fig`` is used if the path has none.
+    plot_covs, std_ests, plot_ests, show_stars, format_pval, decimal
+        As in :func:`sem_plot` / :func:`semopy_plot`.
+    layout : {"layered", "spring", "kamada_kawai", "circular"}, default "layered"
+        ``"layered"``: predictors on the left, outcomes on the right (latent variables between
+        their causes and their indicators), ordered to reduce crossing edges; deterministic.
+        The others are generic networkx layouts (``"spring"`` is seeded with ``seed``).
+    format_fig : str, default "png"
+        File type if ``save_to_file`` has no extension.
+    dpi : int, default 600
+        Resolution of the saved file.
+    seed : int, default 13
+        Seed for numpy's global random generator and for the ``"spring"`` layout.
+    figsize : tuple of float, optional
+        Figure size in inches; by default it follows the size of the diagram.
+    fontsize : float, default 10
+        Font size of the variable names (edge labels are one point smaller).
+    **kwargs
+        Accepted and ignored (lets :func:`sem_plot` forward its extra options).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The figure (created with ``pyplot``: show it with ``plt.show()`` or close it with
+        ``plt.close(fig)``).
+
+    Raises
+    ------
+    ImportError
+        If networkx or matplotlib is not installed (``pip install "apatools[networkx]"``).
+    ValueError
+        For an unknown ``layout``.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import networkx as nx
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            'networkx_plot needs the optional dependencies networkx and matplotlib: pip install "apatools[networkx]"'
+        ) from e
+
+    layouts = ("layered", "spring", "kamada_kawai", "circular")
+    if layout not in layouts:
+        raise ValueError(f"Unknown layout '{layout}', use one of {layouts}.")
+    np.random.seed(seed)
+    latent, _observed, edges, covs, order = _path_diagram(
+        stats, plot_covs, std_ests, plot_ests, show_stars, format_pval, decimal
+    )
+    arrows = [(rval, lval) for rval, lval, _ in edges]
+    if layout == "layered":
+        pos = _layered_positions(nx, order, arrows)
+    else:
+        graph = nx.Graph()
+        graph.add_nodes_from(order)
+        graph.add_edges_from(arrows + [(rval, lval) for rval, lval, _ in covs])
+        raw = {
+            "spring": lambda: nx.spring_layout(graph, seed=seed),
+            "kamada_kawai": lambda: nx.kamada_kawai_layout(graph),
+            "circular": lambda: nx.circular_layout(graph),
+        }[layout]()
+        scale = 1.7 * np.sqrt(len(order)) + 1  # same units as the layered layout
+        pos = {n: (float(x) * scale, float(y) * scale) for n, (x, y) in raw.items()}
+
+    xs, ys = [p[0] for p in pos.values()], [p[1] for p in pos.values()]
+    pad = 1.9  # room for the nodes and for curved edges
+    xlim, ylim = (min(xs) - pad, max(xs) + pad), (min(ys) - pad, max(ys) + pad)
+    if figsize is None:  # about 0.7 inch per unit of the layout
+        figsize = (
+            max(4.0, 0.7 * (xlim[1] - xlim[0])),
+            max(3.0, 0.7 * (ylim[1] - ylim[0])),
+        )
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_aspect("equal")  # circles stay circles, curved edges keep their shape
+    ax.set_axis_off()
+
+    texts = {}
+    for n in order:
+        is_latent = n in latent
+        texts[n] = ax.text(
+            *pos[n],
+            n,
+            ha="center",
+            va="center",
+            fontsize=fontsize,
+            zorder=3,
+            bbox={
+                "boxstyle": "circle,pad=0.5" if is_latent else "square,pad=0.5",
+                "fc": "#cae6df" if is_latent else "white",
+                "ec": "black",
+                "lw": 1,
+            },
+        )
+
+    def draw_edge(rval, lval, label, rad, arrowstyle, linestyle, t=0.5):
+        (x1, y1), (x2, y2) = pos[rval], pos[lval]
+        ax.annotate(
+            "",
+            xy=(x2, y2),
+            xytext=(x1, y1),
+            zorder=3,  # after the nodes: their boxes must be placed to clip the arrows
+            arrowprops={
+                "arrowstyle": arrowstyle,
+                "color": "black",
+                "lw": 1,
+                "linestyle": linestyle,
+                "patchA": texts[rval].get_bbox_patch(),  # the arrow starts / ends at the node borders
+                "patchB": texts[lval].get_bbox_patch(),
+                "shrinkA": 0,
+                "shrinkB": 0,
+                "mutation_scale": 12,
+                "connectionstyle": f"arc3,rad={rad}",
+            },
+        )
+        if label:
+            # point at fraction t of the curve (matplotlib's arc3 is a quadratic bezier curve
+            # with the control point at the midpoint shifted by rad)
+            cx = (x1 + x2) / 2 + rad * (y2 - y1)
+            cy = (y1 + y2) / 2 - rad * (x2 - x1)
+            mx = (1 - t) ** 2 * x1 + 2 * t * (1 - t) * cx + t**2 * x2
+            my = (1 - t) ** 2 * y1 + 2 * t * (1 - t) * cy + t**2 * y2
+            ax.text(
+                mx,
+                my,
+                label,
+                ha="center",
+                va="center",
+                fontsize=fontsize - 1,
+                zorder=3.5,  # above the arrows, so that lines do not cross the text
+                bbox={"boxstyle": "round,pad=0.15", "fc": "white", "ec": "none", "alpha": 0.9},
+            )
+
+    both_ways = {(a, b) for a, b in arrows if (b, a) in set(arrows)}
+    out_degree = {n: sum(a == n for a, _ in arrows) for n in order}
+    in_degree = {n: sum(b == n for _, b in arrows) for n in order}
+    for rval, lval, label in edges:
+        rad = 0.2 if (rval, lval) in both_ways else 0.0  # feedback pairs do not overlap
+        # the label goes to the end of the edge where the edges of the crowded node have fanned out
+        t = 0.7 if out_degree[rval] >= in_degree[lval] else 0.3
+        draw_edge(rval, lval, label, rad, "-|>", "-", t)
+    for rval, lval, label in covs:
+        draw_edge(rval, lval, label, 0.35, "<|-|>", "--")
+
+    if save_to_file:
+        suffix = os.path.splitext(str(save_to_file))[1]
+        fig.savefig(
+            save_to_file,
+            dpi=dpi,
+            bbox_inches="tight",
+            format=None if suffix else format_fig,
+        )
+    return fig

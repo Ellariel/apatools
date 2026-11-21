@@ -21,7 +21,8 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | `pip install "apatools[psm]"` | `psm` | pandas, psmpy |
 | `pip install "apatools[lib]"` | `lib` | pandas, , scipy, statsmodels |
 | `pip install "apatools[linearmodels]"` | `plm` with the *linearmodels* backend | the `plm` extra and linearmodels |
-| `pip install "apatools[graphviz]"` | `sem_plot` path diagrams | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
+| `pip install "apatools[graphviz]"` | `sem_plot` path diagrams, `engine="semopy"` | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
+| `pip install "apatools[networkx]"` | `sem_plot` path diagrams, `engine="networkx"` | the `sem` extra, *networkx* and *matplotlib*; no external program needed |
 | `pip install "apatools[all]"` | everything | all of the above |
 
 Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a module without its extra gives an `ImportError` that names the extra to install.
@@ -186,6 +187,15 @@ fig = sem_plot(
         save_to_file="fig.png",
         return_fig=True,
     )
+```
+
+`sem_plot` has two engines that draw the same diagram (circles for latent and boxes for observed variables, arrows labelled with the estimate and the p-value or stars, dashed arrows for covariances):
+
+* `engine="semopy"` (default) - the diagram of `semopy.semplot`, drawn by Graphviz (extra `graphviz`, needs the Graphviz executables); returns a `graphviz.Digraph`. The Graphviz layout program can be chosen with `layout="dot"` (default), `"neato"`, ...
+* `engine="networkx"` - drawn in Python with networkx and matplotlib (extra `networkx`, no external program); returns a matplotlib figure and honours `dpi`. `layout="layered"` (default; predictors left, outcomes right), `"spring"`, `"kamada_kawai"` or `"circular"`, plus `figsize` and `fontsize`.
+
+```python
+fig = sem_plot(stats, engine="networkx", save_to_file="fig.svg", layout="layered")
 ```
 
 

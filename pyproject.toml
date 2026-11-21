@@ -76,7 +76,9 @@ linearmodels = ["apatools[plm]", "linearmodels>=6.0"]
 # SEM path diagrams, apatools.sem.sem_plot (includes the sem extra); the Graphviz executables
 # must also be installed and on the PATH
 graphviz = ["apatools[sem]", "graphviz>=0.20.3"]
-all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz]"]
+# SEM path diagrams without Graphviz: sem_plot(engine="networkx") with networkx and matplotlib
+networkx = ["apatools[sem]", "networkx>=3.2", "matplotlib>=3.8"]
+all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,networkx]"]
 
 [project.urls]
 Homepage = "https://github.com/Ellariel/apatools"

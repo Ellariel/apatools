@@ -25,6 +25,9 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   renamed now, in `lm_report`, `slm_report` and `plm_report` alike.
 
 ### Changed
+- **Breaking:** `sem_plot(method=...)` is now `sem_plot(engine=...)` (`"semopy"`, as before, or the new `"networkx"`), and the
+  Graphviz layout program of `semopy_plot` is `layout=` (was `engine=`), so that `engine` always names the drawing
+  engine. The diagram of the `"semopy"` engine is unchanged.
 - **Breaking:** one name for the confidence level everywhere: `conf_level` (e.g. 0.95). It replaces `alpha` in
   `dependent_correlations`, `independent_correlations`, `bootstrap`, `calc.p_from_ci`, `calc.ci_from_r` and
   `calc.ci_from_p` (where `alpha` was already a confidence level, despite the name) and in `average_correlations`
@@ -41,6 +44,9 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
+- `sem_plot(engine="networkx")` (new extra `networkx`): the same path diagram drawn with networkx and matplotlib, without
+  the Graphviz executables; returns a matplotlib figure, honours `dpi`, and offers the layouts `layered` (default),
+  `spring`, `kamada_kawai` and `circular` (`networkx_plot`).
 - `mcdonald_omega`: McDonald's omega, always returned with its confidence interval as `(omega, lower, upper)`:
   a delta-method interval (normal-theory maximum likelihood, computed on the logit scale) by default, or a
   percentile bootstrap interval with `bootstrap_iter`. The one-factor model is fitted by maximum likelihood

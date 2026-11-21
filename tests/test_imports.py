@@ -121,6 +121,8 @@ def test_common_names_pandas_when_it_is_missing():
         ("linearmodels", "apatools.plm"),
         ("krippendorff", "apatools.lib"),
         ("graphviz", "apatools.sem"),
+        ("networkx", "apatools.sem"),
+        ("matplotlib", "apatools.sem"),
         ("sklearn", "apatools.lm"),
         ("sklearn", "apatools.lib"),  # mcdonald_omega fits its factor model itself
         ("factor_analyzer", "apatools.lib"),

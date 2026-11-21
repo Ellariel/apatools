@@ -65,7 +65,7 @@ def test_sem_plot(tmp_path):
         plot_covs=True,
         std_ests=True,
         plot_ests=True,
-        engine="dot",
+        layout="dot",
         latshape="circle",
         show_stars=False,
         format_pval=True,
@@ -84,7 +84,7 @@ def test_sem_plot(tmp_path):
         show_stars=True,
         format_pval=False,
         format_fig="png",
-        method="semopy",
+        engine="semopy",
         return_fig=True,
         decimal=3,
         dpi=600,
@@ -126,9 +126,154 @@ def test_sem_report_and_plot_details():
     assert "AGFI = -.123" in summary2
     assert "GFI = 1.0" in summary2
 
-    # unknown plot backend fails loudly instead of with UnboundLocalError
-    with pytest.raises(NotImplementedError):
-        sem_plot(stats, method="unknown")
+    # unknown plot engine fails loudly instead of with UnboundLocalError
+    with pytest.raises(NotImplementedError, match="engine 'unknown'"):
+        sem_plot(stats, engine="unknown")
+    with pytest.raises(TypeError):  # the old name of the option is gone
+        sem_plot(stats, method="semopy", engine="networkx", save_to_file=None, plot_ests=True)
+
+
+
+########################################
+# the "networkx" engine of sem_plot    #
+########################################
+
+
+@pytest.fixture(scope="module")
+def democracy_stats():
+    data = semopy.examples.political_democracy.get_data()
+    formula = semopy.examples.political_democracy.get_model()
+    return sem(data, formula, bootstrap=0, seed=13)[0]
+
+
+@pytest.fixture
+def mpl():
+    matplotlib = pytest.importorskip("matplotlib")
+    pytest.importorskip("networkx")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    yield plt
+    plt.close("all")
+
+
+def test_sem_plot_networkx_draws_the_diagram(mpl, democracy_stats, tmp_path):
+    from matplotlib.figure import Figure
+    from matplotlib.text import Annotation
+
+    path = tmp_path / "diagram.png"
+    fig = sem_plot(democracy_stats, engine="networkx", save_to_file=str(path), dpi=50)
+    assert isinstance(fig, Figure) and path.stat().st_size > 0
+    ax = fig.axes[0]
+    arrows = [t for t in ax.texts if isinstance(t, Annotation)]
+    texts = [t.get_text() for t in ax.texts if not isinstance(t, Annotation)]
+    # every variable of the model is drawn once, latent variables as circles, observed ones as boxes
+    variables = {"ind60", "dem60", "dem65", *[f"x{i}" for i in (1, 2, 3)], *[f"y{i}" for i in range(1, 9)]}
+    assert variables <= set(texts) and all(texts.count(v) == 1 for v in variables)
+    shapes = {
+        t.get_text(): t.get_bbox_patch().get_boxstyle().__class__.__name__
+        for t in ax.texts
+        if t.get_text() in variables
+    }
+    assert {v for v, k in shapes.items() if k == "Circle"} == {"ind60", "dem60", "dem65"}
+    assert {v for v, k in shapes.items() if k == "Square"} == variables - {"ind60", "dem60", "dem65"}
+    # one arrow per regression / measurement edge and per covariance, labelled with estimate and p-value
+    edges = democracy_stats[democracy_stats["op"] == "~"]
+    covs = democracy_stats[(democracy_stats["op"] == "~~") & (democracy_stats["lval"] != democracy_stats["rval"])]
+    assert len(arrows) == len(edges) + len(covs)
+    assert len(texts) - len(variables) == len(edges) + len(covs)  # one label per edge
+    assert sum("p<.001" in t for t in texts) > 0 and sum(t.startswith("0.") for t in texts) > 5
+    assert not [t for t in texts if t.startswith("nan")]
+
+
+def test_sem_plot_networkx_options(mpl, democracy_stats, tmp_path):
+    import matplotlib.image as mpimg
+
+    base = sem_plot(democracy_stats, engine="networkx")
+    n_base = len(base.axes[0].texts)
+    # stars instead of p-values, raw estimates, no covariances
+    fig = sem_plot(democracy_stats, engine="networkx", show_stars=True, std_ests=False, plot_covs=False, decimal=1)
+    texts = [t.get_text() for t in fig.axes[0].texts]
+    assert len(texts) < n_base and any(t.endswith("***") for t in texts) and not any("p<" in t for t in texts)
+    # dpi sets the resolution of the file, the file type follows the extension (format_fig if there is none)
+    low, high = tmp_path / "low.png", tmp_path / "high.png"
+    sem_plot(democracy_stats, engine="networkx", save_to_file=str(low), dpi=40)
+    sem_plot(democracy_stats, engine="networkx", save_to_file=str(high), dpi=80)
+    assert mpimg.imread(high).shape[0] == pytest.approx(2 * mpimg.imread(low).shape[0], rel=0.05)
+    svg = tmp_path / "diagram.svg"
+    sem_plot(democracy_stats, engine="networkx", save_to_file=str(svg))
+    assert svg.read_text(encoding="utf-8").lstrip().startswith(("<?xml", "<svg"))
+    noext = tmp_path / "diagram"
+    sem_plot(democracy_stats, engine="networkx", save_to_file=str(noext), format_fig="pdf")
+    assert noext.read_bytes().startswith(b"%PDF")
+    # figsize and fontsize
+    fig = sem_plot(democracy_stats, engine="networkx", figsize=(5, 4), fontsize=7)
+    assert tuple(fig.get_size_inches()) == (5, 4) and fig.axes[0].texts[0].get_fontsize() == 7
+    # return_fig=False closes the figure
+    before = set(mpl.get_fignums())
+    assert sem_plot(democracy_stats, engine="networkx", return_fig=False) is None
+    assert set(mpl.get_fignums()) == before
+
+
+@pytest.mark.parametrize("layout", ["layered", "spring", "kamada_kawai", "circular"])
+def test_sem_plot_networkx_layouts(mpl, democracy_stats, layout):
+    fig = sem_plot(democracy_stats, engine="networkx", layout=layout)
+    assert len(fig.axes[0].texts) > 20
+    again = sem_plot(democracy_stats, engine="networkx", layout=layout)
+    positions = lambda f: [t.get_position() for t in f.axes[0].texts]  # noqa: E731
+    assert positions(fig) == positions(again)  # reproducible (the spring layout is seeded)
+    with pytest.raises(ValueError, match="Unknown layout"):
+        sem_plot(democracy_stats, engine="networkx", layout="nope")
+
+
+def test_layered_positions_put_predictors_left_of_outcomes():
+    nx = pytest.importorskip("networkx")
+    from apatools.sem import _layered_positions
+
+    arrows = [("a", "m"), ("b", "m"), ("m", "y1"), ("m", "y2"), ("a", "y3")]
+    pos = _layered_positions(nx, ["a", "b", "m", "y1", "y2", "y3"], arrows)
+    assert all(pos[r][0] < pos[l][0] for r, l in arrows)
+    # layer = longest path from a variable without predictors
+    assert pos["a"][0] == pos["b"][0] == 0 and pos["y1"][0] == pos["y2"][0] == 2 * pos["m"][0]
+    assert pos["m"][0] == pos["y3"][0] > 0
+    assert len({p for p in pos.values()}) == len(pos)  # no two variables on the same spot
+    # a variable without predictors is moved next to its outcome, not left at the far left
+    pos = _layered_positions(nx, ["p", "q", "r", "s", "x"], [("p", "q"), ("q", "r"), ("r", "s"), ("x", "s")])
+    assert pos["x"][0] == pos["r"][0]
+    # feedback loops (non-recursive models) share a layer instead of failing
+    pos = _layered_positions(nx, ["a", "b", "c"], [("a", "b"), ("b", "a"), ("b", "c")])
+    assert pos["a"][0] == pos["b"][0] < pos["c"][0]
+
+
+def test_sem_plot_networkx_without_latent_metadata_and_with_feedback(mpl):
+    import pandas as pd
+    import numpy as np
+
+    stats = pd.DataFrame(
+        {
+            "lval": ["y", "z", "y", "z"],
+            "op": ["~", "~", "~~", "~~"],
+            "rval": ["x", "y", "z", "y"],
+            "estimate": [0.5, 0.4, 0.1, 0.2],
+            "est_std": [0.5, 0.4, 0.1, 0.2],
+            "p-value": [0.001, 0.2, np.nan, 0.03],
+        }
+    )
+    fig = sem_plot(stats, engine="networkx")  # no stats.attrs["latent"]: right-hand variables are latent
+    texts = [t.get_text() for t in fig.axes[0].texts]
+    assert {"x", "y", "z"} <= set(texts) and "0.1" in texts  # the covariance without p-value is labelled
+
+
+def test_networkx_plot_names_the_extra_when_a_package_is_missing(monkeypatch, democracy_stats):
+    import sys
+
+    from apatools.sem import networkx_plot
+
+    for missing in ("networkx", "matplotlib.pyplot"):
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, missing, None)
+            with pytest.raises(ImportError, match=r"apatools\[networkx\]"):
+                networkx_plot(democracy_stats)
 
 
 if __name__ == "__main__":
