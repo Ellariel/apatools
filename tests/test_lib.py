@@ -1413,7 +1413,7 @@ def test_cronbachs_alpha_bootstrap_warns_once_about_the_original_sample():
 def test_lib_is_a_package_that_exports_everything_from_one_place():
     public = {
         "bootstrap", "gini", "gini_from_percentiles", "log_transform", "z_transform", "htmt_ratio",
-        "fleiss_kappa", "krippendorffs_alpha", "mcdonald_omega", "cronbachs_alpha",
+        "fleiss_kappa", "krippendorffs_alpha", "mcdonald_omega", "mcdonald_omega_bifactor", "cronbachs_alpha",
         "average_correlations", "dependent_correlations", "independent_correlations", "rz_ci", "rho_rxy_rxz",
     }  # fmt: skip
     assert set(lib_package.__all__) == public
@@ -1421,6 +1421,7 @@ def test_lib_is_a_package_that_exports_everything_from_one_place():
         "fleiss_kappa": "fleiss",
         "krippendorffs_alpha": "krippendorff",
         "mcdonald_omega": "mcdonald",
+        "mcdonald_omega_bifactor": "mcdonald",
         "cronbachs_alpha": "cronbach",
         "average_correlations": "correlations",
         "dependent_correlations": "correlations",
