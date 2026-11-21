@@ -14,6 +14,7 @@ Psychological Association* (7th ed.). https://doi.org/10.1037/0000165-000
 (statistics reporting: no leading zero for values that cannot exceed 1, such as p and r;
 exact p-values to two or three decimals, and p < .001 for smaller values).
 """
+
 from numbers import Number
 
 import numpy as np
@@ -51,8 +52,8 @@ def get_stars(p, p001="***", p01="**", p05="*", p10="⁺", p_=""):
     Notes
     -----
     The thresholds are the conventional .001, .01, .05 and .10 levels; they are
-    strict upper bounds (``p = .05`` gets ``p10``, not ``p05``). Negative values and
-    ``-inf`` are treated as ``p < .001``. Table notes should state the thresholds used.
+    strict upper bounds (``p = .05`` gets ``p10``, not ``p05``). Negative and infinite values
+    return ``p_``. Table notes should state the thresholds used.
 
     Examples
     --------
@@ -67,6 +68,8 @@ def get_stars(p, p001="***", p01="**", p05="*", p10="⁺", p_=""):
     """
     if not isinstance(p, Number):
         return p
+    if not np.isfinite(p) or p < 0.0:
+        return p_
     if p < 0.001:
         return p001
     if p < 0.010:
