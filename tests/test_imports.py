@@ -74,13 +74,12 @@ def test_core_works_without_any_optional_package():
     """calc, format and citation must run with pandas, statsmodels, spreg, ... all missing."""
     code = (
         blocking(*HEAVY)
-        + "from apatools.calc import r_from_z, p_from_r, bootstrap;"
+        + "from apatools.calc import r_from_z, p_from_r;"
         + "from apatools.format import format_p, format_r, get_stars;"
         + "from apatools.citation import Citation;"
         + "import numpy as np;"
         + "assert abs(r_from_z(1.0) - np.tanh(1.0)) < 1e-12;"
         + "assert format_p(0.0004) == 'p < .001' and format_r(-0.5) == 'r = -.50';"
-        + "lo, m, hi = bootstrap([1, 2, 3, 4, 5], n_rep=50); assert lo <= m <= hi"
     )
     out = run_python(code)
     assert out.returncode == 0, out.stderr[-500:]
@@ -124,6 +123,8 @@ def test_utils_names_pandas_when_it_is_missing():
         ("krippendorff", "apatools.lib"),
         ("graphviz", "apatools.sem"),
         ("sklearn", "apatools.lm"),
+        ("sklearn", "apatools.lib"),  # mcdonald_omega fits its factor model itself
+        ("factor_analyzer", "apatools.lib"),
         ("nest_asyncio", "apatools.utils"),
     ],
 )
@@ -135,18 +136,6 @@ def test_optional_packages_are_not_needed_at_import(blocked, module):
     out = run_python(blocking(blocked) + f"import {module}")
     # semopy needs scikit-learn itself, so it cannot be tested through apatools.lm/sem
     assert out.returncode == 0, out.stderr[-500:]
-
-
-def test_krippendorff_raises_a_helpful_error_when_missing(monkeypatch):
-    if not installed("pandas", "statsmodels"):
-        pytest.skip("needs the lib extra")
-    import pandas as pd
-
-    from apatools import lib
-
-    monkeypatch.setitem(sys.modules, "krippendorff", None)
-    with pytest.raises(ImportError, match=r"apatools\[krippendorff\]"):
-        lib.krippendorffs_alpha(pd.DataFrame({"a": ["x", "y"], "b": ["x", "y"]}))
 
 
 def test_linearmodels_backend_raises_a_helpful_error_when_missing(monkeypatch):

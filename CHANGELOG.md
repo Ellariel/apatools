@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0
+
+Only the changes to `apatools.lib` are listed here.
+
+### Fixed
+- `krippendorffs_alpha` returned wrong values except for nominal data without missing ratings.
+
+### Changed
+- **Breaking:** `bootstrap` moved from `apatools.calc` to `apatools.lib` (`from apatools.lib import bootstrap`),
+  so it now needs the `lib` extra; `apatools.calc` no longer has it.
+
+### Added
+- `mcdonald_omega`: McDonald's omega with an optional bootstrap interval; the one-factor model is fitted
+  with numpy/scipy.
+
+### Removed
+- The `krippendorff` extra: the package (GPL-3.0-or-later) is no longer used.
+- `average_morans_i`.
+
 ## 0.1.0
 
 First release on PyPI.

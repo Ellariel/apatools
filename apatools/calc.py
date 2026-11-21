@@ -1,4 +1,4 @@
-"""Statistical conversions (r, d, t, z, F, p, odds ratios), confidence intervals and bootstrapping.
+"""Statistical conversions (r, d, t, z, F, p, odds ratios) and confidence intervals.
 
 Conventions
 -----------
@@ -12,43 +12,6 @@ Conventions
 import numpy as np
 import scipy
 import scipy.stats
-
-###############
-# bootstrap   #
-###############
-
-
-def bootstrap(*args, func=np.mean, alpha=0.95, n_rep=1000, seed=13):
-    """Percentile bootstrap confidence interval for a statistic.
-
-    Parameters
-    ----------
-    *args : array-like
-        One or more equally long samples (resampled jointly by row).
-    func : callable
-        Statistic computed on the resampled arrays, called as ``func(*samples)``.
-    alpha : float
-        Confidence level (e.g. 0.95), not a significance level.
-    n_rep : int
-        Number of bootstrap replications.
-    seed : int
-        Seed for numpy's global random generator.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``[lower, median, upper]`` percentiles of the bootstrap distribution.
-    """
-    np.random.seed(seed)
-    data = np.asanyarray(args)
-    idx = np.arange(0, data.shape[1], 1)
-    sample = [
-        func(*np.take(data, np.random.choice(idx, size=data.shape[1], replace=True), 1))
-        for _ in range(n_rep)
-    ]
-    lp, m, rp = (1 - alpha) / 2, 0.5, 1 - (1 - alpha) / 2
-    return np.percentile(sample, [lp * 100, m * 100, rp * 100])
-
 
 ##############
 # conversion #

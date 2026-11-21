@@ -1110,7 +1110,7 @@ def mundlak(r_re):
     return stat, len(names), float(scipy.stats.chi2.sf(stat, len(names)))
 
 
-def plm_tests(results, w=None, format_pval=True):
+def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None):
     """
     Specification tests for the models fitted with :func:`plm`, as a tidy DataFrame.
 
@@ -1133,12 +1133,23 @@ def plm_tests(results, w=None, format_pval=True):
         Fitted models from :func:`plm`.
     w : libpysal.weights.W, optional
         Weights for the LM tests; by default those stored with the results.
+    format_pval : bool or callable, optional
+        ``True`` turns the p-values into APA strings (``.633``, ``<.001``); a callable
+        is used to format each p-value; ``False`` (default) keeps the numeric p-values.
+    add_stars : bool or callable, optional
+        ``True`` adds a ``sig`` column with significance stars; a callable maps a
+        p-value to the marker; ``False`` (default) adds no column. Computed from the numeric p-values.
+    decimal : int, optional
+        Rounds the ``statistic`` column to this many decimals; ``None`` or 0 (default) keeps
+        the full precision. The ``report`` strings are not affected.
 
     Returns
     -------
     pandas.DataFrame
-        Columns ``test``, ``model``, ``statistic``, ``df``, ``df_denom``, ``p-value`` and an
-        APA-style string ``report``.
+        Columns ``test``, ``model``, ``statistic``, ``df``, ``df_denom``, ``p-value`` (strings
+        unless ``format_pval=False``), optionally ``sig``, and an APA-style string ``report``.
+        The table is empty (with these columns) if none of the tests applies to ``results``.
+        Use ``format_pval=False, add_stars=False, decimal=None`` for the raw numbers.
     """
     by_name = {}
     for r in results:
@@ -1241,5 +1252,26 @@ def plm_tests(results, w=None, format_pval=True):
                 stat, p = fn(y, xx, w)
                 rows.append(_row(label, "pooled", stat, 1, p, "χ²"))
 
-    cols = ["test", "model", "statistic", "df", "df_denom", "p-value", "report"]
-    return DataFrame(rows, columns=cols)
+    res = DataFrame(
+        rows,
+        columns=["test", "model", "statistic", "df", "df_denom", "p-value", "report"],
+    )
+    # an empty table has object columns: make them numeric so that rounding and stars also work then
+    res["statistic"] = res["statistic"].astype(float)
+    res["p-value"] = res["p-value"].astype(float)
+    if decimal:
+        res["statistic"] = res["statistic"].round(decimal)
+    if add_stars:  # computed from the numeric p-values, before they are formatted
+        add_stars = add_stars if callable(add_stars) else get_stars
+        res["sig"] = [add_stars(c) for c in res["p-value"]]
+    if format_pval:
+        format_pval = (
+            format_pval
+            if callable(format_pval)
+            else lambda x_: format_p(
+                x_, use_letter=False, keep_spaces=False, no_equals=True
+            )
+        )
+        res["p-value"] = [format_pval(c) for c in res["p-value"]]
+
+    return res

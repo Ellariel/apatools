@@ -22,24 +22,23 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | `pip install "apatools[lib]"` | `lib` | pandas, statsmodels |
 | `pip install "apatools[linearmodels]"` | `plm` with the *linearmodels* backend | the `plm` extra and linearmodels |
 | `pip install "apatools[graphviz]"` | `sem_plot` path diagrams | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
-| `pip install "apatools[krippendorff]"` | `lib.krippendorffs_alpha` | the `lib` extra and *krippendorff* (GPL-3.0-or-later) |
 | `pip install "apatools[all]"` | everything | all of the above |
 
 Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a module without its extra gives an `ImportError` that names the extra to install.
 
 ## Content and examples
-* ***apatools.calc*** - *a basic module for statistical conversions and bootstrapping*
+* ***apatools.calc*** - *a basic module for statistical conversions and confidence intervals*
 * ***apatools.format*** - *simple APA-compliant formatting functions for numerical results*
 * ***apatools.lm*** (extra `lm`) - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
 * ***apatools.slm*** (extra `slm`) - *a module offering wrapper functions for spreg, streamlining the fitting of OLS, spatial lag (SLM) and spatial error (SEM) models, as well as generating detailed tables*
 * ***apatools.plm*** (extra `plm`) - *a module offering wrapper functions for panel regressions (pooled, fixed and random effects, with optional spatial lag/error terms) with spreg or, optionally, linearmodels, as well as generating detailed tables and specification tests*
 * ***apatools.sem*** (extra `sem`) - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
 * ***apatools.psm*** (extra `psm`) - *a module for performing propensity score matching, complete with effect sizes reporting*
-* ***apatools.lib*** (extra `lib`) - *assorted helpers: inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), pooling and comparing correlations, HTMT ratio, Gini coefficient*
+* ***apatools.lib*** (extra `lib`) - *assorted helpers: bootstrap confidence intervals, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), scale reliability (McDonald's omega), pooling and comparing correlations, HTMT ratio, Gini coefficient*
 
 ### *apatools.calc*
 
-This module provides essential conversion functions alongside tools for bootstrapping means, confidence intervals, and related statistics. It includes a comprehensive set of approximate conversion functions for bidirectional transformations between t-, z-, and F-statistics, as well as conversions involving Cohen's r, Cohen's d, and p-values.
+This module provides essential conversion functions alongside tools for confidence intervals and related statistics. It includes a comprehensive set of approximate conversion functions for bidirectional transformations between t-, z-, and F-statistics, as well as conversions involving Cohen's r, Cohen's d, and p-values.
 
 #### Conversion examples
 ```python
@@ -57,30 +56,6 @@ from apatools.calc import p_from_r
 r = -0.79
 n = 100
 p = p_from_r(r, n) # p = 0.0
-```
-
-#### Bootstrap examples
-```python
-import numpy as np
-from apatools.calc import bootstrap
-# bootstraping confidence intervals for a mean value:
-cil, m, cir = bootstrap([1, 2, 3, 4, 5, 6, 7, 8, 9],
-        func=np.mean,
-        n_rep=1000) # cil = 3.3, m = 5.0, cir = 6.7
-```
-
-```python
-from apatools.calc import bootstrap
-from scipy.stats import spearmanr
-# bootstraping value for Spearman's correlation:
-def func(*args):
-    return spearmanr(*args).statistic
-
-_, m, _ = bootstrap(
-    [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    [4, 5, 8, 4, 5, 6, 7, 8, 9],
-    func=func,
-    n_rep=1000) # m = 0.75
 ```
 
 
@@ -231,6 +206,36 @@ print(psm_effect_size(model))
 ```
 
 
+### *apatools.lib*
+
+Assorted helpers (extra `lib`: `pip install "apatools[lib]"`): percentile bootstrap, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), McDonald's omega, pooling and comparing correlations, HTMT ratio and the Gini coefficient.
+
+#### Bootstrap examples
+```python
+import numpy as np
+from apatools.lib import bootstrap
+# bootstraping confidence intervals for a mean value:
+cil, m, cir = bootstrap([1, 2, 3, 4, 5, 6, 7, 8, 9],
+        func=np.mean,
+        n_rep=1000) # cil = 3.3, m = 5.0, cir = 6.7
+```
+
+```python
+from apatools.lib import bootstrap
+from scipy.stats import spearmanr
+# bootstraping value for Spearman's correlation:
+def func(*args):
+    return spearmanr(*args).statistic
+
+_, m, _ = bootstrap(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [4, 5, 8, 4, 5, 6, 7, 8, 9],
+    func=func,
+    n_rep=1000) # m = 0.75
+```
+
+
+
 ## Sources and references
 * [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
 * [linearmodels](https://pypi.org/project/linearmodels/) (NCSA License)
@@ -247,5 +252,5 @@ print(CITATION.APA)
 ```
 
 ## License
-MIT, see [LICENSE](LICENSE). Note that the optional dependency *krippendorff* is licensed under GPL-3.0-or-later.
+MIT, see [LICENSE](LICENSE).
 

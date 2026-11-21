@@ -1,13 +1,20 @@
+import itertools
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import norm
+from scipy.stats import norm, spearmanr
 from statsmodels.stats.inter_rater import fleiss_kappa as sm_fleiss_kappa
+from statsmodels.multivariate.factor import Factor
 from statsmodels.stats.inter_rater import aggregate_raters
 
+import apatools.lib as lib
+from apatools.calc import ci_from_r, p_from_r
 from apatools.lib import (
+    _one_factor_loadings,
     average_correlations,
-    average_morans_i,
+    bootstrap,
     dependent_correlations,
     fleiss_kappa,
     gini,
@@ -16,6 +23,7 @@ from apatools.lib import (
     independent_correlations,
     krippendorffs_alpha,
     log_transform,
+    mcdonald_omega,
     rho_rxy_rxz,
     rz_ci,
     z_transform,
@@ -188,27 +196,268 @@ def test_fleiss_kappa_reference_values():
     assert per_item.between(0, 1).all() and per_item.iloc[0] == pytest.approx(1.0)
 
 
-def test_krippendorffs_alpha():
-    krippendorff = pytest.importorskip("krippendorff")
-    df = counts_to_ratings(FLEISS_COUNTS)
-    alpha, z, p = krippendorffs_alpha(
-        df, measurement="nominal", n_iter_for_bootstrap=50
+NAN = np.nan
+# Krippendorff (2011), "Computing Krippendorff's alpha-reliability": 4 observers (rows) rated 12 units
+# (columns), with missing ratings. Published: nominal .743, ordinal .815, interval .849, ratio .797
+KRIPPENDORFF_EXAMPLE = np.array(
+    [
+        [1, 2, 3, 3, 2, 1, 4, 1, 2, NAN, NAN, NAN],
+        [1, 2, 3, 3, 2, 2, 4, 1, 2, 5, NAN, 3],
+        [NAN, 3, 3, 3, 2, 3, 4, 2, 2, 5, 1, NAN],
+        [1, 2, 3, 3, 2, 4, 4, 1, 2, 5, 1, NAN],
+    ]
+)
+LEVELS = ("nominal", "ordinal", "interval", "ratio")
+
+
+def alpha_only(data, level="nominal"):
+    return krippendorffs_alpha(
+        data, measurement=level, return_bootstraped_z_score=False
+    )[0]
+
+
+def definition_alpha(data, level):
+    """Alpha straight from the definition: enumerate pairs of ratings (no coincidence matrix)."""
+    x = np.asarray(data, dtype=float)
+    units = [row[~np.isnan(row)] for row in x]
+    units = [u for u in units if len(u) >= 2]  # only units with 2+ ratings are pairable
+    pool = np.concatenate(units)
+    n = len(pool)
+    categories, counts = np.unique(pool, return_counts=True)
+    frequency = dict(zip(categories, counts))
+
+    def delta(a, b):
+        if level == "nominal":
+            return float(a != b)
+        if level == "interval":
+            return (a - b) ** 2
+        if level == "ratio":
+            return 0.0 if a + b == 0 else ((a - b) / (a + b)) ** 2
+        low, high = min(a, b), max(a, b)  # ordinal
+        between = sum(frequency[g] for g in categories if low <= g <= high)
+        return (between - (frequency[a] + frequency[b]) / 2) ** 2
+
+    observed = 0.0
+    for (
+        u
+    ) in units:  # ordered pairs of ratings within a unit, weighted by 1 / (ratings - 1)
+        for i, j in itertools.permutations(range(len(u)), 2):
+            observed += delta(u[i], u[j]) / (len(u) - 1)
+    observed /= n
+    expected = sum(
+        delta(pool[i], pool[j]) for i, j in itertools.permutations(range(n), 2)
     )
-    # same value as the reference implementation applied to the raw (rater x item) data
-    ref = krippendorff.alpha(
-        reliability_data=df.to_numpy().T, level_of_measurement="nominal"
+    return 1 - observed / (expected / (n * (n - 1)))
+
+
+def random_ratings(rng, units, raters, categories, missing):
+    support = np.sort(
+        rng.choice(np.arange(0, 40), size=categories, replace=False)
+    ).astype(float)
+    base = rng.choice(support, size=(units, 1))
+    agree = rng.uniform(size=(units, raters)) < rng.uniform(0.3, 0.9)
+    data = np.where(agree, base, rng.choice(support, size=(units, raters)))
+    return np.where(rng.uniform(size=data.shape) < missing, np.nan, data)
+
+
+def usable(data):
+    pairable = (np.sum(~np.isnan(data), axis=1) >= 2).sum() >= 2
+    return pairable and len(np.unique(data[~np.isnan(data)])) >= 2
+
+
+def test_krippendorffs_alpha_reproduces_the_published_example():
+    frame = pd.DataFrame(KRIPPENDORFF_EXAMPLE.T)  # units in rows, raters in columns
+    published = {"nominal": 0.743, "ordinal": 0.815, "interval": 0.849, "ratio": 0.797}
+    for level, value in published.items():
+        assert round(alpha_only(frame, level), 3) == value
+    assert alpha_only(frame, "nominal") == pytest.approx(0.7434, abs=5e-5)
+
+
+@pytest.mark.parametrize("level", LEVELS)
+@pytest.mark.parametrize("seed", range(6))
+def test_krippendorffs_alpha_matches_the_definition(level, seed):
+    rng = np.random.default_rng(seed)
+    while True:  # small designs with missing ratings, and values such as 2, 10 and 100
+        data = rng.choice(
+            [1.0, 2.0, 10.0, 100.0],
+            size=(int(rng.integers(5, 10)), int(rng.integers(2, 5))),
+        )
+        data = np.where(rng.uniform(size=data.shape) < 0.25, np.nan, data)
+        if usable(data):
+            break
+    assert alpha_only(pd.DataFrame(data), level) == pytest.approx(
+        definition_alpha(data, level), abs=1e-10
     )
-    assert alpha == pytest.approx(ref, abs=1e-9)
-    assert 0 < alpha < 0.4 and z > 0 and 0 <= p <= 1
-    # reproducible (seeded bootstrap) and optional bootstrap
-    again = krippendorffs_alpha(df, n_iter_for_bootstrap=50)
-    assert (alpha, z, p) == again
-    a2, z2, p2 = krippendorffs_alpha(df, return_bootstraped_z_score=False)
-    assert a2 == pytest.approx(alpha) and np.isnan(z2) and np.isnan(p2)
-    perfect = pd.DataFrame({"a": list("xyzx"), "b": list("xyzx")})
-    assert krippendorffs_alpha(perfect, return_bootstraped_z_score=False)[
-        0
-    ] == pytest.approx(1.0)
+
+
+def test_krippendorffs_alpha_known_cases():
+    # perfect agreement
+    perfect = pd.DataFrame({"a": list("xyzx"), "b": list("xyzx"), "c": list("xyzx")})
+    assert alpha_only(perfect) == pytest.approx(1.0)
+    # two raters who always disagree (labels swapped): alpha = (1 - U) / U
+    for units in (4, 10, 25):
+        first = np.tile([1, 2], units)[:units]
+        assert alpha_only(
+            pd.DataFrame({"r1": first, "r2": 3 - first})
+        ) == pytest.approx((1 - units) / units)
+    # all ratings identical: alpha is undefined, which is reported as nan without an error
+    same = pd.DataFrame(np.ones((6, 3)))
+    alpha, z, p = krippendorffs_alpha(same)
+    assert np.isnan(alpha) and np.isnan(z) and np.isnan(p)
+
+
+def test_krippendorffs_alpha_handles_missing_ratings_properly():
+    frame = pd.DataFrame(KRIPPENDORFF_EXAMPLE.T)
+    base = alpha_only(frame)
+    # a unit with a single rating carries no information and is ignored
+    single = pd.concat([frame, pd.DataFrame([[3, NAN, NAN, NAN]])], ignore_index=True)
+    assert alpha_only(single) == pytest.approx(base)
+    # NaN and None are both missing; the missing rating is not a category of its own
+    assert alpha_only(frame.astype(object).where(frame.notna(), None)) == pytest.approx(
+        base
+    )
+    # rows of units and columns of raters can be reordered
+    assert alpha_only(frame.iloc[::-1, ::-1]) == pytest.approx(base)
+    # no unit with two ratings: nothing to compare
+    with pytest.raises(ValueError, match="at least two ratings"):
+        krippendorffs_alpha(pd.DataFrame({"a": [1, NAN, 2], "b": [NAN, 3, NAN]}))
+
+
+def test_krippendorffs_alpha_levels_use_the_values_not_the_category_positions():
+    rng = np.random.default_rng(3)
+    data = rng.choice([1.0, 2.0, 3.0], size=(40, 4))
+    data = np.where(rng.uniform(size=data.shape) < 0.6, data[:, [0]], data)
+    positions, values = (
+        pd.DataFrame(data),
+        pd.DataFrame(np.where(data == 3.0, 10.0, data)),
+    )
+    # ordinal depends on the order only; nominal on equality only
+    for level in ("nominal", "ordinal"):
+        assert alpha_only(positions, level) == pytest.approx(alpha_only(values, level))
+    # interval and ratio depend on the actual distances: 3 -> 10 makes disagreements with 3 count more
+    for level in ("interval", "ratio"):
+        assert alpha_only(positions, level) != pytest.approx(
+            alpha_only(values, level), abs=1e-3
+        )
+        assert alpha_only(values, level) == pytest.approx(
+            definition_alpha(values.to_numpy(), level)
+        )
+    # numbers are ordered as numbers: 2 < 10 (as text, "10" would come before "2")
+    tens = pd.DataFrame(
+        {"a": [2, 10, 2, 10, 100], "b": [2, 10, 10, 2, 100], "c": [2, 2, 10, 10, 100]}
+    )
+    assert alpha_only(tens, "ordinal") == pytest.approx(
+        definition_alpha(tens.to_numpy(float), "ordinal")
+    )
+
+
+def test_krippendorffs_alpha_invariances():
+    frame = pd.DataFrame(random_ratings(np.random.default_rng(5), 50, 4, 5, 0.2))
+    frame = frame + 1.0  # strictly positive, so that the ratio level is defined
+    nominal = alpha_only(frame, "nominal")
+    # nominal: any relabelling (also with text labels)
+    labels = {
+        v: f"label-{i}"
+        for i, v in enumerate(np.unique(frame.to_numpy()[~frame.isna().to_numpy()]))
+    }
+    assert alpha_only(frame.apply(lambda c: c.map(labels)), "nominal") == pytest.approx(
+        nominal
+    )
+    # ordinal: any strictly increasing transformation
+    ordinal = alpha_only(frame, "ordinal")
+    assert alpha_only(frame**3, "ordinal") == pytest.approx(ordinal)
+    assert alpha_only(np.log(frame), "ordinal") == pytest.approx(ordinal)
+    # interval: shift and positive scale, but not a non-linear transformation
+    interval = alpha_only(frame, "interval")
+    assert alpha_only(frame * 7.5 - 20, "interval") == pytest.approx(interval)
+    assert alpha_only(frame**2, "interval") != pytest.approx(interval, abs=1e-3)
+    # ratio: positive scale, but not a shift
+    ratio = alpha_only(frame, "ratio")
+    assert alpha_only(frame * 3.0, "ratio") == pytest.approx(ratio)
+    assert alpha_only(frame + 10.0, "ratio") != pytest.approx(ratio, abs=1e-3)
+
+
+def test_krippendorffs_alpha_input_types_and_per_item_agreement():
+    frame = pd.DataFrame(KRIPPENDORFF_EXAMPLE.T, index=[f"unit{i}" for i in range(12)])
+    base = alpha_only(frame)
+    assert alpha_only(KRIPPENDORFF_EXAMPLE.T) == pytest.approx(base)
+    assert alpha_only(KRIPPENDORFF_EXAMPLE.T.tolist()) == pytest.approx(base)
+    alpha, z, p, per_item = krippendorffs_alpha(frame, return_per_item_agreement=True)
+    assert alpha == pytest.approx(base) and list(per_item.index) == list(frame.index)
+    assert per_item.name == "per_item_agreement"
+    # share of the ratings that equal the most frequent one, worked out by hand from the example
+    assert per_item["unit0"] == 1.0  # 1, 1, 1 (one rater did not rate it)
+    assert per_item["unit1"] == 0.75  # 2, 2, 3, 2
+    assert per_item["unit2"] == 1.0  # 3, 3, 3, 3
+    assert per_item["unit5"] == 0.25  # 1, 2, 3, 4: no agreement at all
+    assert per_item["unit7"] == 0.75  # 1, 1, 2, 1
+    assert per_item["unit10"] == 1.0  # 1, 1 (two ratings are enough)
+    assert np.isnan(per_item["unit11"])  # a single rating: not pairable
+
+
+def test_krippendorffs_alpha_permutation_test():
+    rng = np.random.default_rng(2)
+    # raters who agree strongly: far from chance
+    truth = rng.integers(1, 6, size=(60, 1)).astype(float)
+    agree = pd.DataFrame(
+        np.where(
+            rng.uniform(size=(60, 4)) < 0.85, truth, rng.integers(1, 6, size=(60, 4))
+        )
+    )
+    alpha, z, p = krippendorffs_alpha(agree, measurement="interval")
+    assert alpha > 0.7 and z > 5 and p < 1e-6
+    # independent raters: alpha near 0, not significant
+    chance = pd.DataFrame(rng.integers(1, 6, size=(60, 4)).astype(float))
+    alpha, z, p = krippendorffs_alpha(chance)
+    assert abs(alpha) < 0.1 and p > 0.05
+    # reproducible, other seeds differ, and one-tailed p is half of the two-tailed p
+    first = krippendorffs_alpha(agree, n_iter_for_bootstrap=50)
+    assert krippendorffs_alpha(agree, n_iter_for_bootstrap=50) == first
+    assert (
+        krippendorffs_alpha(agree, n_iter_for_bootstrap=50, bootstrap_seed=99)[1]
+        != first[1]
+    )
+    one_tailed = krippendorffs_alpha(chance, method="one-tailed")[2]
+    assert one_tailed == pytest.approx(krippendorffs_alpha(chance)[2] / 2)
+    # no bootstrap: z and p are nan
+    a, z, p = krippendorffs_alpha(agree, return_bootstraped_z_score=False)
+    assert a == pytest.approx(first[0]) and np.isnan(z) and np.isnan(p)
+    # works with missing ratings (the pattern of who rated what is kept)
+    holes = agree.mask(rng.uniform(size=agree.shape) < 0.3)
+    alpha, z, p = krippendorffs_alpha(holes, n_iter_for_bootstrap=50)
+    assert np.isfinite([alpha, z, p]).all() and z > 3
+
+
+def test_krippendorffs_alpha_does_not_touch_numpys_global_random_state():
+    frame = pd.DataFrame(KRIPPENDORFF_EXAMPLE.T)
+    np.random.seed(5)
+    expected = np.random.rand()
+    np.random.seed(5)
+    krippendorffs_alpha(frame, n_iter_for_bootstrap=20)
+    assert np.random.rand() == expected
+
+
+def test_krippendorffs_alpha_validates_the_input():
+    frame = pd.DataFrame(KRIPPENDORFF_EXAMPLE.T)
+    with pytest.raises(ValueError, match="measurement must be one of"):
+        krippendorffs_alpha(frame, measurement="categorical")
+    with pytest.raises(ValueError, match="at least 2 raters"):
+        krippendorffs_alpha(frame[[0]])
+    with pytest.raises(ValueError, match="at least 2 raters"):
+        krippendorffs_alpha(np.arange(5.0))
+    text = pd.DataFrame({"a": list("xyzxy"), "b": list("xyzzy")})
+    for level in ("ordinal", "interval", "ratio"):
+        with pytest.raises(ValueError, match="needs numeric ratings"):
+            krippendorffs_alpha(text, measurement=level)
+    assert alpha_only(text, "nominal") == pytest.approx(
+        definition_alpha(
+            text.apply(lambda c: c.map({"x": 1.0, "y": 2.0, "z": 3.0})).to_numpy(),
+            "nominal",
+        )
+    )
+    for bad in (0, -1, 2.5):
+        with pytest.raises(ValueError, match="n_iter_for_bootstrap"):
+            krippendorffs_alpha(frame, n_iter_for_bootstrap=bad)
 
 
 ###########################
@@ -241,26 +490,6 @@ def test_average_correlations():
     )
     narrow = average_correlations(r, n, alpha=0.2)
     assert narrow["cil"] > res["cil"] and narrow["cir"] < res["cir"]
-
-
-def test_average_morans_i():
-    i, var = [0.2, 0.4, 0.3], [0.01, 0.04, 0.02]
-    res = average_morans_i(i, var)
-    w = 1 / np.array(var)
-    mean = np.sum(w * i) / w.sum()
-    assert res["i_mean"] == pytest.approx(mean) and res["se"] == pytest.approx(
-        np.sqrt(1 / w.sum())
-    )
-    assert res["z"] == pytest.approx(mean / res["se"])
-    assert res["p-value"] == pytest.approx(2 * norm.sf(abs(res["z"])))
-    assert average_morans_i(i, var, method="one-tailed")["p-value"] == pytest.approx(
-        res["p-value"] / 2
-    )
-    # equal variances: plain mean; one value: its own z
-    assert average_morans_i([0.1, 0.3], [0.04, 0.04])["i_mean"] == pytest.approx(0.2)
-    assert average_morans_i([0.2], [0.01])["z"] == pytest.approx(2.0)
-    # the most precise value dominates
-    assert abs(res["i_mean"] - 0.2) < abs(res["i_mean"] - 0.4)
 
 
 ###########################################
@@ -437,6 +666,301 @@ def test_htmt_ratio():
     assert htmt_ratio(
         d2, ["a1", "a2"], ["b1", "b2"], method="pearson"
     ) == pytest.approx(1.0, abs=1e-9)
+
+
+##################
+# McDonald omega #
+##################
+
+
+def one_factor_corr(loadings):
+    l = np.asarray(loadings, float)
+    r = np.outer(l, l)
+    np.fill_diagonal(r, 1)
+    return r
+
+
+def true_omega(loadings):
+    l = np.asarray(loadings, float)
+    return l.sum() ** 2 / (l.sum() ** 2 + (1 - l**2).sum())
+
+
+def exact_items(corr, n=600, seed=0):
+    """Items whose sample correlation matrix is exactly ``corr``."""
+    x = correlated_sample(corr, n, np.random.default_rng(seed))
+    return pd.DataFrame(x, columns=[f"i{j + 1}" for j in range(len(corr))])
+
+
+def simulated_items(loadings, n, seed=1):
+    rng = np.random.default_rng(seed)
+    l = np.asarray(loadings, float)
+    x = rng.normal(size=(n, 1)) * l + rng.normal(size=(n, len(l))) * np.sqrt(1 - l**2)
+    return pd.DataFrame(x, columns=[f"i{j + 1}" for j in range(len(l))])
+
+
+def cronbach_alpha(df):
+    c = np.cov(np.asarray(df), rowvar=False)
+    k = len(c)
+    return k / (k - 1) * (1 - np.trace(c) / c.sum())
+
+
+@pytest.mark.parametrize(
+    "loadings",
+    [
+        [0.8, 0.7, 0.6, 0.5, 0.4],
+        [0.9] * 6,
+        [0.5] * 4,
+        [0.95, 0.6, 0.3],
+        [0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4],
+    ],
+)
+def test_omega_equals_the_population_value_for_a_one_factor_structure(loadings):
+    assert mcdonald_omega(exact_items(one_factor_corr(loadings))) == pytest.approx(
+        true_omega(loadings), abs=1e-7
+    )
+
+
+def test_omega_with_three_items_uses_the_exact_solution():
+    # a just-identified one-factor model: l1^2 = r12 * r13 / r23, ...
+    r = np.array([[1, 0.42, 0.35], [0.42, 1, 0.30], [0.35, 0.30, 1]])
+    l = np.sqrt(
+        [
+            r[0, 1] * r[0, 2] / r[1, 2],
+            r[0, 1] * r[1, 2] / r[0, 2],
+            r[0, 2] * r[1, 2] / r[0, 1],
+        ]
+    )
+    assert mcdonald_omega(exact_items(r)) == pytest.approx(true_omega(l), abs=1e-7)
+    assert _one_factor_loadings(r) == pytest.approx(l, abs=1e-6)
+
+
+def test_omega_and_cronbachs_alpha():
+    # tau-equivalent items (equal loadings): omega == alpha
+    tau = exact_items(one_factor_corr([0.6] * 6))
+    assert mcdonald_omega(tau) == pytest.approx(cronbach_alpha(tau), abs=1e-7)
+    # congeneric items: alpha underestimates the reliability
+    cong = exact_items(one_factor_corr([0.9, 0.8, 0.5, 0.4, 0.3]))
+    assert cronbach_alpha(cong) < mcdonald_omega(cong) - 0.01
+
+
+def test_omega_agrees_with_an_independent_ml_factor_analysis():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5, 0.4], 5000, seed=3)
+    fit = Factor(df.to_numpy(), n_factor=1, method="ml").fit()
+    l, u = fit.loadings.ravel(), fit.uniqueness
+    assert mcdonald_omega(df) == pytest.approx(
+        l.sum() ** 2 / (l.sum() ** 2 + u.sum()), abs=1e-3
+    )
+
+
+def test_omega_is_invariant_to_scale_shift_sign_and_input_type():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 1000, seed=6)
+    base = mcdonald_omega(df)
+    assert mcdonald_omega(df * 10 + 5) == pytest.approx(base, abs=1e-9)  # correlations
+    assert mcdonald_omega(-df) == pytest.approx(base, abs=1e-9)
+    assert mcdonald_omega(df.to_numpy()) == pytest.approx(base, abs=1e-12)
+    assert mcdonald_omega(df.to_numpy().tolist()) == pytest.approx(base, abs=1e-12)
+    assert isinstance(base, float) and 0 < base < 1
+    with pytest.raises(TypeError):  # the former `scale` option had no effect: removed
+        mcdonald_omega(df, scale=True)
+
+
+def test_omega_warns_about_reverse_keyed_items():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 1000, seed=6)
+    base = mcdonald_omega(df)
+    flipped = df.assign(i4=-df["i4"])
+    with pytest.warns(UserWarning, match="different signs"):
+        too_low = mcdonald_omega(flipped)
+    assert too_low < base - 0.1
+    # recoding the item restores the value, without a warning
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        recoded = mcdonald_omega(flipped.assign(i4=-flipped["i4"]))
+    assert recoded == pytest.approx(base, abs=1e-9)
+
+
+def test_omega_drops_incomplete_rows():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 500, seed=7)
+    holes = df.copy()
+    holes.iloc[[3, 50, 51], 0] = np.nan
+    holes.iloc[10, 2] = np.nan
+    assert len(holes.dropna()) == 496
+    assert mcdonald_omega(holes) == pytest.approx(
+        mcdonald_omega(holes.dropna()), abs=1e-12
+    )
+
+
+@pytest.mark.parametrize(
+    "data, match",
+    [
+        (pd.DataFrame({"a": [1.0, 2, 3, 4], "b": [2.0, 1, 4, 3]}), "At least 3 items"),
+        (np.arange(10.0), "two-dimensional"),
+        (pd.DataFrame(np.ones((10, 3))), "constant"),
+        (
+            pd.DataFrame(np.random.default_rng(0).normal(size=(3, 3))),
+            "More respondents",
+        ),
+        (
+            pd.DataFrame({"a": list("xyzw"), "b": [1.0, 2, 3, 4], "c": [4.0, 3, 2, 1]}),
+            "could not convert",
+        ),
+    ],
+)
+def test_omega_validates_the_data(data, match):
+    with pytest.raises(ValueError, match=match):
+        mcdonald_omega(data)
+
+
+def test_omega_validates_the_options():
+    df = simulated_items([0.8, 0.7, 0.6], 100)
+    for bad in (0, -3, 2.5):
+        with pytest.raises(ValueError, match="bootstrap_iter"):
+            mcdonald_omega(df, bootstrap_iter=bad)
+    for bad in (0, 1, 1.5, 95):
+        with pytest.raises(ValueError, match="conf_level"):
+            mcdonald_omega(df, conf_level=bad)
+
+
+def test_omega_stays_proper_in_heywood_cases():
+    # r13 * r23 / r12 > 1: the exact solution needs a loading above 1; it is held on the bound
+    r = np.array([[1, 0.3, 0.6], [0.3, 1, 0.7], [0.6, 0.7, 1]])
+    assert _one_factor_loadings(r).max() == pytest.approx(np.sqrt(1 - 0.005))
+    omega = mcdonald_omega(exact_items(r))
+    assert 0 < omega <= 1 and np.isfinite(omega)
+
+
+def test_omega_bootstrap():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=8)
+    point = mcdonald_omega(df)
+    ci = mcdonald_omega(df, bootstrap_iter=200)
+    assert ci.shape == (3,) and ci[0] <= ci[1] <= ci[2]
+    assert ci[0] <= point <= ci[2] and abs(ci[1] - point) < 0.02
+    # reproducible; other seeds (and seed=None) give other resamples
+    assert mcdonald_omega(df, bootstrap_iter=200) == pytest.approx(ci)
+    assert not np.allclose(mcdonald_omega(df, bootstrap_iter=200, seed=99), ci)
+    unseeded = [mcdonald_omega(df, bootstrap_iter=50, seed=None) for _ in range(2)]
+    assert not np.allclose(*unseeded)
+    # a higher confidence level gives a wider interval, more respondents a narrower one
+    wide = mcdonald_omega(df, bootstrap_iter=200, conf_level=0.99)
+    narrow = mcdonald_omega(df, bootstrap_iter=200, conf_level=0.80)
+    assert wide[2] - wide[0] > ci[2] - ci[0] > narrow[2] - narrow[0]
+    big = simulated_items([0.8, 0.7, 0.6, 0.5], 3000, seed=8)
+    assert np.ptp(mcdonald_omega(big, bootstrap_iter=200)[[0, 2]]) < ci[2] - ci[0]
+    # a single resample is fine
+    assert len(set(mcdonald_omega(df, bootstrap_iter=1))) == 1
+
+
+def test_omega_bootstrap_resamples_are_all_different(monkeypatch):
+    """Regression: re-seeding in a recursive call used to give two resamples the same data."""
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=8)
+    values = []
+    original = lib._omega_from_loadings
+
+    def record(loadings):
+        values.append(original(loadings))
+        return values[-1]
+
+    monkeypatch.setattr(lib, "_omega_from_loadings", record)
+    mcdonald_omega(df, bootstrap_iter=40)
+    assert (
+        len(values) == 40
+    )  # one omega per resample (no point estimate with a bootstrap)
+    assert len(set(values)) == 40
+
+
+def test_omega_does_not_touch_numpys_global_random_state():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 200)
+    np.random.seed(5)
+    expected = np.random.rand()
+    np.random.seed(5)
+    mcdonald_omega(df, bootstrap_iter=10)
+    assert np.random.rand() == expected
+
+
+def test_omega_bootstrap_warns_once_about_the_original_sample():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 400, seed=6)
+    flipped = df.assign(i4=-df["i4"])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        mcdonald_omega(flipped, bootstrap_iter=30)
+    assert sum("different signs" in str(w.message) for w in caught) == 1
+
+
+#############
+# bootstrap #
+#############
+
+
+def test_bootstrap():
+    cil, m, cir = bootstrap(
+        [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        func=np.mean,
+        n_rep=1000,
+        seed=13,
+    )
+    assert s(cil) == "3.333"
+    assert s(m) == "5.000"
+    assert s(cir) == "6.667"
+
+    def f(*args):
+        return spearmanr(*args).statistic
+
+    x, y = [1, 2, 3, 4, 5, 6, 7, 8, 9], [4, 5, 8, 4, 5, 6, 7, 8, 9]
+    cil, m, cir = bootstrap(x, y, func=f, n_rep=1000, seed=13)
+    # a bootstrap with 1000 resamples is only accurate to about 0.1 in the tail of such a small
+    # sample, so the exact digits depend on the random stream; compare with a very large bootstrap
+    # (95% interval about [0.047, 1.0], median 0.745) instead of pinning them
+    assert 0.0 <= cil <= 0.2 and s(cir) == "1.000"
+    assert m == pytest.approx(0.745, abs=0.03)
+    assert cil < m < cir
+
+    # confidence intervals / p-value derived from the bootstrap median
+    p = p_from_r(m, 9)
+    lo, hi = ci_from_r(m, 9)
+    assert 0.01 < p < 0.04
+    assert lo < m < hi and hi == pytest.approx(0.943, abs=0.01)
+
+    # spearmanr
+    # SignificanceResult(statistic=np.float64(0.7173570516842638),
+    # pvalue=np.float64(0.02958657594620456))
+
+
+def test_bootstrap_random_state_and_seed():
+    data = [1.0, 4.0, 2.0, 8.0, 5.0, 7.0, 3.0, 9.0]
+    first = bootstrap(data, n_rep=200, seed=13)
+    assert bootstrap(data, n_rep=200, seed=13) == pytest.approx(first)  # reproducible
+    assert not np.allclose(
+        bootstrap(data, n_rep=200, seed=14), first
+    )  # another seed, other resamples
+    # seed=None works and gives different resamples on every call
+    a, b = bootstrap(data, n_rep=200, seed=None), bootstrap(data, n_rep=200, seed=None)
+    assert a.shape == (3,) and a[0] <= a[1] <= a[2] and not np.allclose(a, b)
+    # numpy's global random state is not touched
+    np.random.seed(5)
+    expected = np.random.rand()
+    np.random.seed(5)
+    bootstrap(data, n_rep=50)
+    assert np.random.rand() == expected
+    # a higher confidence level gives a wider interval
+    wide, narrow = (
+        bootstrap(data, n_rep=500, alpha=0.99),
+        bootstrap(data, n_rep=500, alpha=0.8),
+    )
+    assert wide[2] - wide[0] > narrow[2] - narrow[0]
+
+
+def test_bootstrap_properties():
+    x = np.arange(1, 10)
+    lo, m, hi = bootstrap(x, func=np.mean, n_rep=500, seed=1)
+    assert lo < m < hi
+    assert bootstrap(x, func=np.mean, n_rep=500, seed=1).tolist() == [
+        lo,
+        m,
+        hi,
+    ]  # reproducible
+    lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, alpha=0.99)
+    assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
+    # a constant sample has a degenerate interval
+    assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]
 
 
 if __name__ == "__main__":

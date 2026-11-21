@@ -1,4 +1,3 @@
-# Byte-compiled / optimized / DLL files
 # manually
 *.json
 *.lock
@@ -6,6 +5,7 @@
 *.pdf
 *.csv
 
+# Byte-compiled / optimized / DLL files
 __pycache__/
 .venv
 .conda

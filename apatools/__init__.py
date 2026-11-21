@@ -1,6 +1,7 @@
 """A toolbox for meta-analysis and APA-compliant reporting.
 
-Modules: ``calc`` (conversions, bootstrap), ``lm`` (OLS/RLM/GLM/QuantReg/MixedLM), ``slm`` (spatial
+Modules: ``calc`` (conversions, confidence intervals), ``lib`` (bootstrap, reliability and
+agreement coefficients), ``lm`` (OLS/RLM/GLM/QuantReg/MixedLM), ``slm`` (spatial
 models), ``plm`` (panel models), ``sem`` (structural equation models), ``psm`` (propensity score
 matching) and ``format`` (APA formatting). Import the modules you need, e.g.
 ``from apatools.lm import lm, lm_report``.

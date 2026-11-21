@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apatools"
-version = "0.1.0"
+version = "0.2.0"
 description = "A toolbox for statistical and meta-analysis, and APA-compliant reporting of quantitative results."
 readme = "README.md"
 license = "MIT"
@@ -76,9 +76,7 @@ linearmodels = ["apatools[plm]", "linearmodels>=6.0"]
 # SEM path diagrams, apatools.sem.sem_plot (includes the sem extra); the Graphviz executables
 # must also be installed and on the PATH
 graphviz = ["apatools[sem]", "graphviz>=0.20.3"]
-# apatools.lib.krippendorffs_alpha (includes the lib extra); krippendorff is GPL-3.0-or-later
-krippendorff = ["apatools[lib]", "krippendorff"]
-all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,krippendorff]"]
+all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz]"]
 
 [project.urls]
 Homepage = "https://github.com/Ellariel/apatools"

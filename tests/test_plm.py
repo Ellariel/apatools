@@ -9,6 +9,7 @@ import scipy.stats
 import spreg
 
 import apatools.plm as plm_module
+from apatools.format import format_p, get_stars
 from apatools.plm import (
     SPREG_MODELS,
     PanelData,
@@ -553,21 +554,21 @@ def test_hausman_and_mundlak_for_spatial_models(sim):
         assert k == 2 and stat >= 0 and 0 <= p <= 1
 
 
+RAW_COLUMNS = ["test", "model", "statistic", "df", "df_denom", "p-value", "report"]
+
+
+def raw_tests(results, **kwargs):
+    """plm_tests() with the raw numbers: numeric p-values, no stars, no rounding."""
+    return plm_tests(results, format_pval=False, add_stars=False, decimal=None, **kwargs)
+
+
 @needs_lm
 def test_plm_tests_table(sim):
     df, w = sim
     r_s, _ = fit(df, w, ["pooled", "fe", "re"])
     r_l, _ = fit(df, w, ["pooled", "fe", "re"], backend="linearmodels")
-    ts, tl = plm_tests(r_s), plm_tests(r_l)
-    assert list(ts.columns) == [
-        "test",
-        "model",
-        "statistic",
-        "df",
-        "df_denom",
-        "p-value",
-        "report",
-    ]
+    ts, tl = raw_tests(r_s), raw_tests(r_l)
+    assert list(ts.columns) == RAW_COLUMNS
     # F test of entity effects: spreg (computed here) equals linearmodels (f_pooled)
     fs = ts[ts.test == "F test of entity effects"].iloc[0]
     fl = tl[tl.test == "F test of entity effects"].iloc[0]
@@ -593,12 +594,96 @@ def test_plm_tests_table(sim):
     assert ts.set_index("test").loc["LM Marginal RE (LM1)", "p-value"] < 0.001
     # no weights, no LM tests; weights can also be passed explicitly
     r_nw, _ = fit(df, None, ["pooled", "fe"])
-    assert not plm_tests(r_nw).test.str.startswith("LM").any()
+    assert not raw_tests(r_nw).test.str.startswith("LM").any()
     for r in r_nw:
         del r.plm_panel
-    assert plm_tests(r_nw, w=w).test.str.startswith("LM").any()
+    assert raw_tests(r_nw, w=w).test.str.startswith("LM").any()
     # nothing to compare: empty table with the same columns
-    assert plm_tests(r_s[:1][:0]).empty
+    assert raw_tests(r_s[:1][:0]).empty
+
+
+FORMATTED = {"format_pval": True, "add_stars": True, "decimal": 3}  # a table for a paper
+
+
+def test_plm_tests_default_output_is_the_raw_table(sim):
+    df, w = sim
+    results, _ = fit(df, w, ["pooled", "fe", "re"])
+    out = plm_tests(results)
+    pd.testing.assert_frame_equal(out, raw_tests(results))
+    assert list(out.columns) == RAW_COLUMNS and len(out) == 10
+    assert out["p-value"].dtype == float and out["statistic"].dtype == float
+    assert ((out["p-value"] >= 0) & (out["p-value"] <= 1)).all()
+
+
+def test_plm_tests_formatted_output(sim):
+    df, w = sim
+    results, _ = fit(df, w, ["pooled", "fe", "re"])
+    raw, out = raw_tests(results), plm_tests(results, **FORMATTED)
+    # same tests, in the same order, plus the significance column
+    assert list(out.columns) == [*RAW_COLUMNS, "sig"]
+    assert out.test.tolist() == raw.test.tolist() and len(out) == 10
+    # p-values are APA strings, stars are computed from the numeric p-values
+    assert out["p-value"].map(lambda s: isinstance(s, str)).all()
+    assert out["p-value"].str.fullmatch(r"<\.001|>\.999|\.\d{3}").all()
+    expected_p = [
+        format_p(p, use_letter=False, keep_spaces=False, no_equals=True)
+        for p in raw["p-value"]
+    ]
+    assert out["p-value"].tolist() == expected_p
+    assert out["sig"].tolist() == [get_stars(p) for p in raw["p-value"]]
+    by_test = out.set_index("test")
+    assert by_test.loc["LM lag", "sig"] == "***"
+    assert by_test.loc["LM lag", "p-value"] == "<.001"
+    # statistics are rounded to 3 decimals, everything else is untouched
+    assert np.allclose(out["statistic"], raw["statistic"].round(3), rtol=0, atol=1e-12)
+    assert (out["statistic"] != raw["statistic"]).any()
+    pd.testing.assert_frame_equal(
+        out[["df", "df_denom", "report"]], raw[["df", "df_denom", "report"]]
+    )
+
+
+def test_plm_tests_options(sim):
+    df, w = sim
+    results, _ = fit(df, w, ["pooled", "fe", "re"])
+    raw = raw_tests(results)
+
+    # only the p-values formatted: strings, no extra column
+    formatted = plm_tests(results, format_pval=True)
+    assert "sig" not in formatted.columns
+    assert formatted["p-value"].map(lambda s: isinstance(s, str)).all()
+    # only stars: the numeric p-values are kept and the stars are based on them
+    starred = plm_tests(results, add_stars=True)
+    assert starred["p-value"].dtype == float
+    assert np.array_equal(starred["p-value"], raw["p-value"])
+    assert starred["sig"].tolist() == [get_stars(p) for p in raw["p-value"]]
+    # rounding; None (default) and 0 keep the full precision
+    assert plm_tests(results, decimal=1)["statistic"].tolist() == raw["statistic"].round(1).tolist()
+    assert plm_tests(results, decimal=None)["statistic"].tolist() == raw["statistic"].tolist()
+    assert plm_tests(results, decimal=0)["statistic"].tolist() == raw["statistic"].tolist()
+    # custom functions for the p-values and for the stars
+    custom = plm_tests(
+        results,
+        format_pval=lambda p: f"{p:.1e}",
+        add_stars=lambda p: "!" if p < 0.05 else "",
+    )
+    assert custom["p-value"].str.fullmatch(r"\d\.\de[+-]\d{2,3}").all()
+    assert custom["sig"].tolist() == ["!" if p < 0.05 else "" for p in raw["p-value"]]
+    # the options only change the presentation: tests and APA report strings are the same
+    for out in (formatted, starred, custom, plm_tests(results, decimal=1)):
+        assert out.test.tolist() == raw.test.tolist()
+        assert out["report"].tolist() == raw["report"].tolist()
+
+
+def test_plm_tests_returns_an_empty_table_when_nothing_applies(sim):
+    """Regression: rounding or formatting an empty table used to raise a TypeError."""
+    df, w = sim
+    (fe,), _ = fit(df, w, "fe")  # a single model: nothing to compare it with
+    options = [{}, {"decimal": 2}, {"add_stars": True}, {"format_pval": True}, FORMATTED]
+    for results in ([], [fe]):
+        for kwargs in options:
+            out = plm_tests(results, **kwargs)
+            assert out.empty and set(RAW_COLUMNS) <= set(out.columns)
+        assert raw_tests(results).empty
 
 
 ################

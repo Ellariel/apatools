@@ -257,42 +257,6 @@ def test_conversion():
     assert s(cir) == "0.192"
 
 
-def test_bootstrap():
-    cil, m, cir = bootstrap(
-        [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        func=np.mean,
-        n_rep=1000,
-        seed=13,
-    )
-    assert s(cil) == "3.333"
-    assert s(m) == "5.000"
-    assert s(cir) == "6.667"
-
-    def f(*args):
-        return spearmanr(*args).statistic
-
-    cil, m, cir = bootstrap(
-        [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        [4, 5, 8, 4, 5, 6, 7, 8, 9],
-        func=f,
-        n_rep=1000,
-        seed=13,
-    )
-    assert s(cil) == "0.029"
-    assert s(m) == "0.745"
-    assert s(cir) == "1.000"
-
-    p = p_from_r(m, 9)
-    cil, cir = ci_from_r(m, 9)
-    assert s(cil) == "0.159"
-    assert s(p) == "0.021"
-    assert s(cir) == "0.943"
-
-    # spearmanr
-    # SignificanceResult(statistic=np.float64(0.7173570516842638),
-    # pvalue=np.float64(0.02958657594620456))
-
-
 def test_regressions():
     # CI width must be positive and the p-value must not depend on its sign
     assert abs(p_from_ci(0.5, 0.1, 0.9) - 0.0143) < 1e-3
@@ -304,14 +268,6 @@ def test_regressions():
     assert abs(unbiased_z(0.5, 10_000) - z_from_r(0.5)) < 1e-3
     # r <-> t <-> p round trip
     assert abs(p_from_r(r_from_p(0.01, 40), 40) - 0.01) < 1e-9
-
-
-def test_bootstrap_is_still_importable_from_lib():
-    pytest.importorskip("pandas")  # apatools.lib needs the lib extra
-    pytest.importorskip("statsmodels")
-    from apatools.lib import bootstrap as lib_bootstrap
-
-    assert lib_bootstrap is bootstrap
 
 
 @pytest.mark.parametrize("r", [-0.9, -0.3, 0.0, 0.1, 0.5, 0.95])
@@ -388,23 +344,7 @@ def test_confidence_intervals():
     assert lo < r_from_p(0.01, 40) < hi
 
 
-def test_bootstrap_properties():
-    x = np.arange(1, 10)
-    lo, m, hi = bootstrap(x, func=np.mean, n_rep=500, seed=1)
-    assert lo < m < hi
-    assert bootstrap(x, func=np.mean, n_rep=500, seed=1).tolist() == [
-        lo,
-        m,
-        hi,
-    ]  # reproducible
-    lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, alpha=0.99)
-    assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
-    # a constant sample has a degenerate interval
-    assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]
-
-
 if __name__ == "__main__":
     test_conversion()
     test_regressions()
-    test_bootstrap()
     print("Tests for apatools.calc are PASSED!")
