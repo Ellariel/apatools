@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apatools"
-version = "0.2.0"
+version = "0.2.1"
 description = "A toolbox for statistical and meta-analysis, and APA-compliant reporting of quantitative results."
 readme = "README.md"
 license = "MIT"

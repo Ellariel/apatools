@@ -19,7 +19,7 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | `pip install "apatools[plm]"` | `plm` | pandas, spreg, libpysal, patsy |
 | `pip install "apatools[sem]"` | `sem` | pandas, semopy |
 | `pip install "apatools[psm]"` | `psm` | pandas, psmpy |
-| `pip install "apatools[lib]"` | `lib` | pandas, , scipy, statsmodels |
+| `pip install "apatools[lib]"` | `lib` | pandas, scipy, statsmodels |
 | `pip install "apatools[linearmodels]"` | `plm` with the *linearmodels* backend | the `plm` extra and linearmodels |
 | `pip install "apatools[graphviz]"` | `sem_plot` path diagrams, `engine="semopy"` | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
 | `pip install "apatools[networkx]"` | `sem_plot` path diagrams, `engine="networkx"` | the `sem` extra, *networkx* and *matplotlib*; no external program needed |
@@ -171,7 +171,8 @@ Specific parameters:
 * `entity`, `time` - columns (or index levels) identifying entity and period; `balance="drop"` drops entities that are not observed in all periods instead of raising an error
 * `backend` - `"spreg"` (default) or `"linearmodels"`
 * `slx_lags` - number of spatial lags of the predictors (spreg; `slx_lags=1` gives a Durbin-type model)
-* `<model>_model_<arg>` / `<model>_fit_<arg>` - arguments for the model class / `.fit()`, e.g. `slm_fe_model_method="LU"`, or for linearmodels `fe_fit_cov_type="clustered"`, `fe_fit_cluster_entity=True`, `fe_model_time_effects=True`
+* `<model>_model_<arg>` / `<model>_fit_<arg>` - arguments for the model class / `.fit()`, e.g. `slm_fe_model_method="LU"`, or for linearmodels `fe_fit_cov_type="clustered"`, `fe_fit_cluster_entity=True`
+* `effects="entity"` (default), `"time"` or `"twoway"` - effects removed by the `fe` model; time and two-way need `backend="linearmodels"`
 * `pred_metrics` - adds leave-one-*group*-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`). Leaving out single observations is not meaningful in panels, so whole entities (`pred_group="entity"`, predicts a new entity; not possible for fixed-effects models) or whole periods (`pred_group="time"`) are held out, the model and the weights are refitted, and the held-out rows are predicted (`x·β`, plus `ρ·Wy` for spatial lag and the estimated entity effect for fixed effects). With spatial data the neighbours of a held-out entity stay in the training sample, which is optimistic; `pred_exclude_neighbors=True` removes them as well (see the caveat for `slm`).
 
 ```python

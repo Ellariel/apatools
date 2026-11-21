@@ -379,6 +379,18 @@ def _model_kwargs(kwargs, name, stage="model"):
     return {k[len(prefix) :]: v for k, v in kwargs.items() if k.startswith(prefix)}
 
 
+def _effects_kwargs(effects, backend, kwargs):
+    """Translate ``effects`` ("entity", "time", "twoway") into the linearmodels arguments of the FE model."""
+    if effects not in ("entity", "time", "twoway"):
+        raise ValueError("effects must be 'entity', 'time' or 'twoway'.")
+    if effects == "entity":
+        return
+    if backend != "linearmodels":
+        raise NotImplementedError(f"effects='{effects}' needs backend='linearmodels'.")
+    kwargs.setdefault("fe_model_entity_effects", effects == "twoway")
+    kwargs.setdefault("fe_model_time_effects", True)
+
+
 def _fit_spreg(name, panel, kwargs):
     cls_name, _, spatial = SPREG_MODELS[name]
     cls = getattr(spr, cls_name)
@@ -575,7 +587,8 @@ def base_metrics(r, panel=None):
     Notes
     -----
     The F test of an FE model compares the within R² with ``df_model = k`` and
-    ``df_resid = N·T - N - k``. The linearmodels F statistic follows the covariance type of
+    ``df_resid = N·T - N - k`` (with ``fe_model_time_effects=True`` of linearmodels, i.e. two-way fixed
+    effects, R² is the within R² after removing both effects and ``df_resid = N·T - N - T + 1 - k``). The linearmodels F statistic follows the covariance type of
     the fit (robust version if the covariance is not ``"Unadjusted"``).
     """
     name = _model_name(r)
@@ -627,8 +640,10 @@ def base_metrics(r, panel=None):
         resid = np.asarray(r.resids, dtype=float).ravel()
         has_const = any(c in table.index for c in INTERCEPT_NAMES)
         if name == "fe":
-            r_sq, r_type = float(r.rsquared_within), "within"
-            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - n_ent) / r.df_resid
+            # R² after removing *all* effects (entity only: the within R²; with time effects: two-way within R²)
+            r_sq, r_type = float(r.rsquared), "within"
+            absorbed = n_obs - int(r.df_resid) - k  # entity (and time) effects estimated away
+            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - absorbed) / r.df_resid
         elif name == "re":
             r_sq, r_type = float(r.rsquared_overall), "overall"
         else:
@@ -907,8 +922,8 @@ def plm(
         patsy formula; overrides ``y``/``x``.
     backend : {"spreg", "linearmodels"}
         Estimation package. ``"linearmodels"`` is an optional dependency and allows e.g.
-        ``fe_fit_cov_type="clustered"``, ``fe_fit_cluster_entity=True`` or
-        ``fe_model_time_effects=True`` (two-way fixed effects).
+        ``fe_fit_cov_type="clustered"`` or ``fe_fit_cluster_entity=True``, and time or two-way
+        fixed effects (``effects``).
     **kwargs
         Function options (below) and arguments for the backend named
         ``<model>_model_<argument>`` (passed to the model class, e.g.
@@ -917,6 +932,12 @@ def plm(
 
     Other Parameters
     ----------------
+    effects : {"entity", "time", "twoway"}, default "entity"
+        Effects removed by the ``fe`` model: entity (the usual within model), time (period) or
+        both (two-way fixed effects). Needs ``backend="linearmodels"`` unless ``"entity"``;
+        other models ignore it. It sets the linearmodels arguments ``entity_effects`` and
+        ``time_effects`` (``fe_model_entity_effects`` / ``fe_model_time_effects`` still work and
+        take precedence).
     verbose : bool, default True
         Print the panel dimensions and the model summaries.
     dropna : bool, default True
@@ -988,6 +1009,7 @@ def plm(
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     pred_group = kwargs.pop("pred_group", "entity")
     pred_exclude_neighbors = kwargs.pop("pred_exclude_neighbors", False)
+    _effects_kwargs(kwargs.pop("effects", "entity"), backend, kwargs)
     panel = make_panel(
         data,
         y,

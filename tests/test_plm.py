@@ -351,7 +351,7 @@ def test_linearmodels_options(sim):
         fe_fit_cov_type="clustered",
         fe_fit_cluster_entity=True,
     )
-    (c,), _ = fit(df, w, "fe", backend="linearmodels", fe_model_time_effects=True)
+    (c,), _ = fit(df, w, "fe", backend="linearmodels", effects="twoway")
     np.testing.assert_allclose(coef(a).to_numpy(), coef(b).to_numpy())
     assert not np.allclose(a.std_errors.to_numpy(), b.std_errors.to_numpy())
     assert (
@@ -364,6 +364,53 @@ def test_linearmodels_options(sim):
     assert not np.allclose(
         coef(a).to_numpy(), coef(c).to_numpy()
     )  # two-way effects change the estimates
+
+
+@needs_lm
+def test_two_way_fixed_effects_match_dummy_regression(sim):
+    """fe_model_time_effects=True: coefficients, SEs, df, R² and adjusted R² of the report equal an OLS with dummies."""
+    import statsmodels.formula.api as smf
+
+    df, w = sim
+    (r,), (m,) = fit(df, w, "fe", backend="linearmodels", fe_model_time_effects=True)
+    ols = smf.ols("y ~ x1 + x2 + C(county) + C(year)", df).fit()
+    rep = plm_report([r], [m], decimal=None, add_stars=False)[0]
+    np.testing.assert_allclose(rep["coef"], ols.params[["x1", "x2"]], rtol=1e-8)
+    np.testing.assert_allclose(rep["se"], ols.bse[["x1", "x2"]], rtol=1e-8)
+    assert m["df_resid"] == ols.df_resid == len(df) - N - T + 1 - 2
+    # within R² of the two-way demeaned model, adjusted by the dummies of both effects
+    yd = df.y - df.groupby("county").y.transform("mean") - df.groupby("year").y.transform("mean") + df.y.mean()
+    r_sq = 1 - np.sum(np.asarray(r.resids) ** 2) / np.sum(yd**2)
+    assert m["r_sq"] == pytest.approx(r_sq)
+    assert m["r_sq_adj"] == pytest.approx(1 - (1 - r_sq) * (len(df) - N - T + 1) / ols.df_resid)
+    # the one-way model is unchanged
+    (r1,), (m1,) = fit(df, w, "fe", backend="linearmodels")
+    assert m1["r_sq"] == pytest.approx(float(r1.rsquared_within))
+    assert m1["r_sq_adj"] == pytest.approx(1 - (1 - m1["r_sq"]) * (len(df) - N) / r1.df_resid)
+
+
+@needs_lm
+def test_effects_argument(sim):
+    """effects= "entity" / "time" / "twoway" equal OLS with the matching dummies (coefficients, df, R² adjusted)."""
+    import statsmodels.formula.api as smf
+
+    df, w = sim
+    forms = {"entity": "C(county)", "time": "C(year)", "twoway": "C(county) + C(year)"}
+    absorbed = {"entity": N, "time": T, "twoway": N + T - 1}
+    for effects, dummies in forms.items():
+        (r,), (m,) = fit(df, w, "fe", backend="linearmodels", effects=effects)
+        ols = smf.ols(f"y ~ x1 + x2 + {dummies}", df).fit()
+        np.testing.assert_allclose(coef(r).to_numpy(), ols.params[["x1", "x2"]], rtol=1e-8)
+        assert m["df_resid"] == ols.df_resid == len(df) - absorbed[effects] - 2
+        assert 0 < m["r_sq_adj"] < m["r_sq"] < 1
+    # explicit linearmodels arguments take precedence; default is the entity model
+    (a,), _ = fit(df, w, "fe", backend="linearmodels", effects="time", fe_model_entity_effects=True)
+    (b,), _ = fit(df, w, "fe", backend="linearmodels", effects="twoway")
+    np.testing.assert_allclose(coef(a).to_numpy(), coef(b).to_numpy())
+    with pytest.raises(NotImplementedError, match="linearmodels"):
+        fit(df, w, "fe", effects="twoway")
+    with pytest.raises(ValueError, match="effects"):
+        fit(df, w, "fe", backend="linearmodels", effects="both")
 
 
 def test_errors(sim):

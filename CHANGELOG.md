@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+- `plm(effects="entity" | "time" | "twoway")`: the effects removed by the fixed-effects model (entity effects as
+  before, period effects, or two-way fixed effects); `backend="linearmodels"` for time and two-way. It sets
+  linearmodels' `entity_effects` / `time_effects`, which can still be given as `fe_model_*` arguments.
+
+### Fixed
+- `plm_report` / `base_metrics` of a fixed-effects model with time effects (`backend="linearmodels"`): R² is now the
+  within R² after removing all effects and the adjusted R² accounts for the time dummies as well (before, only the
+  entity effects were counted). Coefficients, standard errors and degrees of freedom were correct.
+
 ## 0.2.0
 
 ### Fixed
