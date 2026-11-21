@@ -106,18 +106,17 @@ print(results_rep, metrics)
 ```
 
 #### Diagnostic tests: `lm_tests`
-`lm_tests(results)` collects the usual diagnostics of the OLS models in one table (columns `test`, `model`, `statistic`, `df`, `df_denom`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions, the specification and the influence of single observations, not the quality of the fit. Other models (RLM, GLM, QuantReg, MixedLM) are skipped with a warning.
+`lm_tests(results)` collects the diagnostics of the fitted models in one table (columns `test`, `model`, `statistic`, `df`, `df_denom`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions, the specification and the influence of single observations, not the quality of the fit. Every kind of model gets the diagnostics that are meaningful for it, because the classical OLS tests are not valid for the others; QuantReg models are skipped with a warning.
 
-* **Normality of the residuals**: Jarque-Bera, omnibus (D'Agostino-Pearson) and Shapiro-Wilk.
-* **Homoskedasticity**: Breusch-Pagan (studentized, Koenker) and White.
-* **Functional form**: Ramsey's RESET (`reset_power`, default squares and cubes of the fitted values).
-* **Autocorrelation** (only with `lags`, for data ordered in time): Breusch-Godfrey and the Durbin-Watson statistic.
-* **Outliers and influence**: the Bonferroni outlier test and the largest Cook's distance.
-* **Multicollinearity** (no p-values): the largest VIF and the condition number.
+* **OLS**: normality of the residuals (Jarque-Bera, omnibus, Shapiro-Wilk), homoskedasticity (Breusch-Pagan in Koenker's version, White), functional form (Ramsey's RESET, `reset_power`), autocorrelation (Breusch-Godfrey and Durbin-Watson; only with `lags`, for data ordered in time), the Bonferroni outlier test and the largest Cook's distance, and (without p-values) the largest VIF and the condition number.
+* **GLM**: dispersion (Pearson χ²/df), the Cameron-Trivedi overdispersion test (Poisson), Pearson and deviance goodness of fit (Poisson, grouped binomial), the Hosmer-Lemeshow test (binary), Pregibon's link test, Shapiro-Wilk of the randomized quantile residuals of Dunn and Smyth (normal under the fitted model for any of the Gaussian, Gamma, inverse Gaussian, Poisson, negative binomial and binary binomial families; `seed`), and leverage, studentized residuals, Cook's distance and the multicollinearity diagnostics.
+* **RLM**: descriptive diagnostics without p-values: the smallest robust weight, the ratio of the robust scale to the OLS residual SD, the largest RLM-OLS coefficient difference in OLS standard errors, the leverage of the design and the multicollinearity diagnostics. A Hausman-type test against OLS is not offered (in simulations it was unreliable). With `approximate=True` also Breusch-Pagan, White, RESET (a robust Wald test) and, with `lags`, Breusch-Godfrey on the robust residuals, labelled "approx.": their theory is for OLS, in simulations they rejected about 4-8% of correct models at the 5% level.
+* **MixedLM**: the ICC and the likelihood-ratio test of the random effect for models with one random effect (with the boundary-corrected p-value, a 50:50 mixture of χ²(0) and χ²(1)), Shapiro-Wilk tests of the predicted random effects and of the conditional residuals (labelled "approx.": both are confounded or shrunken), the Cook's distance of deleting whole groups (one refit per group, up to `max_refits` groups) and the multicollinearity diagnostics.
 
 ```python
 from apatools.lm import lm_tests
-print(lm_tests(results, format_pval=True, add_stars=True, decimal=3, lags=None))
+results, metrics = lm(data, y, x, model=["ols", "rlm", "mlm"], mlm_model_groups="group")
+print(lm_tests(results, format_pval=True, add_stars=True, decimal=3, lags=None, approximate=False))
 ```
 
 

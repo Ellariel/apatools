@@ -53,10 +53,15 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
-- `lm_tests`: diagnostic tests of the OLS models fitted with `lm` in one table, in the format of `plm_tests`: Jarque-Bera,
-  omnibus and Shapiro-Wilk (normality), Breusch-Pagan and White (heteroskedasticity), RESET (functional form),
-  Breusch-Godfrey and Durbin-Watson (autocorrelation, with `lags`), the Bonferroni outlier test and Cook's distance,
-  and the largest VIF and the condition number.
+- `lm_tests`: diagnostic tests of the models fitted with `lm` in one table, in the format of `plm_tests`, with the diagnostics
+  that are meaningful for each kind of model. OLS: Jarque-Bera, omnibus and Shapiro-Wilk (normality), Breusch-Pagan and White
+  (heteroskedasticity), RESET, Breusch-Godfrey and Durbin-Watson (with `lags`), the Bonferroni outlier test, Cook's distance,
+  VIF and condition number. GLM: dispersion, Cameron-Trivedi overdispersion, Pearson / deviance goodness of fit,
+  Hosmer-Lemeshow, Pregibon's link test, normality of randomized quantile residuals (Dunn & Smyth), leverage and influence.
+  RLM: robust weights, scale ratio, RLM-OLS coefficient change and leverage (descriptive), and with `approximate=True` the
+  classical tests on the robust residuals, labelled "approx.". MixedLM: ICC, boundary-corrected likelihood-ratio test of the
+  random effect, normality of the random effects and conditional residuals ("approx."), and the influence of whole groups.
+  QuantReg models are skipped with a warning.
 - `slm_tests`: diagnostic tests of the fitted `slm` models in one table, in the format of `plm_tests`: for OLS Moran's I
   of the residuals, LM-lag, LM-error, their robust versions, LM-SARMA, Jarque-Bera, Breusch-Pagan, Koenker-Bassett and
   White; for the spatial lag and error models the z and likelihood-ratio tests of the spatial parameter,
