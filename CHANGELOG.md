@@ -53,6 +53,10 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
+- `lm_tests`: diagnostic tests of the OLS models fitted with `lm` in one table, in the format of `plm_tests`: Jarque-Bera,
+  omnibus and Shapiro-Wilk (normality), Breusch-Pagan and White (heteroskedasticity), RESET (functional form),
+  Breusch-Godfrey and Durbin-Watson (autocorrelation, with `lags`), the Bonferroni outlier test and Cook's distance,
+  and the largest VIF and the condition number.
 - `slm_tests`: diagnostic tests of the fitted `slm` models in one table, in the format of `plm_tests`: for OLS Moran's I
   of the residuals, LM-lag, LM-error, their robust versions, LM-SARMA, Jarque-Bera, Breusch-Pagan, Koenker-Bassett and
   White; for the spatial lag and error models the z and likelihood-ratio tests of the spatial parameter,

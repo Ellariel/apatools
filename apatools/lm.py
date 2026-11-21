@@ -4,6 +4,7 @@ from itertools import zip_longest
 
 import numpy as np
 import scipy
+from scipy.stats import shapiro
 
 from ._deps import missing_dependency
 
@@ -14,11 +15,17 @@ try:
     from statsmodels.api import add_constant
     from statsmodels.formula.formulatools import handle_formula_data
     from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
-    from statsmodels.stats.outliers_influence import variance_inflation_factor
+    from statsmodels.stats import diagnostic as sm_diag
+    from statsmodels.stats.outliers_influence import (
+        OLSInfluence,
+        variance_inflation_factor,
+    )
+    from statsmodels.stats.stattools import durbin_watson, jarque_bera, omni_normtest
 except ImportError as e:  # pragma: no cover
     missing_dependency("lm", "lm", e)
 
 from ._common import (
+    INTERCEPT_NAMES,
     df_check_intercept,
     df_standardize,
     format_significance,
@@ -906,3 +913,224 @@ def lm_report(
         output.append(params)
 
     return output
+
+
+def _white_df(exog):
+    """Degrees of freedom of statsmodels' White test: the rank of the auxiliary regression without constant."""
+    first, second = np.triu_indices(exog.shape[1])
+    auxiliary = exog[:, first] * exog[:, second]
+    return int(np.linalg.matrix_rank(auxiliary)) - 1
+
+
+def lm_tests(
+    results, format_pval=False, add_stars=False, decimal=None, lags=None, reset_power=3
+):
+    """
+    Diagnostic tests of the OLS models fitted with :func:`lm`, as a tidy DataFrame.
+
+    The tests check the assumptions of the linear model, the specification and the influence of
+    single observations; they are not measures of the quality of the fit (see ``base_metrics`` and
+    ``pred_metrics`` for those). Computed for every OLS model of ``results`` (a list as returned by
+    :func:`lm`); other models (RLM, GLM, QuantReg, MixedLM) are skipped with a warning.
+
+    * **Normality of the residuals** (null: normally distributed errors): Jarque-Bera (skewness and
+      kurtosis; Jarque & Bera, 1980), the omnibus test of D'Agostino & Pearson (1973; the same
+      ingredients, different combination) and Shapiro-Wilk (1965; the statistic is W, no df).
+    * **Homoskedasticity** (null: constant error variance): Breusch-Pagan in the studentized version of
+      Koenker (1981), which does not assume normal errors, and White (1980), which also detects
+      misspecification of the variance by squares and cross products of the predictors. Breusch-Pagan
+      has power against a variance that changes linearly with the predictors, White also against
+      curved changes (e.g. a variance that grows with the square of a predictor). Both need a
+      constant in the model; df is the number of auxiliary regressors.
+    * **Functional form** (null: no omitted nonlinearity): Ramsey's RESET (1969), an F test of the
+      powers 2 to ``reset_power`` of the fitted values added to the model.
+    * **Autocorrelation** (only with ``lags``; null: no autocorrelation of the errors up to ``lags``):
+      Breusch-Godfrey LM test (Breusch, 1978; Godfrey, 1978) and the Durbin-Watson statistic (1950,
+      1951; about 2 without first-order autocorrelation, below 2 for positive autocorrelation; no
+      p-value). They are only meaningful if the rows are ordered in time.
+    * **Outliers and influence**: the Bonferroni outlier test (statistic: the largest absolute
+      studentized residual; null: no outlier), and the largest Cook's distance (1977; no p-value;
+      the report says how many observations exceed the rule of thumb ``4 / n``).
+    * **Multicollinearity** (no p-values): the largest variance inflation factor of the predictors
+      (rule of thumb: values above 10 are a concern) and the condition number of the design matrix
+      (Belsley et al., 1980: above 30 is a concern).
+
+    Parameters
+    ----------
+    results : list of statsmodels results
+        As returned by :func:`lm`.
+    format_pval : bool or callable, default False
+        Format the p-values as strings (True: APA style without the ``p``, ``"<.001"``;
+        a callable receives one p-value); False keeps the numbers.
+    add_stars : bool or callable, default False
+        Add a ``sig`` column with significance stars (True: :func:`apatools.format.get_stars`;
+        or a callable). They are computed from the unformatted p-values.
+    decimal : int, optional
+        Round ``statistic`` to this many decimals (None: no rounding).
+    lags : int, optional
+        Number of lags of the Breusch-Godfrey test; None leaves the autocorrelation tests out (they
+        are meaningless for cross-sectional data).
+    reset_power : int, default 3
+        Highest power of the fitted values in RESET (3: squares and cubes, as ``resettest`` in R).
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per test with the columns ``test``, ``model`` (``ols``; a repeated model gets the suffix
+        ``_2``, ...), ``statistic`` (chi-square, F, W, the Durbin-Watson statistic, the largest studentized
+        residual, ...), ``df`` and ``df_denom`` (NaN where not applicable), ``p-value`` (NaN for the
+        statistics without a test), optionally ``sig``, and an APA-style string ``report``. Use
+        ``format_pval=False, add_stars=False, decimal=None`` for the raw numbers.
+
+    Notes
+    -----
+    With many observations nearly every test becomes significant, and among many tests some are by
+    chance; look at the size of the departure (plots of the residuals, the influence of single
+    observations), not only at the p-value. The tests use the residuals, so they do not depend on
+    the covariance estimator chosen for the standard errors (``ols_fit_cov_type``).
+
+    References
+    ----------
+    Belsley, D. A., Kuh, E., & Welsch, R. E. (1980). *Regression Diagnostics: Identifying Influential
+    Data and Sources of Collinearity*. Wiley. https://doi.org/10.1002/0471725153
+
+    Breusch, T. S. (1978). Testing for autocorrelation in dynamic linear models. *Australian Economic
+    Papers, 17*(31), 334-355. https://doi.org/10.1111/j.1467-8454.1978.tb00635.x
+
+    Cook, R. D. (1977). Detection of influential observation in linear regression. *Technometrics,
+    19*(1), 15-18. https://doi.org/10.1080/00401706.1977.10489493
+
+    D'Agostino, R., & Pearson, E. S. (1973). Tests for departure from normality. Empirical results for
+    the distributions of b2 and sqrt(b1). *Biometrika, 60*(3), 613-622.
+    https://doi.org/10.1093/biomet/60.3.613
+
+    Durbin, J., & Watson, G. S. (1950). Testing for serial correlation in least squares regression. I.
+    *Biometrika, 37*(3-4), 409-428. https://doi.org/10.1093/biomet/37.3-4.409
+
+    Durbin, J., & Watson, G. S. (1951). Testing for serial correlation in least squares regression. II.
+    *Biometrika, 38*(1-2), 159-178. https://doi.org/10.1093/biomet/38.1-2.159
+
+    Godfrey, L. G. (1978). Testing against general autoregressive and moving average error models when
+    the regressors include lagged dependent variables. *Econometrica, 46*(6), 1293-1301.
+    https://doi.org/10.2307/1913829
+
+    Jarque, C. M., & Bera, A. K. (1980). Efficient tests for normality, homoscedasticity and serial
+    independence of regression residuals. *Economics Letters, 6*(3), 255-259.
+    https://doi.org/10.1016/0165-1765(80)90024-5
+
+    Koenker, R. (1981). A note on studentizing a test for heteroscedasticity. *Journal of Econometrics,
+    17*(1), 107-112. https://doi.org/10.1016/0304-4076(81)90062-2
+
+    Ramsey, J. B. (1969). Tests for specification errors in classical linear least-squares regression
+    analysis. *Journal of the Royal Statistical Society: Series B, 31*(2), 350-371.
+    https://doi.org/10.1111/j.2517-6161.1969.tb00796.x
+
+    Shapiro, S. S., & Wilk, M. B. (1965). An analysis of variance test for normality (complete
+    samples). *Biometrika, 52*(3-4), 591-611. https://doi.org/10.1093/biomet/52.3-4.591
+
+    White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator and a direct test for
+    heteroskedasticity. *Econometrica, 48*(4), 817-838. https://doi.org/10.2307/1912934
+
+    Examples
+    --------
+    >>> results, metrics = lm(df, "y", ["x1", "x2"])  # doctest: +SKIP
+    >>> lm_tests(results, format_pval=True, add_stars=True, decimal=3)  # doctest: +SKIP
+    """
+    rows = []
+
+    def add(model, label, statistic, df, df_denom, p, text):
+        report = f"{text}, {format_p(p)}" if not np.isnan(p) else text
+        rows.append((label, model, statistic, df, df_denom, p, report))
+
+    def attempt(model, label, compute, *args):
+        try:
+            compute(model, *args)
+        except (ValueError, np.linalg.LinAlgError, ZeroDivisionError) as e:
+            warnings.warn(f"{label} could not be computed for '{model}': {e}", UserWarning, stacklevel=3)
+
+    nan = np.nan
+    supported = []
+    for r in results:
+        if isinstance(getattr(r, "model", None), sm.OLS):
+            supported.append(r)
+        else:
+            name = type(getattr(r, "model", r)).__name__
+            warnings.warn(f"{name} models are not supported by lm_tests (only OLS) and were skipped.", UserWarning, stacklevel=2)
+
+    def normality(model, r):
+        resid = np.asarray(r.resid, dtype=float)
+        jb, p = jarque_bera(resid)[:2]
+        add(model, "Jarque-Bera", float(jb), 2, nan, float(p), f"Jarque-Bera(2) = {jb:.2f}")
+        k2, p = omni_normtest(resid)
+        add(model, "Omnibus", float(k2), 2, nan, float(p), f"Omnibus(2) = {k2:.2f}")
+        w_stat, p = shapiro(resid)
+        add(model, "Shapiro-Wilk", float(w_stat), nan, nan, float(p), f"Shapiro-Wilk W = {w_stat:.3f}")
+
+    def variance(model, r):
+        resid, exog = np.asarray(r.resid, dtype=float), r.model.exog
+        lm_stat, p = sm_diag.het_breuschpagan(resid, exog)[:2]
+        df = exog.shape[1] - 1
+        add(model, "Breusch-Pagan", float(lm_stat), df, nan, float(p), f"Breusch-Pagan({df}) = {lm_stat:.2f}")
+        lm_stat, p = sm_diag.het_white(resid, exog)[:2]
+        df = _white_df(exog)
+        add(model, "White", float(lm_stat), df, nan, float(p), f"White({df}) = {lm_stat:.2f}")
+
+    def specification(model, r):
+        reset = sm_diag.linear_reset(r, power=reset_power, test_type="fitted", use_f=True)
+        df, df_denom = int(reset.df_num), int(reset.df_denom)
+        add(model, "RESET", float(reset.fvalue), df, df_denom, float(reset.pvalue), f"RESET F({df}, {df_denom}) = {float(reset.fvalue):.2f}")
+
+    def autocorrelation(model, r):
+        bg, p = sm_diag.acorr_breusch_godfrey(r, nlags=lags)[:2]
+        add(model, "Breusch-Godfrey", float(bg), lags, nan, float(p), f"Breusch-Godfrey({lags}) = {bg:.2f}")
+        dw = float(durbin_watson(np.asarray(r.resid, dtype=float)))
+        add(model, "Durbin-Watson", dw, nan, nan, nan, f"Durbin-Watson = {dw:.2f}")
+
+    def influence(model, r):
+        influence = OLSInfluence(r)
+        resid = np.asarray(r.resid, dtype=float)
+        leverage = np.asarray(influence.hat_matrix_diag, dtype=float)
+        df_denom = int(r.df_resid) - 1
+        # externally studentized residuals in closed form (statsmodels refits the model n times for them)
+        variance_without = (r.df_resid * r.mse_resid - resid**2 / (1 - leverage)) / df_denom
+        with np.errstate(divide="ignore", invalid="ignore"):
+            student = resid / np.sqrt(variance_without * (1 - leverage))
+        position = int(np.nanargmax(np.abs(student)))
+        largest = float(abs(student[position]))
+        p = float(min(1.0, len(student) * 2 * scipy.stats.t.sf(largest, df_denom)))  # Bonferroni
+        label = r.resid.index[position]
+        add(model, "Outlier test", largest, nan, df_denom, p, f"max |studentized residual| = {largest:.2f} (observation {label}), Bonferroni")
+        cook = np.asarray(influence.cooks_distance[0], dtype=float)
+        count = int((cook > 4 / len(cook)).sum())
+        add(model, "Cook's distance", float(cook.max()), nan, nan, nan, f"max Cook's D = {cook.max():.3f} ({count} above 4/n)")
+
+    def collinearity(model, r):
+        exog, names = r.model.exog, list(r.model.exog_names)
+        columns = [i for i, name in enumerate(names) if name not in INTERCEPT_NAMES]
+        vifs = [variance_inflation_factor(exog, i) for i in columns] if len(columns) > 1 else [1.0]
+        add(model, "Max VIF", float(max(vifs)), nan, nan, nan, f"max VIF = {max(vifs):.2f}")
+        condition = float(r.condition_number)
+        add(model, "Condition number", condition, nan, nan, nan, f"condition number = {condition:.1f}")
+
+    seen = {}
+    for r in supported:
+        seen["ols"] = seen.get("ols", 0) + 1
+        model = "ols" if seen["ols"] == 1 else f"ols_{seen['ols']}"
+        for label, compute in (
+            ("Normality tests", normality),
+            ("Heteroskedasticity tests", variance),
+            ("RESET", specification),
+            ("Influence diagnostics", influence),
+            ("Collinearity diagnostics", collinearity),
+        ):
+            attempt(model, label, compute, r)
+        if lags:
+            attempt(model, "Autocorrelation tests", autocorrelation, r)
+
+    res = DataFrame(rows, columns=["test", "model", "statistic", "df", "df_denom", "p-value", "report"])
+    for column in ("statistic", "df", "df_denom", "p-value"):
+        res[column] = res[column].astype(float)  # also for an empty table (object columns)
+    if decimal:
+        res["statistic"] = res["statistic"].round(decimal)
+    format_significance(res, add_stars, format_pval, na_rep="")  # statistics without a test: empty cells
+    return res

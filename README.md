@@ -105,6 +105,21 @@ results_rep = lm_report(results, metrics)
 print(results_rep, metrics)
 ```
 
+#### Diagnostic tests: `lm_tests`
+`lm_tests(results)` collects the usual diagnostics of the OLS models in one table (columns `test`, `model`, `statistic`, `df`, `df_denom`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions, the specification and the influence of single observations, not the quality of the fit. Other models (RLM, GLM, QuantReg, MixedLM) are skipped with a warning.
+
+* **Normality of the residuals**: Jarque-Bera, omnibus (D'Agostino-Pearson) and Shapiro-Wilk.
+* **Homoskedasticity**: Breusch-Pagan (studentized, Koenker) and White.
+* **Functional form**: Ramsey's RESET (`reset_power`, default squares and cubes of the fitted values).
+* **Autocorrelation** (only with `lags`, for data ordered in time): Breusch-Godfrey and the Durbin-Watson statistic.
+* **Outliers and influence**: the Bonferroni outlier test and the largest Cook's distance.
+* **Multicollinearity** (no p-values): the largest VIF and the condition number.
+
+```python
+from apatools.lm import lm_tests
+print(lm_tests(results, format_pval=True, add_stars=True, decimal=3, lags=None))
+```
+
 
 ### *apatools.slm*
 Fitting of OLS, SLM, and SEM spatial models using *spreg*. Arguments for the spreg model constructor are passed as `<model>_model_<argument>` with the model prefix `ols_`, `slm_` or `sem_`, e.g. `ols_model_spat_diag`.

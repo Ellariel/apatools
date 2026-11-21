@@ -3,7 +3,8 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from apatools.lm import lm, lm_report
+from apatools.format import format_p
+from apatools.lm import lm, lm_report, lm_tests
 
 
 def s(x):
@@ -297,3 +298,174 @@ def test_mlm_icc_and_r_sq_use_the_same_random_effects_variance():
     r2_m, r2_c = mlm_r_sq(with_vc)
     var_fixed = np.var(with_vc.model.exog @ with_vc.fe_params.values)
     assert r2_c - r2_m == pytest.approx(tau2_vc / (var_fixed + tau2_vc + with_vc.scale))
+
+
+###############
+# lm_tests    #
+###############
+
+
+def _data(n=150, seed=0):
+    rng = np.random.default_rng(seed)
+    d = pd.DataFrame(rng.normal(size=(n, 3)), columns=["x1", "x2", "x3"])
+    d["y"] = 1 + d.x1 - 0.5 * d.x2 + rng.normal(size=n)
+    return d
+
+
+def _ols(d, y="y"):
+    return sm.OLS(d[y], sm.add_constant(d.drop(columns=y))).fit()
+
+
+def test_lm_tests_agree_with_the_textbook_formulas():
+    from scipy.stats import chi2, f, jarque_bera, shapiro, t
+
+    d = _data(120, seed=3)
+    res = _ols(d)
+    tests = lm_tests([res], lags=1).set_index("test")
+    assert list(lm_tests([res]).columns) == ["test", "model", "statistic", "df", "df_denom", "p-value", "report"]
+    e, X, n, k = res.resid.to_numpy(), res.model.exog, 120, 4
+    # Jarque-Bera: n / 6 * (S^2 + (K - 3)^2 / 4)
+    skew, kurt = ((e - e.mean()) ** 3).mean() / e.std() ** 3, ((e - e.mean()) ** 4).mean() / e.std() ** 4
+    jb = n / 6 * (skew**2 + (kurt - 3) ** 2 / 4)
+    assert tests.loc["Jarque-Bera", "statistic"] == pytest.approx(jb) and tests.loc["Jarque-Bera", "p-value"] == pytest.approx(chi2.sf(jb, 2))
+    assert tests.loc["Shapiro-Wilk", "statistic"] == pytest.approx(shapiro(e).statistic)
+    assert tests.loc["Omnibus", "df"] == 2 and 0 < tests.loc["Omnibus", "p-value"] < 1
+
+    def n_r2(y, design):  # n * R^2 of the auxiliary regression
+        return len(y) * sm.OLS(y, design).fit().rsquared
+
+    bp = n_r2(e**2, X)  # Koenker's studentized Breusch-Pagan: n R^2 of e^2 on the regressors
+    assert tests.loc["Breusch-Pagan", "statistic"] == pytest.approx(bp) and tests.loc["Breusch-Pagan", "df"] == k - 1
+    assert tests.loc["Breusch-Pagan", "p-value"] == pytest.approx(chi2.sf(bp, k - 1))
+    first, second = np.triu_indices(k)
+    aux = X[:, first] * X[:, second]  # the regressors, their squares and cross products
+    white = n_r2(e**2, aux)
+    assert tests.loc["White", "statistic"] == pytest.approx(white) and tests.loc["White", "df"] == k * (k + 1) // 2 - 1
+    assert tests.loc["White", "p-value"] == pytest.approx(chi2.sf(white, k * (k + 1) // 2 - 1))
+    # RESET: F test of the squared and cubed fitted values
+    fitted = res.fittedvalues.to_numpy()
+    unrestricted = sm.OLS(d["y"], np.column_stack([X, fitted**2, fitted**3])).fit()
+    f_stat = ((res.ssr - unrestricted.ssr) / 2) / (unrestricted.ssr / (n - k - 2))
+    assert tests.loc["RESET", "statistic"] == pytest.approx(f_stat) and tests.loc["RESET", "df"] == 2
+    assert tests.loc["RESET", "df_denom"] == n - k - 2 and tests.loc["RESET", "p-value"] == pytest.approx(f.sf(f_stat, 2, n - k - 2))
+    # Durbin-Watson and Breusch-Godfrey (one lag, the first lagged residual set to 0)
+    assert tests.loc["Durbin-Watson", "statistic"] == pytest.approx(np.sum(np.diff(e) ** 2) / np.sum(e**2))
+    assert np.isnan(tests.loc["Durbin-Watson", "p-value"])
+    lagged = np.r_[0.0, e[:-1]]
+    bg = n_r2(e, np.column_stack([X, lagged]))
+    assert tests.loc["Breusch-Godfrey", "statistic"] == pytest.approx(bg) and tests.loc["Breusch-Godfrey", "df"] == 1
+    # Cook's distance and the Bonferroni outlier test
+    h = np.einsum("ij,jk,ik->i", X, np.linalg.inv(X.T @ X), X)
+    s2 = e @ e / (n - k)
+    cook = e**2 * h / (k * s2 * (1 - h) ** 2)
+    assert tests.loc["Cook's distance", "statistic"] == pytest.approx(cook.max())
+    assert f"({int((cook > 4 / n).sum())} above 4/n)" in tests.loc["Cook's distance", "report"]
+    s2_i = ((n - k) * s2 - e**2 / (1 - h)) / (n - k - 1)  # variance without the observation
+    student = e / np.sqrt(s2_i * (1 - h))
+    assert tests.loc["Outlier test", "statistic"] == pytest.approx(np.abs(student).max())
+    assert tests.loc["Outlier test", "p-value"] == pytest.approx(min(1.0, n * 2 * t.sf(np.abs(student).max(), n - k - 1)))
+    assert tests.loc["Outlier test", "df_denom"] == n - k - 1
+    reference = res.outlier_test(method="bonf")  # statsmodels (refits the model for every observation)
+    assert np.allclose(student, reference["student_resid"]) and tests.loc["Outlier test", "p-value"] == pytest.approx(reference["bonf(p)"].min())
+    # multicollinearity: VIF = 1 / (1 - R^2) of a predictor on the others; condition number of the design matrix
+    vifs = [1 / (1 - sm.OLS(d[c], sm.add_constant(d[["x1", "x2", "x3"]].drop(columns=c))).fit().rsquared) for c in ("x1", "x2", "x3")]
+    assert tests.loc["Max VIF", "statistic"] == pytest.approx(max(vifs))
+    assert tests.loc["Condition number", "statistic"] == pytest.approx(np.linalg.cond(X))
+    assert tests.loc[["Max VIF", "Condition number", "Durbin-Watson", "Cook's distance"], "p-value"].isna().all()  # no tests
+    # the report strings are APA-style
+    assert tests.loc["Breusch-Pagan", "report"] == f"Breusch-Pagan(3) = {bp:.2f}, {format_p(tests.loc['Breusch-Pagan', 'p-value'])}"
+    assert tests.loc["RESET", "report"].startswith(f"RESET F(2, {n - k - 2}) = ")
+    assert tests.loc["Max VIF", "report"] == f"max VIF = {max(vifs):.2f}"
+
+
+def test_lm_tests_have_the_right_size_and_find_the_departures():
+    rng = np.random.default_rng(11)
+    n, sims = 150, 250
+    rejections = {}
+
+    def run(make, tests, level=0.05, count=60):  # count: number of simulated samples (many for the size)
+        counts = dict.fromkeys(tests, 0)
+        for _ in range(count):
+            table = lm_tests([_ols(make())], lags=1).set_index("test")["p-value"]
+            for name in tests:
+                counts[name] += table[name] < level
+        return {name: c / count for name, c in counts.items()}
+
+    def frame(y_of, x=None):
+        x1, x2 = rng.normal(size=n), rng.normal(size=n)
+        return pd.DataFrame({"x1": x1, "x2": x2, "y": y_of(x1, x2)})
+
+    names = ["Jarque-Bera", "Shapiro-Wilk", "Breusch-Pagan", "White", "RESET", "Breusch-Godfrey"]
+    size = run(lambda: frame(lambda a, b: 1 + a + b + rng.normal(size=n)), names, count=sims)
+    assert all(0.015 <= rate <= 0.10 for rate in size.values()), size  # about 5 % false positives under H0
+    # a variance that changes with the predictor (sd = exp(x1 / 2)): BP and White reject
+    hetero = run(lambda: frame(lambda a, b: 1 + a + b + np.exp(a / 2) * rng.normal(size=n)), ["Breusch-Pagan", "White"])
+    assert min(hetero.values()) > 0.7, hetero
+    # sd proportional to |x1|: the variance is not linear in x1, so only White (squares) has power
+    curved_variance = run(lambda: frame(lambda a, b: 1 + a + b + np.abs(a) * 2 * rng.normal(size=n)), ["Breusch-Pagan", "White"])
+    assert curved_variance["White"] > 0.9 and curved_variance["Breusch-Pagan"] < curved_variance["White"] - 0.3, curved_variance
+    # skewed / heavy tailed errors: the normality tests reject
+    heavy = run(lambda: frame(lambda a, b: 1 + a + b + rng.standard_t(3, size=n)), ["Jarque-Bera", "Shapiro-Wilk"])
+    assert min(heavy.values()) > 0.7, heavy
+    # an omitted quadratic term: RESET rejects
+    curved = run(lambda: frame(lambda a, b: 1 + a + b + 0.8 * a**2 + rng.normal(size=n)), ["RESET"])
+    assert curved["RESET"] > 0.8, curved
+    # AR(1) errors: Breusch-Godfrey rejects, Durbin-Watson is well below 2
+    def ar1(a, b):
+        e = np.zeros(n)
+        for i in range(1, n):
+            e[i] = 0.7 * e[i - 1] + rng.normal()
+        return 1 + a + b + e
+
+    auto = run(lambda: frame(ar1), ["Breusch-Godfrey"])
+    assert auto["Breusch-Godfrey"] > 0.9, auto
+    dw = lm_tests([_ols(frame(ar1))], lags=1).set_index("test").loc["Durbin-Watson", "statistic"]
+    assert dw < 1.2
+
+
+def test_lm_tests_outliers_and_collinearity():
+    d = _data(100, seed=5)
+    clean = lm_tests([_ols(d)]).set_index("test")
+    assert clean.loc["Outlier test", "p-value"] > 0.05 and clean.loc["Max VIF", "statistic"] < 2
+    d.loc[17, "y"] += 12  # a gross outlier
+    dirty = lm_tests([_ols(d)]).set_index("test")
+    assert dirty.loc["Outlier test", "p-value"] < 1e-5 and "observation 17" in dirty.loc["Outlier test", "report"]
+    assert dirty.loc["Cook's distance", "statistic"] > 5 * clean.loc["Cook's distance", "statistic"]
+    # nearly collinear predictors
+    d["x3"] = d["x1"] + 0.02 * np.random.default_rng(0).normal(size=100)
+    collinear = lm_tests([_ols(d)]).set_index("test")
+    assert collinear.loc["Max VIF", "statistic"] > 100 and collinear.loc["Condition number", "statistic"] > 30
+    # a single predictor has a VIF of 1
+    assert lm_tests([sm.OLS(d["y"], sm.add_constant(d[["x1"]])).fit()]).set_index("test").loc["Max VIF", "statistic"] == 1.0
+
+
+def test_lm_tests_options_and_edge_cases():
+    d = _data(100, seed=8)
+    results, _ = lm(d, "y", ["x1", "x2", "x3"], model=["ols", "rlm", "glm"], verbose=False)
+    with pytest.warns(UserWarning, match="RLM models are not supported"), pytest.warns(UserWarning, match="GLM models"):
+        raw = lm_tests(results)
+    assert set(raw["model"]) == {"ols"}  # only the OLS model
+    assert not {"Breusch-Godfrey", "Durbin-Watson"} & set(raw["test"])  # autocorrelation only with lags
+    assert {"Breusch-Godfrey", "Durbin-Watson"} <= set(lm_tests(results[:1], lags=2)["test"])
+    assert lm_tests(results[:1], lags=2).set_index("test").loc["Breusch-Godfrey", "df"] == 2
+    pd.testing.assert_frame_equal(raw, lm_tests(results[:1]))  # deterministic
+    assert raw["statistic"].dtype == float and raw["df"].dtype == float
+    # formatted p-values, stars, decimals as in plm_tests
+    formatted = lm_tests(results[:1], format_pval=True, add_stars=True, decimal=2)
+    assert formatted["statistic"].tolist() == raw["statistic"].round(2).tolist()
+    assert formatted["p-value"].map(lambda v: isinstance(v, str)).all() and "sig" in formatted
+    assert formatted.loc[formatted["test"] == "Max VIF", "p-value"].iloc[0] == ""  # no p-value, no text
+    # reset_power: squares only
+    assert lm_tests(results[:1], reset_power=2).set_index("test").loc["RESET", "df"] == 1
+    # a repeated model gets a suffix, an empty list gives an empty table with the columns
+    assert set(lm_tests([results[0], results[0]])["model"]) == {"ols", "ols_2"}
+    empty = lm_tests([], format_pval=True, add_stars=True, decimal=2)
+    assert empty.empty and list(empty.columns)[:2] == ["test", "model"]
+    # a model without constant: the tests that need none are computed, the others are skipped with a warning
+    no_constant, _ = lm(d, "y", ["x1", "x2"], intercept=False, verbose=False)
+    with pytest.warns(UserWarning):
+        table = lm_tests(no_constant)
+    assert {"Jarque-Bera", "RESET", "Outlier test"} <= set(table["test"])
+    # results of the formula interface
+    by_formula, _ = lm(d, formula="y ~ x1 + x2", verbose=False)
+    assert len(lm_tests(by_formula)) >= 10
