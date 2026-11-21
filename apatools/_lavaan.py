@@ -426,7 +426,7 @@ def semplot(
     if layout not in layouts:
         raise ValueError(f"Unknown layout '{layout}', use one of {layouts}.")
     with tempfile.TemporaryDirectory(prefix="apatools_semplot_") as tmp:
-        rows = [(r, "->", l, lab) for r, l, lab in edges] + [(r, "<->", l, lab) for r, l, lab in covs]
+        rows = [(r, "->", rhs, lab) for r, rhs, lab in edges] + [(r, "<->", rhs, lab) for r, rhs, lab in covs]
         pd.DataFrame(rows, columns=["lhs", "edge", "rhs", "label"]).to_csv(
             Path(tmp) / "edges.csv", index=False, encoding="utf-8"
         )

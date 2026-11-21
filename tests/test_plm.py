@@ -13,7 +13,6 @@ from apatools.format import format_p, get_stars
 from apatools.plm import (
     SPREG_MODELS,
     PanelData,
-    base_metrics,
     hausman,
     make_panel,
     mundlak,

@@ -426,7 +426,7 @@ def test_robust_omega_agrees_with_the_r_package_coefficientalpha(r_tools):
     rng = np.random.default_rng(3)
     n, p = 300, 5
     factor = rng.normal(size=n)
-    x = np.column_stack([l * factor + rng.normal(size=n) * s for l, s in zip([1, 0.8, 0.7, 0.9, 0.6], [1, 1, 1.2, 0.9, 1.1])])
+    x = np.column_stack([lam * factor + rng.normal(size=n) * s for lam, s in zip([1, 0.8, 0.7, 0.9, 0.6], [1, 1, 1.2, 0.9, 1.1])])
     x[:12] += rng.normal(size=(12, p)) * 5
     frame = pd.DataFrame(x, columns=[f"v{i}" for i in range(1, p + 1)])
     with tempfile.TemporaryDirectory() as tmp:

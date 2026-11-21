@@ -241,7 +241,7 @@ def test_layered_positions_put_predictors_left_of_outcomes():
 
     arrows = [("a", "m"), ("b", "m"), ("m", "y1"), ("m", "y2"), ("a", "y3")]
     pos = _layered_positions(nx, ["a", "b", "m", "y1", "y2", "y3"], arrows)
-    assert all(pos[r][0] < pos[l][0] for r, l in arrows)
+    assert all(pos[r][0] < pos[lhs][0] for r, lhs in arrows)
     # layer = longest path from a variable without predictors
     assert pos["a"][0] == pos["b"][0] == 0 and pos["y1"][0] == pos["y2"][0] == 2 * pos["m"][0]
     assert pos["m"][0] == pos["y3"][0] > 0
@@ -328,7 +328,7 @@ def test_standardized_standard_errors_match_theory_and_bootstrap():
     # one factor: the delta method agrees with the spread of the standardized loadings in bootstrap samples
     n = 300
     factor = rng.normal(size=n)
-    items = pd.DataFrame({f"i{k}": l * factor + rng.normal(size=n) for k, l in enumerate([1.0, 0.8, 0.7, 0.9], 1)})
+    items = pd.DataFrame({f"i{k}": lam * factor + rng.normal(size=n) for k, lam in enumerate([1.0, 0.8, 0.7, 0.9], 1)})
     formula = "f =~ i1 + i2 + i3 + i4"
     fit = sem(items, formula, bootstrap=0, se_robust=False)[0]
     loadings = fit[(fit["rval"] == "f") & (fit["op"] == "~")].reset_index(drop=True)

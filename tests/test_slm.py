@@ -1,8 +1,20 @@
+import warnings
+
+import libpysal
 import numpy as np
 import pandas as pd
-import libpysal
+import pytest
+import spreg
 
-from apatools.slm import slm, slm_report
+import apatools.slm as slm_module
+from apatools._common import w_subset_rows
+from apatools.slm import (
+    _moran_permutation,
+    pred_metrics,
+    slm,
+    slm_report,
+    slm_tests,
+)
 
 
 def s(x):
@@ -185,16 +197,6 @@ def test_slm_kwargs_routing_and_df():
     # neither formula nor x/y
     with pytest.raises(ValueError):
         slm(df, w=w, verbose=False)
-
-
-import warnings
-
-import pytest
-import spreg
-
-import apatools.slm as slm_module
-from apatools._common import w_subset_rows
-from apatools.slm import _moran_permutation, pred_metrics, slm_tests
 
 
 @pytest.fixture(scope="module")

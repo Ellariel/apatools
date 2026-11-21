@@ -347,7 +347,7 @@ def _ols(d, y="y"):
 
 
 def test_lm_tests_agree_with_the_textbook_formulas():
-    from scipy.stats import chi2, f, jarque_bera, shapiro, t
+    from scipy.stats import chi2, f, shapiro, t
 
     d = _data(120, seed=3)
     res = _ols(d)
@@ -478,7 +478,6 @@ def test_lm_tests_agree_with_the_textbook_formulas():
 def test_lm_tests_have_the_right_size_and_find_the_departures():
     rng = np.random.default_rng(11)
     n, sims = 150, 250
-    rejections = {}
 
     def run(
         make, tests, level=0.05, count=60
