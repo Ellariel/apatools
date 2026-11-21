@@ -2,8 +2,6 @@
 
 ## 0.2.0
 
-This list is not complete yet: it covers `apatools.lib` and the changes listed below.
-
 ### Fixed
 - `sem_plot` labelled the arrows with the p-values of the raw estimates although it shows standardized estimates by
   default (and none for the loadings fixed to 1): the labels use `p_std` now when `std_ests=True`.
