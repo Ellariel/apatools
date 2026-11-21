@@ -108,15 +108,21 @@ def _standardized_inference(model, robust):
     return se, z, 2 * norm.sf(np.abs(z))
 
 
+SEM_ENGINES = ("semopy", "lavaan")
+
+
 def sem(
     data,
     formula,
-    method="MLW",  # MLW ULS GLS FIML DWLS WLS
+    method=None,  # semopy: MLW (default) ULS GLS FIML DWLS WLS; lavaan: ML (default) ULS GLS ...
     solver="SLSQP",
-    bootstrap=100,
+    bootstrap=None,  # semopy: 100 (default); lavaan: 0 (default)
     se_robust=True,  # Huber-White correction
     return_model=False,
     seed=13,
+    engine="semopy",
+    lavaan_args=None,
+    rscript=None,
 ):
     """Fit a structural equation model with semopy.
 
@@ -133,30 +139,49 @@ def sem(
         Model description in semopy syntax: ``=~`` measurement part (latent
         =~ indicators), ``~`` structural part (regressions), ``~~`` (co)variances.
         Example: ``"eta1 =~ y1 + y2 + y3"``; use one line per equation for several.
-    method : str, default "MLW"
-        Objective function passed to ``semopy.Model.fit(obj=...)``: ``"MLW"``
-        (Wishart maximum likelihood), ``"ULS"``, ``"GLS"``, ``"FIML"``, ``"DWLS"``
-        or ``"WLS"``.
+    method : str, optional
+        Estimator. ``engine="semopy"`` (objective function passed to
+        ``semopy.Model.fit(obj=...)``): ``"MLW"`` (Wishart maximum likelihood, the default),
+        ``"ULS"``, ``"GLS"``, ``"FIML"``, ``"DWLS"`` or ``"WLS"``. ``engine="lavaan"``: the same
+        names are translated (``"MLW"`` and ``"FIML"`` to ML, the latter with
+        ``missing="fiml"``) and any lavaan estimator can be given (``"ML"``, the default,
+        ``"MLR"``, ``"WLSMV"``, ...).
     solver : str, default "SLSQP"
-        Name of the scipy optimizer used to minimize the objective.
-    bootstrap : int or falsy, default 100
-        If truthy, ``semopy.bias_correction(model, n=bootstrap, resample_mean=True)``
-        is applied after fitting. This *replaces* the parameter estimates by
-        bias-corrected ones; use ``0`` or ``None`` to keep the plain estimates and to
-        save time.
+        Name of the scipy optimizer used to minimize the objective (``engine="semopy"`` only).
+    bootstrap : int or falsy, optional
+        ``engine="semopy"`` (default 100): if truthy,
+        ``semopy.bias_correction(model, n=bootstrap, resample_mean=True)`` is applied after
+        fitting. This *replaces* the parameter estimates by bias-corrected ones; use ``0`` to
+        keep the plain estimates and to save time. ``engine="lavaan"`` (default 0): if truthy,
+        lavaan computes bootstrap standard errors and p-values from that many resamples
+        (the estimates themselves are not changed).
     se_robust : bool, default True
-        Report Huber-White robust standard errors (``model.inspect(se_robust=...)``).
+        Report Huber-White robust standard errors (``model.inspect(se_robust=...)``; with
+        lavaan ``se="robust.huber.white"``, only for the ML estimator).
     return_model : bool, default False
-        Also return the fitted ``semopy.Model``.
+        Also return the fitted model: the ``semopy.Model``, or for ``engine="lavaan"`` a
+        ``LavaanFit`` (lavaan's own parameter tables and fit measures, its version and warnings).
     seed : int, default 13
         Seed for numpy's *global* random generator (``np.random.seed``), which makes
         the bootstrap and the optimizer's starting values reproducible. The global
-        state is changed as a side effect.
+        state is changed as a side effect. With lavaan it seeds R (``set.seed``).
+    engine : {"semopy", "lavaan"}, default "semopy"
+        ``"semopy"`` fits the model in Python. ``"lavaan"`` fits it with the R package lavaan
+        (Rosseel, 2012) in an ``Rscript`` subprocess and returns the same tables, so that
+        :func:`sem_report` and :func:`sem_plot` work with both. It needs R with the package
+        lavaan (``install.packages("lavaan")``) and no further Python package.
+    lavaan_args : dict, optional
+        Further arguments of ``lavaan::sem`` for ``engine="lavaan"``, for example
+        ``{"std.lv": True, "ordered": ["x1", "x2"], "missing": "fiml"}`` (they override the
+        arguments derived from ``method``, ``se_robust`` and ``bootstrap``).
+    rscript : str, optional
+        Path of ``Rscript`` (``engine="lavaan"``); by default the environment variable
+        ``APATOOLS_RSCRIPT``, the ``PATH`` and the usual install locations are searched.
 
     Returns
     -------
     stats : pandas.DataFrame
-        One row per model parameter with semopy's ``inspect`` columns in lower case
+        (The columns are the same for both engines.) One row per model parameter with semopy's ``inspect`` columns in lower case
         (``lval``, ``op``, ``rval``, ``estimate``, ``std_err``, ``z-value``, ``p-value``), the
         standardized estimate ``est_std`` and its standard error ``se_std``, z-value
         ``z_std`` and p-value ``p_std`` (delta method, as in lavaan's
@@ -216,6 +241,26 @@ def sem(
     >>> stats, metrics = sem(df, "eta =~ y1 + y2 + y3", bootstrap=0)  # doctest: +SKIP
     >>> sem_report(stats, metrics)  # doctest: +SKIP
     """
+    if engine not in SEM_ENGINES:
+        raise NotImplementedError(f"Engine '{engine}' is not implemented, use one of {SEM_ENGINES}.")
+    if engine == "lavaan":
+        from ._lavaan import fit_lavaan, lavaan_estimator
+
+        lavaan_args = dict(lavaan_args or {})
+        estimator, implied = lavaan_estimator("ML" if method is None else method, lavaan_args)
+        stats, metrics, fit = fit_lavaan(
+            data,
+            formula,
+            estimator,
+            se="robust.huber.white" if se_robust and estimator == "ML" else None,
+            bootstrap=bootstrap or 0,
+            lavaan_args={**implied, **lavaan_args},
+            seed=seed,
+            rscript=rscript,
+        )
+        return (stats, metrics, fit) if return_model else (stats, metrics)
+    method = "MLW" if method is None else method
+    bootstrap = 100 if bootstrap is None else bootstrap
     np.random.seed(seed)
     model = semopy.Model(formula)
     model.fit(data, obj=method, solver=solver)
@@ -305,7 +350,7 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
     return stats
 
 
-PLOT_ENGINES = ("semopy", "networkx")
+PLOT_ENGINES = ("semopy", "networkx", "lavaan")
 
 
 def sem_plot(
@@ -335,6 +380,10 @@ def sem_plot(
       (:func:`semopy_plot`); needs the Graphviz executables.
     * ``"networkx"``: a pure Python drawing with networkx and matplotlib
       (:func:`networkx_plot`); needs no external program and also supports ``dpi``.
+    * ``"lavaan"``: drawn by the R package semPlot (``semPlot::semPaths``), the usual plotter of
+      lavaan models, in an ``Rscript`` subprocess; works with the tables of both ``sem`` engines.
+      Needs R with the packages lavaan and semPlot; returns an ``RFigure`` (displays in Jupyter,
+      ``.save(path)``).
 
     Parameters
     ----------
@@ -357,7 +406,7 @@ def sem_plot(
         if ``show_stars`` is set. False prints the raw numbers.
     format_fig : str, default "png"
         Output format (``"png"``, ``"svg"``, ``"pdf"``, ...), see ``save_to_file``.
-    engine : {"semopy", "networkx"}, default "semopy"
+    engine : {"semopy", "networkx", "lavaan"}, default "semopy"
         Drawing engine. Any other value raises ``NotImplementedError``.
     return_fig : bool, default True
         Return the figure object; if False the function returns None (the figure is still
@@ -372,21 +421,24 @@ def sem_plot(
     **kwargs
         Passed through to the engine function: ``layout`` for both engines (a Graphviz layout
         program such as ``"dot"`` / ``"neato"`` for ``"semopy"``, see :func:`semopy_plot`; ``"layered"``,
-        ``"spring"``, ``"kamada_kawai"``, ``"circular"`` for ``"networkx"``), and
-        ``figsize`` and ``fontsize`` for ``"networkx"``, see :func:`networkx_plot`.
+        ``"spring"``, ``"kamada_kawai"``, ``"circular"`` for ``"networkx"``; ``"tree"``, ``"tree2"``,
+        ``"circle"``, ``"circle2"``, ``"spring"`` for ``"lavaan"``), ``figsize`` and ``fontsize`` for
+        ``"networkx"``, see :func:`networkx_plot`, and ``rotation``, ``width``, ``height``, ``fontsize``
+        and ``rscript`` for ``"lavaan"``.
 
     Returns
     -------
-    graphviz.Digraph, matplotlib.figure.Figure or None
+    graphviz.Digraph, matplotlib.figure.Figure, RFigure or None
         ``"semopy"``: the Graphviz graph (displays inline in Jupyter). ``"networkx"``: the
-        matplotlib figure. None if ``return_fig`` is False.
+        matplotlib figure. ``"lavaan"``: the figure drawn by R. None if ``return_fig`` is False.
 
     Notes
     -----
     The ``"semopy"`` engine needs the ``graphviz`` Python package and the Graphviz executables
     (``dot``) on the system PATH (on Windows, add the Graphviz ``bin`` folder to ``PATH``):
     ``pip install "apatools[graphviz]"``. The ``"networkx"`` engine needs networkx and
-    matplotlib: ``pip install "apatools[networkx]"``.
+    matplotlib: ``pip install "apatools[networkx]"``. The ``"lavaan"`` engine needs R with the packages
+    lavaan and semPlot (``install.packages(c("lavaan", "semPlot"))``).
     """
     if engine not in PLOT_ENGINES:
         raise NotImplementedError(
@@ -405,6 +457,16 @@ def sem_plot(
     }
     if engine == "semopy":
         fig = semopy_plot(stats, latshape="circle", dpi=dpi, **common, **kwargs)
+    elif engine == "lavaan":
+        from ._lavaan import semplot
+
+        np.random.seed(seed)
+        latent, _, edges, covs, order = _path_diagram(
+            stats, plot_covs, std_ests, True, show_stars, format_pval, decimal
+        )
+        fig = semplot(
+            order, latent, edges, covs, save_to_file=save_to_file, format_fig=format_fig, dpi=dpi, **kwargs
+        )
     else:
         fig = networkx_plot(stats, dpi=dpi, **common, **kwargs)
         if not return_fig:

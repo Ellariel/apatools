@@ -49,3 +49,24 @@ jobs:
         run: |
           mkdir -p /tmp/run && cp -r tests /tmp/run/tests && cd /tmp/run
           python -m pytest tests -q
+
+  lavaan:
+    # the R engines of apatools.sem (sem(engine="lavaan"), sem_plot(engine="lavaan")): these tests are
+    # skipped in the job above because R is not installed there
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true  # binary packages: semPlot has many dependencies
+      - name: Install the R packages
+        run: Rscript -e 'install.packages(c("lavaan", "semPlot"))'
+      - name: Install the package with the sem extra
+        run: python -m pip install --upgrade pip && python -m pip install ".[sem]" pytest
+      - name: Test the R engines
+        run: |
+          mkdir -p /tmp/run && cp -r tests /tmp/run/tests && cd /tmp/run
+          python -m pytest tests/test_lavaan.py -q -rs

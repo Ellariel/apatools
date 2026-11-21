@@ -46,6 +46,13 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
+- `sem(engine="lavaan")`: fits the model with the R package lavaan (through `Rscript`, no further Python package) and
+  returns the same tables as the semopy engine (`method` accepts semopy's and lavaan's estimator names, `lavaan_args`
+  passes further arguments to `lavaan::sem`, `bootstrap` gives bootstrap standard errors, SRMR is added to the fit
+  statistics). `sem(method=None, bootstrap=None)` now means "the default of the engine" (`"MLW"` / 100 for semopy,
+  `"ML"` / 0 for lavaan).
+- `sem_plot(engine="lavaan")`: the path diagram drawn by the R package semPlot, from the table of either engine;
+  returns an `RFigure` (PNG, PDF, SVG, ...). R messages are in English (`APATOOLS_R_LANGUAGE` changes that).
 - `sem`: standard error, z-value and p-value of the standardized estimates (`se_std`, `z_std`, `p_std`; delta method
   as in lavaan's `standardizedSolution()`). They also exist for the loadings that are fixed to 1 in the raw solution.
   `sem_report` formats `p_std` like `p-value`.

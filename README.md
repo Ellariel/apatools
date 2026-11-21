@@ -25,6 +25,8 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | `pip install "apatools[networkx]"` | `sem_plot` path diagrams, `engine="networkx"` | the `sem` extra, *networkx* and *matplotlib*; no external program needed |
 | `pip install "apatools[all]"` | everything | all of the above |
 
+*R engines*: `sem(engine="lavaan")` and `sem_plot(engine="lavaan")` use [R](https://cran.r-project.org) through `Rscript` (no Python package is needed besides the `sem` extra): install R and, in R, `install.packages(c("lavaan", "semPlot"))`. `Rscript` is found on the `PATH`, in the usual install locations, through the environment variable `APATOOLS_RSCRIPT` or the argument `rscript`.
+
 Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a module without its extra gives an `ImportError` that names the extra to install.
 
 ## Content and examples
@@ -196,9 +198,21 @@ fig = sem_plot(
 * `engine="semopy"` (default) - the diagram of `semopy.semplot`, drawn by Graphviz (extra `graphviz`, needs the Graphviz executables); returns a `graphviz.Digraph`. The Graphviz layout program can be chosen with `layout="dot"` (default), `"neato"`, ...
 * `engine="networkx"` - drawn in Python with networkx and matplotlib (extra `networkx`, no external program); returns a matplotlib figure and honours `dpi`. `layout="layered"` (default; predictors left, outcomes right), `"spring"`, `"kamada_kawai"` or `"circular"`, plus `figsize` and `fontsize`.
 
+* `engine="lavaan"` - drawn by the R package *semPlot* (`semPlot::semPaths`) in an `Rscript` subprocess, from the table of either `sem` engine; returns an `RFigure` (shows in Jupyter, `.save(path)`; PNG, PDF, SVG, JPEG, TIFF, BMP). `layout="tree"` (default), `"tree2"`, `"circle"`, `"circle2"` or `"spring"`, plus `rotation`, `width`, `height` (inches) and `fontsize`.
+
 ```python
 fig = sem_plot(stats, engine="networkx", save_to_file="fig.svg", layout="layered")
 ```
+
+#### The lavaan engine of `sem()`
+`sem(data, formula, engine="lavaan")` fits the same model with the R package *lavaan* (Rosseel, 2012) and returns the same two tables, so that `sem_report` and `sem_plot` work unchanged (`return_model=True` gives a `LavaanFit` with lavaan's own tables, its version and warnings). `method` accepts the names of semopy (`"MLW"` and `"FIML"` become ML, the latter with `missing="fiml"`) and every lavaan estimator (`"MLR"`, `"WLSMV"`, ...); `se_robust=True` means `se="robust.huber.white"` for ML; `bootstrap=n` gives lavaan's bootstrap standard errors; any other argument of `lavaan::sem` goes into `lavaan_args`:
+
+```python
+stats, metrics = sem(data, formula, engine="lavaan", lavaan_args={"std.lv": True, "ordered": ["x1", "x2"]})
+fig = sem_plot(stats, engine="lavaan", save_to_file="fig.png", dpi=300)
+```
+
+On the political-democracy data the engines agree on the loadings and regressions (estimates within 0.02, standardized estimates within 0.002, standard errors of the standardized estimates within 0.002) and on chi-square, CFI, TLI, RMSEA and NFI. They differ in what they call GFI, AIC, BIC and the log-likelihood (lavaan reports the usual ML values) and in the standardized residual covariances (lavaan: the correlation of the residuals). The lavaan engine adds SRMR. Only single-group models are supported; thresholds and defined parameters (`:=`) are not part of the table. R messages are in English (`LANGUAGE=en`); set `APATOOLS_R_LANGUAGE` to change that.
 
 
 ### *apatools.psm*
