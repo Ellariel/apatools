@@ -1,4 +1,5 @@
 import itertools
+import inspect
 import warnings
 
 import numpy as np
@@ -11,12 +12,15 @@ from statsmodels.tools.numdiff import approx_fprime, approx_hess
 from statsmodels.stats.inter_rater import aggregate_raters
 
 import apatools.lib as lib_package
-import apatools.lib.omega as omega_module
+import apatools.lib.cronbach as cronbach_module
+import apatools.lib.mcdonald as mcdonald_module
 from apatools.calc import ci_from_r, p_from_r
-from apatools.lib.omega import _omega_delta_se, _omega_from_theta, _one_factor_ml
+from apatools.lib.cronbach import _alpha_from_covariance, _alpha_standard_error
+from apatools.lib.mcdonald import _omega_delta_se, _omega_from_theta, _one_factor_ml
 from apatools.lib import (
     average_correlations,
     bootstrap,
+    cronbachs_alpha,
     dependent_correlations,
     fleiss_kappa,
     gini,
@@ -970,13 +974,13 @@ def test_omega_bootstrap_resamples_are_all_different(monkeypatch):
     """Regression: re-seeding in a recursive call used to give two resamples the same data."""
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=8)
     values = []
-    original = omega_module._omega_from_theta
+    original = mcdonald_module._omega_from_theta
 
     def record(theta):
         values.append(original(theta))
         return values[-1]
 
-    monkeypatch.setattr(omega_module, "_omega_from_theta", record)
+    monkeypatch.setattr(mcdonald_module, "_omega_from_theta", record)
     mcdonald_omega(df, bootstrap_iter=40)
     assert len(values) == 41  # the estimate of the original sample, then 40 resamples
     assert len(set(values[1:])) == 40
@@ -1079,17 +1083,300 @@ def test_bootstrap_properties():
     assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]
 
 
+####################
+# Cronbach's alpha #
+####################
+
+
+def compound_symmetry(k, rho):
+    r = np.full((k, k), rho)
+    np.fill_diagonal(r, 1)
+    return r
+
+
+def population_alpha(sigma):
+    k = len(sigma)
+    return k / (k - 1) * (1 - np.trace(sigma) / np.sum(sigma))
+
+
+def normal_items(sigma, n, seed=0):
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame(rng.multivariate_normal(np.zeros(len(sigma)), sigma, size=n))
+
+
+def textbook_alpha(x):
+    """Alpha from the variances of the items and of the row sums (independent of the code under test)."""
+    x = np.asarray(x, float)
+    k = x.shape[1]
+    return k / (k - 1) * (1 - x.var(axis=0, ddof=1).sum() / x.sum(axis=1).var(ddof=1))
+
+
+def cronbach_only(data, **kwargs):
+    return cronbachs_alpha(data, **kwargs)[0]
+
+
+def test_cronbachs_alpha_by_hand():
+    # item variances 2.5 each (sum 7.5), variance of the sum score 20: alpha = 3/2 * (1 - 7.5/20)
+    x = pd.DataFrame([[1, 2, 3], [2, 3, 5], [3, 5, 4], [4, 4, 6], [5, 6, 7]])
+    alpha, low, high = cronbachs_alpha(x)
+    assert alpha == pytest.approx(0.9375, abs=1e-12)
+    assert low < alpha < high <= 1.0
+
+
+def test_cronbachs_alpha_matches_the_textbook_formula():
+    rng = np.random.default_rng(3)
+    for _ in range(50):
+        k, n = int(rng.integers(2, 10)), int(rng.integers(20, 300))
+        x = rng.normal(size=(n, k)) + rng.normal(size=(n, 1)) * rng.uniform(0.2, 1.5, size=k)
+        x = x + rng.uniform(-5, 5, size=k)
+        assert cronbach_only(x) == pytest.approx(textbook_alpha(x), abs=1e-10)
+
+
+@pytest.mark.parametrize("k, rho", [(3, 0.3), (6, 0.5), (10, 0.2), (4, 0.9)])
+def test_cronbachs_alpha_for_compound_symmetry(k, rho):
+    # equal variances and covariances: alpha = k * rho / (1 + (k - 1) * rho) (Spearman-Brown)
+    expected = k * rho / (1 + (k - 1) * rho)
+    items = exact_items(compound_symmetry(k, rho))
+    assert cronbach_only(items) == pytest.approx(expected, abs=1e-10)
+    assert population_alpha(compound_symmetry(k, rho)) == pytest.approx(expected)
+
+
+def test_cronbachs_alpha_and_omega():
+    # tau-equivalent items: alpha == omega; congeneric items: alpha underestimates the reliability
+    tau = exact_items(compound_symmetry(6, 0.36))
+    assert cronbach_only(tau) == pytest.approx(omega_only(tau), abs=1e-6)
+    cong = exact_items(one_factor_corr([0.9, 0.8, 0.5, 0.4, 0.3]))
+    assert cronbach_only(cong) < omega_only(cong) - 0.01
+
+
+def test_cronbachs_alpha_scale_and_input_type():
+    df = normal_items(compound_symmetry(5, 0.4) + np.diag([0.1, 0.5, 1.0, 0.2, 0.3]), 300, seed=5)
+    base = cronbachs_alpha(df)
+    # the same shift and scale for all items, a sign flip of all items, other input types
+    for other in (df * 7 + 3, -df, df.to_numpy(), df.to_numpy().tolist()):
+        assert cronbachs_alpha(other) == pytest.approx(base, abs=1e-9)
+    # rescaling a single item changes alpha: it is computed from the raw covariances
+    scaled = df.copy()
+    scaled[0] = scaled[0] * 10
+    assert cronbach_only(scaled) != pytest.approx(base[0], abs=1e-3)
+    assert isinstance(base, tuple) and len(base) == 3 and all(isinstance(v, float) for v in base)
+
+
+def test_cronbachs_alpha_drops_incomplete_rows():
+    df = normal_items(compound_symmetry(4, 0.4), 200, seed=2)
+    holes = df.copy()
+    holes.iloc[[3, 50, 51], 0] = np.nan
+    holes.iloc[10, 2] = np.nan
+    assert len(holes.dropna()) == 196
+    assert cronbachs_alpha(holes) == pytest.approx(cronbachs_alpha(holes.dropna()), abs=1e-12)
+
+
+def test_cronbachs_alpha_warns_when_it_is_negative():
+    items = exact_items(np.array([[1.0, -0.5], [-0.5, 1.0]]))  # alpha = 2 * (1 - 2 / 1) = -2
+    with pytest.warns(UserWarning, match="negative"):
+        alpha, low, high = cronbachs_alpha(items)
+    assert alpha == pytest.approx(-2.0, abs=1e-9)
+    # two of four items reverse-keyed and not recoded: the covariances cancel and alpha is below zero
+    df = normal_items(compound_symmetry(4, 0.5), 300, seed=6)
+    df[[0, 1]] = -df[[0, 1]]
+    with pytest.warns(UserWarning, match="negative"):
+        assert cronbach_only(df) < 0
+
+
+def test_cronbachs_alpha_with_items_that_cancel_each_other_out():
+    x = np.arange(10.0)
+    with pytest.warns(UserWarning, match="undefined"):
+        result = cronbachs_alpha(np.column_stack([x, -x, x**2, -(x**2)]))
+    assert all(np.isnan(v) for v in result)
+
+
+@pytest.mark.parametrize(
+    "data, match",
+    [
+        (pd.DataFrame({"a": [1.0, 2, 3, 4]}), "At least 2 items"),
+        (np.arange(10.0), "two-dimensional"),
+        (pd.DataFrame({"a": np.arange(10.0), "b": 1.0}), "constant"),
+        (pd.DataFrame(np.random.default_rng(0).normal(size=(2, 2))), "More respondents"),
+        (pd.DataFrame({"a": list("xyzw"), "b": [1.0, 2, 3, 4]}), "could not convert"),
+    ],
+)
+def test_cronbachs_alpha_validates_the_data(data, match):
+    with pytest.raises(ValueError, match=match):
+        cronbachs_alpha(data)
+
+
+def test_cronbachs_alpha_validates_the_options():
+    df = normal_items(compound_symmetry(3, 0.4), 100)
+    for bad in (0, -3, 2.5):
+        with pytest.raises(ValueError, match="bootstrap_iter"):
+            cronbachs_alpha(df, bootstrap_iter=bad)
+    for bad in (0, 1, 1.5, 95):
+        with pytest.raises(ValueError, match="conf_level"):
+            cronbachs_alpha(df, conf_level=bad)
+
+
+def test_cronbachs_alpha_analytic_se_matches_an_independent_delta_method():
+    """Numerical gradient of alpha with respect to vech(S) and the explicit normal-theory covariance of S."""
+    k, n = 5, 300
+    sigma = 0.3 * np.ones((k, k)) + np.diag([0.4, 0.6, 0.8, 1.0, 1.2])
+    s = np.cov(normal_items(sigma, n, seed=4).to_numpy(), rowvar=False)
+    rows, cols = np.triu_indices(k)
+
+    def alpha_of_vech(v):
+        m = np.zeros((k, k))
+        m[rows, cols] = v
+        return _alpha_from_covariance(m + m.T - np.diag(np.diag(m)))
+
+    gradient = np.ravel(approx_fprime(s[rows, cols], alpha_of_vech, centered=True))
+    pairs = list(zip(rows, cols))
+    covariance = np.array(
+        [[(s[i, a] * s[j, b] + s[i, b] * s[j, a]) / n for (a, b) in pairs] for (i, j) in pairs]
+    )
+    assert _alpha_standard_error(s, n) == pytest.approx(np.sqrt(gradient @ covariance @ gradient), rel=1e-6)
+
+
+def test_cronbachs_alpha_analytic_interval():
+    df = normal_items(compound_symmetry(5, 0.4), 200, seed=7)
+    alpha, low, high = cronbachs_alpha(df)
+    se = _alpha_standard_error(np.cov(df.to_numpy(), rowvar=False), len(df))
+    assert low == pytest.approx(alpha - 1.959964 * se, abs=1e-5)
+    assert high == pytest.approx(alpha + 1.959964 * se, abs=1e-5)
+    # a higher confidence level gives a wider interval, more respondents a narrower one
+    wide, narrow = cronbachs_alpha(df, conf_level=0.99), cronbachs_alpha(df, conf_level=0.80)
+    assert wide[2] - wide[1] > high - low > narrow[2] - narrow[1]
+    assert wide[0] == narrow[0] == alpha
+    big = normal_items(compound_symmetry(5, 0.4), 3000, seed=7)
+    assert np.ptp(cronbachs_alpha(big)[1:]) < high - low
+    # the upper limit is capped at 1 (alpha cannot exceed it)
+    near_perfect = exact_items(compound_symmetry(4, 0.9), n=6)
+    se = _alpha_standard_error(np.cov(near_perfect.to_numpy(), rowvar=False), 6)
+    alpha, _, high = cronbachs_alpha(near_perfect)
+    assert alpha + 1.959964 * se > 1  # without the cap the limit would be 1.008
+    assert high == 1.0
+
+
+def test_cronbachs_alpha_analytic_interval_has_the_right_size_and_coverage():
+    """Monte Carlo with normal items: mean ASE ~ spread of alpha, coverage ~ 95% for population alpha."""
+    rng = np.random.default_rng(31)
+    loadings = np.array([0.8, 0.7, 0.6, 0.5, 0.4])
+    sigma = np.outer(loadings, loadings) + np.diag(1 - loadings**2)  # congeneric items
+    truth, n, sims = population_alpha(sigma), 150, 400
+    chol = np.linalg.cholesky(sigma)
+    estimates, ses, covered = [], [], 0
+    for _ in range(sims):
+        x = rng.normal(size=(n, 5)) @ chol.T
+        alpha, low, high = cronbachs_alpha(x)
+        estimates.append(alpha)
+        ses.append(_alpha_standard_error(np.cov(x, rowvar=False), n))
+        covered += low <= truth <= high
+    assert np.mean(estimates) == pytest.approx(truth, abs=0.01)
+    assert np.mean(ses) == pytest.approx(np.std(estimates, ddof=1), rel=0.12)
+    assert 0.91 <= covered / sims <= 0.98  # nominal 95%, simulation error about 1 point
+
+
+def test_cronbachs_alpha_analytic_interval_agrees_with_feldts_exact_interval():
+    """Under compound symmetry (equal variances and covariances) Feldt (1965) gives an exact interval."""
+    from scipy.stats import f
+
+    k, n = 6, 400
+    df = normal_items(compound_symmetry(k, 0.4), n, seed=9)
+    alpha, low, high = cronbachs_alpha(df)
+    df1, df2 = n - 1, (n - 1) * (k - 1)
+    feldt_low = 1 - (1 - alpha) / f.ppf(0.025, df1, df2)
+    feldt_high = 1 - (1 - alpha) / f.ppf(0.975, df1, df2)
+    assert low == pytest.approx(feldt_low, abs=0.012)
+    assert high == pytest.approx(feldt_high, abs=0.012)
+
+
+def test_cronbachs_alpha_analytic_and_bootstrap_intervals_agree_for_normal_items():
+    df = normal_items(compound_symmetry(5, 0.4), 500, seed=12)
+    _, low, high = cronbachs_alpha(df)
+    _, low_boot, high_boot = cronbachs_alpha(df, bootstrap_iter=1000)
+    assert low == pytest.approx(low_boot, abs=0.012) and high == pytest.approx(high_boot, abs=0.012)
+
+
+def test_cronbachs_alpha_bootstrap():
+    df = normal_items(compound_symmetry(5, 0.4), 300, seed=8)
+    point = cronbach_only(df)
+    result = cronbachs_alpha(df, bootstrap_iter=200)
+    assert isinstance(result, tuple) and len(result) == 3 and all(isinstance(v, float) for v in result)
+    alpha, low, high = result
+    assert alpha == point and low <= alpha <= high  # the estimate of the sample, not the bootstrap median
+    # reproducible; other seeds (and seed=None) give other resamples, but the same estimate
+    assert cronbachs_alpha(df, bootstrap_iter=200) == result
+    other = cronbachs_alpha(df, bootstrap_iter=200, seed=99)
+    assert other[0] == alpha and other[1:] != result[1:]
+    unseeded = [cronbachs_alpha(df, bootstrap_iter=50, seed=None) for _ in range(2)]
+    assert unseeded[0][0] == unseeded[1][0] and unseeded[0][1:] != unseeded[1][1:]
+    # confidence level and sample size change the width
+    wide = cronbachs_alpha(df, bootstrap_iter=200, conf_level=0.99)
+    narrow = cronbachs_alpha(df, bootstrap_iter=200, conf_level=0.80)
+    assert wide[2] - wide[1] > high - low > narrow[2] - narrow[1]
+    big = normal_items(compound_symmetry(5, 0.4), 3000, seed=8)
+    assert np.ptp(cronbachs_alpha(big, bootstrap_iter=200)[1:]) < high - low
+    # a single resample is fine
+    _, only_low, only_high = cronbachs_alpha(df, bootstrap_iter=1)
+    assert only_low == only_high
+
+
+def test_cronbachs_alpha_bootstrap_interval_is_a_percentile_interval():
+    df = normal_items(compound_symmetry(5, 0.4), 200, seed=2)
+    x = df.to_numpy()
+    rng = np.random.default_rng(13)  # the generator and the draws of the bootstrap
+    alphas = [
+        _alpha_from_covariance(np.cov(x[rng.integers(0, len(x), size=len(x))], rowvar=False))
+        for _ in range(100)
+    ]
+    _, low, high = cronbachs_alpha(df, bootstrap_iter=100, conf_level=0.90, seed=13)
+    assert low == pytest.approx(np.percentile(alphas, 5))
+    assert high == pytest.approx(np.percentile(alphas, 95))
+
+
+def test_cronbachs_alpha_bootstrap_resamples_are_all_different(monkeypatch):
+    df = normal_items(compound_symmetry(5, 0.4), 300, seed=8)
+    values = []
+    original = cronbach_module._alpha_from_covariance
+
+    def record(covariance):
+        values.append(original(covariance))
+        return values[-1]
+
+    monkeypatch.setattr(cronbach_module, "_alpha_from_covariance", record)
+    cronbachs_alpha(df, bootstrap_iter=40)
+    assert len(values) == 41  # the estimate of the original sample, then 40 resamples
+    assert len(set(values[1:])) == 40
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"bootstrap_iter": 10}])
+def test_cronbachs_alpha_does_not_touch_numpys_global_random_state(kwargs):
+    df = normal_items(compound_symmetry(4, 0.4), 200)
+    np.random.seed(5)
+    expected = np.random.rand()
+    np.random.seed(5)
+    cronbachs_alpha(df, **kwargs)
+    assert np.random.rand() == expected
+
+
+def test_cronbachs_alpha_bootstrap_warns_once_about_the_original_sample():
+    items = exact_items(np.array([[1.0, -0.5], [-0.5, 1.0]]), n=100)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cronbachs_alpha(items, bootstrap_iter=30)
+    assert sum("negative" in str(w.message) for w in caught) == 1
+
+
 def test_lib_is_a_package_that_exports_everything_from_one_place():
     public = {
         "bootstrap", "gini", "gini_from_percentiles", "log_transform", "z_transform", "htmt_ratio",
-        "fleiss_kappa", "krippendorffs_alpha", "mcdonald_omega",
+        "fleiss_kappa", "krippendorffs_alpha", "mcdonald_omega", "cronbachs_alpha",
         "average_correlations", "dependent_correlations", "independent_correlations", "rz_ci", "rho_rxy_rxz",
     }  # fmt: skip
     assert set(lib_package.__all__) == public
     expected_module = {
         "fleiss_kappa": "fleiss",
         "krippendorffs_alpha": "krippendorff",
-        "mcdonald_omega": "omega",
+        "mcdonald_omega": "mcdonald",
+        "cronbachs_alpha": "cronbach",
         "average_correlations": "correlations",
         "dependent_correlations": "correlations",
         "independent_correlations": "correlations",
@@ -1101,7 +1388,12 @@ def test_lib_is_a_package_that_exports_everything_from_one_place():
         assert callable(function)
         assert function.__module__ == f"apatools.lib.{expected_module.get(name, 'misc')}"
     # private helpers and the dependency check do not leak into the package namespace
-    assert not [n for n in vars(lib_package) if n.startswith("_") and not n.startswith("__")]
+    private = [
+        name
+        for name, value in vars(lib_package).items()
+        if name.startswith("_") and not name.startswith("__") and not inspect.ismodule(value)
+    ]
+    assert not private  # (the private submodule _common is fine, helper functions are not)
     assert not {"pandas", "statsmodels", "np", "pd"} & set(vars(lib_package))
 
 

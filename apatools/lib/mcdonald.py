@@ -8,28 +8,7 @@ from scipy.special import expit
 from scipy.stats import norm
 from statsmodels.tools.numdiff import approx_fprime
 
-
-def _item_matrix(data):
-    """Item scores as a float matrix without incomplete rows; validated for the one-factor model."""
-    x = np.asarray(data, dtype=float)  # raises a ValueError for non-numeric items
-    if x.ndim != 2:
-        raise ValueError(
-            "data must be two-dimensional: one row per respondent, one column per item."
-        )
-    x = x[~np.isnan(x).any(axis=1)]  # listwise deletion
-    n, p = x.shape
-    if p < 3:
-        raise ValueError(
-            f"At least 3 items are needed: a one-factor model with {p} items is not identified."
-        )
-    if n <= p:
-        raise ValueError(
-            f"More respondents than items are needed (got {n} rows for {p} items)."
-        )
-    if np.any(x.std(axis=0) == 0):
-        raise ValueError("An item is constant: its correlations are undefined.")
-    return x
-
+from ._common import check_interval_options, item_matrix, percentile_bootstrap
 
 _MIN_UNIQUENESS = 0.005
 
@@ -186,13 +165,8 @@ def mcdonald_omega(data, bootstrap_iter=None, conf_level=0.95, seed=13):
     and Practices in Psychological Science, 3(4), 484-501.
     https://doi.org/10.1177/2515245920951747
     """
-    if bootstrap_iter is not None and (
-        int(bootstrap_iter) != bootstrap_iter or bootstrap_iter < 1
-    ):
-        raise ValueError("bootstrap_iter must be a positive integer or None.")
-    if not 0 < conf_level < 1:
-        raise ValueError("conf_level must be between 0 and 1, e.g. 0.95.")
-    x = _item_matrix(data)
+    check_interval_options(bootstrap_iter, conf_level)
+    x = item_matrix(data, 3, ": a one-factor model with fewer items is not identified")
     n, p = x.shape
     theta = _one_factor_ml(np.corrcoef(x, rowvar=False))
     omega = float(_omega_from_theta(theta))
@@ -226,22 +200,11 @@ def mcdonald_omega(data, bootstrap_iter=None, conf_level=0.95, seed=13):
         center = np.log(omega / (1 - omega))
         return omega, float(expit(center - half_width)), float(expit(center + half_width))
 
-    rng = np.random.default_rng(seed)
-    omegas = np.full(int(bootstrap_iter), np.nan)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # the warnings concern the original sample
-        for i in range(len(omegas)):
-            sample = x[rng.integers(0, n, size=n)]
-            if np.any(sample.std(axis=0) == 0):  # a resample without variation in an item
-                continue
-            omegas[i] = _omega_from_theta(
-                _one_factor_ml(np.corrcoef(sample, rowvar=False))
-            )
-    failed = int(np.isnan(omegas).sum())
-    if failed:
-        warnings.warn(
-            f"{failed} of {len(omegas)} bootstrap resamples could not be used.", UserWarning
-        )
-    lower = 100 * (1 - conf_level) / 2
-    low, high = np.nanpercentile(omegas, [lower, 100 - lower])
-    return omega, float(low), float(high)
+    low, high = percentile_bootstrap(
+        x,
+        lambda sample: _omega_from_theta(_one_factor_ml(np.corrcoef(sample, rowvar=False))),
+        bootstrap_iter,
+        conf_level,
+        seed,
+    )
+    return omega, low, high

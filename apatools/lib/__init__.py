@@ -6,7 +6,8 @@
 * ``krippendorff``: ``krippendorffs_alpha``
 * ``correlations``: ``average_correlations``, ``dependent_correlations``,
   ``independent_correlations``, ``rz_ci``, ``rho_rxy_rxz``
-* ``omega``: ``mcdonald_omega``
+* ``cronbach``: ``cronbachs_alpha``
+* ``mcdonald``: ``mcdonald_omega``
 """
 
 from importlib import import_module
@@ -26,8 +27,10 @@ from .correlations import (
     rho_rxy_rxz,
     rz_ci,
 )
+from .cronbach import cronbachs_alpha
 from .fleiss import fleiss_kappa
 from .krippendorff import krippendorffs_alpha
+from .mcdonald import mcdonald_omega
 from .misc import (
     bootstrap,
     gini,
@@ -36,11 +39,11 @@ from .misc import (
     log_transform,
     z_transform,
 )
-from .omega import mcdonald_omega
 
 __all__ = [
     "average_correlations",
     "bootstrap",
+    "cronbachs_alpha",
     "dependent_correlations",
     "fleiss_kappa",
     "gini",

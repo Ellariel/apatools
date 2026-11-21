@@ -34,7 +34,7 @@ Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a modul
 * ***apatools.plm*** (extra `plm`) - *a module offering wrapper functions for panel regressions (pooled, fixed and random effects, with optional spatial lag/error terms) with spreg or, optionally, linearmodels, as well as generating detailed tables and specification tests*
 * ***apatools.sem*** (extra `sem`) - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
 * ***apatools.psm*** (extra `psm`) - *a module for performing propensity score matching, complete with effect sizes reporting*
-* ***apatools.lib*** (extra `lib`) - *assorted helpers: bootstrap confidence intervals, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), scale reliability (McDonald's omega), pooling and comparing correlations, HTMT ratio, Gini coefficient*
+* ***apatools.lib*** (extra `lib`) - *assorted helpers: bootstrap confidence intervals, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), scale reliability (Cronbach's alpha and McDonald's omega, each with an analytic or bootstrap confidence interval), pooling and comparing correlations, HTMT ratio, Gini coefficient*
 
 ### *apatools.calc*
 
@@ -208,7 +208,7 @@ print(psm_effect_size(model))
 
 ### *apatools.lib*
 
-Assorted helpers (extra `lib`: `pip install "apatools[lib]"`): percentile bootstrap, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), McDonald's omega (delta-method or bootstrap confidence interval), pooling and comparing correlations, HTMT ratio and the Gini coefficient.
+Assorted helpers (extra `lib`: `pip install "apatools[lib]"`): percentile bootstrap, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), Cronbach's alpha and McDonald's omega (analytic or bootstrap confidence intervals), pooling and comparing correlations, HTMT ratio and the Gini coefficient.
 
 #### Bootstrap examples
 ```python

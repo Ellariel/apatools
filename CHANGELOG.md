@@ -8,7 +8,7 @@ Only the changes to `apatools.lib` are listed here.
 - `krippendorffs_alpha` returned wrong values except for nominal data without missing ratings.
 
 ### Changed
-- `apatools.lib` is a package now (`misc`, `fleiss`, `krippendorff`, `correlations`, `omega`); everything is
+- `apatools.lib` is a package now (`misc`, `fleiss`, `krippendorff`, `correlations`, `cronbach`, `mcdonald`); everything is
   still imported from `apatools.lib`, only the private helpers moved into the submodules.
 - **Breaking:** `bootstrap` moved from `apatools.calc` to `apatools.lib` (`from apatools.lib import bootstrap`),
   so it now needs the `lib` extra; `apatools.calc` no longer has it.
@@ -18,6 +18,9 @@ Only the changes to `apatools.lib` are listed here.
   a delta-method interval (normal-theory maximum likelihood, computed on the logit scale) by default, or a
   percentile bootstrap interval with `bootstrap_iter`. The one-factor model is fitted by maximum likelihood
   with numpy/scipy (no scikit-learn or factor-analyzer).
+- `cronbachs_alpha`: Cronbach's alpha, returned like `mcdonald_omega` as `(alpha, lower, upper)`: an analytic
+  interval (asymptotic standard error under normal theory, van Zyl et al., 2000; Duhachek & Iacobucci, 2004)
+  by default, or a percentile bootstrap interval with `bootstrap_iter`.
 
 ### Removed
 - The `krippendorff` extra: the package (GPL-3.0-or-later) is no longer used.
