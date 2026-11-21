@@ -11,6 +11,7 @@ import importlib.util
 REQUIRES = {
     "test_common.py": ["pandas"],
     "test_lavaan.py": ["pandas"],
+    "test_r_bridge.py": ["pandas"],
     "test_lib.py": ["pandas", "statsmodels"],
     "test_mcdonald.py": ["pandas", "statsmodels"],
     "test_lm.py": ["pandas", "statsmodels", "lxml"],
