@@ -172,7 +172,7 @@ Specific parameters:
 * `backend` - `"spreg"` (default) or `"linearmodels"`
 * `slx_lags` - number of spatial lags of the predictors (spreg; `slx_lags=1` gives a Durbin-type model)
 * `<model>_model_<arg>` / `<model>_fit_<arg>` - arguments for the model class / `.fit()`, e.g. `slm_fe_model_method="LU"`, or for linearmodels `fe_fit_cov_type="clustered"`, `fe_fit_cluster_entity=True`
-* `effects="entity"` (default), `"time"` or `"twoway"` - effects removed by the `fe` model; time and two-way need `backend="linearmodels"`
+* `effects="entity"` (default), `"time"` or `"twoway"` - effects of the fixed-effects models (`fe`; with spreg also `slm_fe`, `sem_fe`). With spreg the period effects are period dummies (hidden in `plm_report`; `"time"` is not available for `slm_fe`); `plm_tests` and `pred_metrics` skip such models
 * `pred_metrics` - adds leave-one-*group*-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`). Leaving out single observations is not meaningful in panels, so whole entities (`pred_group="entity"`, predicts a new entity; not possible for fixed-effects models) or whole periods (`pred_group="time"`) are held out, the model and the weights are refitted, and the held-out rows are predicted (`x·β`, plus `ρ·Wy` for spatial lag and the estimated entity effect for fixed effects). With spatial data the neighbours of a held-out entity stay in the training sample, which is optimistic; `pred_exclude_neighbors=True` removes them as well (see the caveat for `slm`).
 
 ```python

@@ -3,9 +3,13 @@
 ## 0.2.1
 
 ### Added
-- `plm(effects="entity" | "time" | "twoway")`: the effects removed by the fixed-effects model (entity effects as
-  before, period effects, or two-way fixed effects); `backend="linearmodels"` for time and two-way. It sets
-  linearmodels' `entity_effects` / `time_effects`, which can still be given as `fe_model_*` arguments.
+- `plm(effects="entity" | "time" | "twoway")`: the effects of the fixed-effects models (entity effects as before,
+  period effects, or two-way fixed effects). With `backend="linearmodels"` it sets `entity_effects` /
+  `time_effects` (still available as `fe_model_*` arguments); with spreg the period effects are period dummies
+  (`fe`, `slm_fe`, `sem_fe`; `effects="time"` not for `slm_fe`), hidden in `plm_report`. Checked against OLS with
+  dummies, linearmodels (coefficients, R², adjusted R², F, df: identical) and a maximum-likelihood fit written out
+  without spreg for the spatial models (estimates equal to 5 decimals). Models with period effects are skipped by
+  `plm_tests` and have no `pred_*` metrics.
 
 ### Fixed
 - `plm_report` / `base_metrics` of a fixed-effects model with time effects (`backend="linearmodels"`): R² is now the

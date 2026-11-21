@@ -385,14 +385,38 @@ def _effects_kwargs(effects, backend, kwargs):
         raise ValueError("effects must be 'entity', 'time' or 'twoway'.")
     if effects == "entity":
         return
-    if backend != "linearmodels":
-        raise NotImplementedError(f"effects='{effects}' needs backend='linearmodels'.")
+    if backend == "spreg":  # fitted with period dummies, see _time_dummies
+        kwargs["effects"] = effects
+        return
     kwargs.setdefault("fe_model_entity_effects", effects == "twoway")
     kwargs.setdefault("fe_model_time_effects", True)
 
 
+def _time_dummies(panel):
+    """Period dummies (all but the first period) as a DataFrame in the row order of the panel."""
+    names = [f"time[{t}]" for t in panel.times[1:]]
+    values = (panel.tim[:, None] == np.arange(1, panel.T)[None, :]).astype(float)
+    return DataFrame(values, index=panel.x.index, columns=names)
+
+
 def _fit_spreg(name, panel, kwargs):
-    cls_name, _, spatial = SPREG_MODELS[name]
+    cls_name, kind, spatial = SPREG_MODELS[name]
+    effects = kwargs.get("effects", "entity") if kind == "fe" else "entity"
+    x = panel.x
+    if effects != "entity":
+        # Period effects of spreg's FE models: period dummies as extra regressors (the entity effects
+        # are removed by spreg), which is the model with entity + period effects for any weights.
+        # Without entity effects the pooled model with the dummies is the period-effects model.
+        if kwargs.get("slx_lags", 0):
+            raise NotImplementedError("slx_lags is not available with period effects.")
+        if effects == "time":
+            if name == "slm_fe":
+                raise NotImplementedError(
+                    "effects='time' is not available for slm_fe (spreg has no pooled spatial lag model); "
+                    "use effects='twoway'."
+                )
+            cls_name = {"fe": "PooledOLS", "sem_fe": "ML_ErrorPooled"}[name]
+        x = concat([x, _time_dummies(panel)], axis=1)
     cls = getattr(spr, cls_name)
     w = panel.w
     if spatial and w is None:
@@ -409,7 +433,11 @@ def _fit_spreg(name, panel, kwargs):
         if "spat_diag" in params:  # diagnostics are meaningless without weights
             model_kwargs.setdefault("spat_diag", False)
     with contextlib.redirect_stdout(io.StringIO()):  # spreg prints the model title
-        return cls(panel.y.to_frame(), panel.x, w, **model_kwargs)
+        r = cls(panel.y.to_frame(), x, w, **model_kwargs)
+    r.plm_model = name
+    r.plm_effects = effects
+    r.plm_time = list(x.columns[panel.x.shape[1] :])  # names of the period dummies
+    return r
 
 
 def _fit_linearmodels(name, panel, kwargs):
@@ -463,6 +491,10 @@ def _is_spreg(r):
 def _model_name(r):
     """Model name (key of :data:`SPREG_MODELS`) of a fitted result of either backend."""
     if _is_spreg(r):
+        if getattr(
+            r, "plm_model", None
+        ):  # period-effects models are fitted with pooled classes
+            return r.plm_model
         for name, (cls_name, _, _) in SPREG_MODELS.items():
             if type(r).__name__ == cls_name:
                 return name
@@ -505,6 +537,9 @@ def _param_table(r):
         zc = scipy.stats.norm.ppf(0.975)  # 95% CI, normal approximation
         t["cil"] = t["coef"] - zc * t["se"]
         t["cir"] = t["coef"] + zc * t["se"]
+        t = t.drop(
+            index=getattr(r, "plm_time", [])
+        )  # the period effects are not reported
         return t[["coef", "se", stat, "p-value", "cil", "cir"]]
     ci = r.conf_int()
     return DataFrame(
@@ -587,9 +622,11 @@ def base_metrics(r, panel=None):
     Notes
     -----
     The F test of an FE model compares the within R² with ``df_model = k`` and
-    ``df_resid = N·T - N - k`` (with ``fe_model_time_effects=True`` of linearmodels, i.e. two-way fixed
-    effects, R² is the within R² after removing both effects and ``df_resid = N·T - N - T + 1 - k``). The linearmodels F statistic follows the covariance type of
-    the fit (robust version if the covariance is not ``"Unadjusted"``).
+    ``df_resid = N·T - N - k``. With period effects (``effects="time"`` or ``"twoway"`` of :func:`plm`, both
+    backends) R² is the within R² after removing all effects and ``df_resid = N·T - A - k`` with ``A`` the
+    number of effects estimated away (``N + T - 1`` for two-way, ``T`` for time effects with the constant). The
+    linearmodels F statistic follows the covariance type of the fit (robust version if the covariance is not
+    ``"Unadjusted"``).
     """
     name = _model_name(r)
     table = _param_table(r)
@@ -603,6 +640,7 @@ def base_metrics(r, panel=None):
         n_per = int(r.t)
         n_ent = n_obs // n_per
         resid = np.asarray(r.u, dtype=float).ravel()
+        time_effects = getattr(r, "plm_effects", "entity") != "entity"
         if effects == "pooled" and spatial is None:
             r_sq, r_type = float(r.r2), "ols"
             outputs["r_sq_adj"] = float(r.ar2)
@@ -613,16 +651,17 @@ def base_metrics(r, panel=None):
                 df_model=len(table) - 1,
                 df_resid=n_obs - len(table),
             )
-        else:
+        elif not (time_effects and spatial is None):
             r_sq = float(r.pr2)
             r_type = "within" if (effects == "fe" and spatial is None) else "pseudo"
         if effects == "fe" and spatial is None:
             resid, y_within = _within_resid(
                 r
             )  # spreg's own u / pr2 leave out the fixed effects
-            r_sq = 1 - np.sum(resid**2) / np.sum(y_within**2)
-            df_resid = n_obs - n_ent - k
-            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - n_ent) / df_resid
+            r_sq, r_type = 1 - np.sum(resid**2) / np.sum(y_within**2), "within"
+            absorbed = _absorbed(r, n_ent, n_per)
+            df_resid = n_obs - absorbed - k
+            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - absorbed) / df_resid
             f_stat = (r_sq / k) / ((1 - r_sq) / df_resid)
             outputs.update(
                 f_stat=f_stat,
@@ -642,7 +681,9 @@ def base_metrics(r, panel=None):
         if name == "fe":
             # R² after removing *all* effects (entity only: the within R²; with time effects: two-way within R²)
             r_sq, r_type = float(r.rsquared), "within"
-            absorbed = n_obs - int(r.df_resid) - k  # entity (and time) effects estimated away
+            absorbed = (
+                n_obs - int(r.df_resid) - k
+            )  # entity (and time) effects estimated away
             outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - absorbed) / r.df_resid
         elif name == "re":
             r_sq, r_type = float(r.rsquared_overall), "overall"
@@ -674,18 +715,36 @@ def base_metrics(r, panel=None):
     return outputs
 
 
+def _absorbed(r, n_ent, n_per):
+    """Number of estimated effects (entity, period, constant) of a non-spatial spreg FE-type result."""
+    effects = getattr(r, "plm_effects", "entity")
+    if effects == "entity":
+        return n_ent
+    if effects == "twoway":
+        return n_ent + n_per - 1
+    return n_per  # period dummies and the constant
+
+
 def _within_resid(r):
     """
-    Within residuals and within-demeaned y of a non-spatial spreg ``PanelFE`` result.
+    Residuals and y without the effects of a non-spatial spreg fixed-effects result.
 
     spreg's ``PanelFE.u`` is ``y - x·β`` *without* the fixed effects, so the residuals of the
-    within model are ``u`` minus its entity means.
+    within model are ``u`` minus its entity means. With period effects (period dummies among the
+    regressors) y is also demeaned by period; without entity effects (pooled model with period
+    dummies) ``u`` already is the residual.
     """
     n_per = int(r.t)
     n_ent = int(r.n) // n_per
+    effects = getattr(r, "plm_effects", "entity")
     u = np.asarray(r.u, dtype=float).reshape(n_per, n_ent)
     y = np.asarray(r.y, dtype=float).reshape(n_per, n_ent)
-    return (u - u.mean(axis=0)).ravel(), (y - y.mean(axis=0)).ravel()
+    if effects == "time":
+        return u.ravel(), (y - y.mean(axis=1, keepdims=True)).ravel()
+    y = y - y.mean(axis=0)  # entity means
+    if effects == "twoway":
+        y = y - y.mean(axis=1, keepdims=True)  # period means of the entity-demeaned y
+    return (u - u.mean(axis=0)).ravel(), y.ravel()
 
 
 def _coefs(r):
@@ -803,9 +862,19 @@ def pred_metrics(
         wy = np.asarray(panel.w.sparse @ y.reshape(panel.T, panel.N).T).T.ravel()
     nan_out = {k: np.nan for k in ("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad")}
 
-    skip = set()
+    skip = {
+        i
+        for i, r in enumerate(results)
+        if getattr(r, "plm_effects", "entity") != "entity"
+    }
+    if skip:
+        warnings.warn(
+            "pred_* metrics are not available for models with period effects (the effect of a held-out "
+            "period cannot be estimated); they are NaN.",
+            UserWarning,
+        )
     if group == "entity":
-        skip = {
+        skip |= {
             i
             for i, n in enumerate(names)
             if n in SPREG_MODELS and SPREG_MODELS[n][1] == "fe"
@@ -933,11 +1002,20 @@ def plm(
     Other Parameters
     ----------------
     effects : {"entity", "time", "twoway"}, default "entity"
-        Effects removed by the ``fe`` model: entity (the usual within model), time (period) or
-        both (two-way fixed effects). Needs ``backend="linearmodels"`` unless ``"entity"``;
-        other models ignore it. It sets the linearmodels arguments ``entity_effects`` and
+        Effects of the fixed-effects models (``fe``; with spreg also ``slm_fe`` and ``sem_fe``):
+        entity (the usual within model), time (period) or both (two-way fixed effects); the
+        other models ignore it. linearmodels: sets its arguments ``entity_effects`` and
         ``time_effects`` (``fe_model_entity_effects`` / ``fe_model_time_effects`` still work and
-        take precedence).
+        take precedence). spreg has no such option, so the period effects are period dummies
+        added to the regressors (``time[<period>]`` in ``r.summary``; hidden by
+        :func:`plm_report`), valid for any spatial weights; ``"time"`` is then the pooled model
+        with the dummies (``fe`` and ``sem_fe``; there is no pooled spatial lag model, so not
+        ``slm_fe``), and ``slx_lags`` is not available. Models with period effects are left out
+        of :func:`plm_tests` (Hausman, F test) and have no ``pred_*`` metrics. The standard errors
+        of spreg's entity-effects models use ``N·T - N`` degrees of freedom (see
+        :func:`base_metrics`), so with ``"twoway"`` they are slightly too small. The standard errors
+        of ``rho`` / ``lambda`` come from spreg's analytic information matrix and understate the
+        sampling spread somewhat in small panels (the within ML estimator is biased towards zero).
     verbose : bool, default True
         Print the panel dimensions and the model summaries.
     dropna : bool, default True
@@ -1380,6 +1458,8 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     """
     by_name = {}
     for r in results:
+        if getattr(r, "plm_effects", "entity") != "entity":
+            continue  # models with period effects are not comparable with the RE / pooled models
         by_name.setdefault((_model_name(r), _is_spreg(r)), r)
     panel = next(
         (getattr(r, "plm_panel", None) for r in results if hasattr(r, "plm_panel")),
@@ -1488,6 +1568,8 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     res["p-value"] = res["p-value"].astype(float)
     if decimal:
         res["statistic"] = res["statistic"].round(decimal)
-    format_significance(res, add_stars, format_pval)  # stars come from the numeric p-values
+    format_significance(
+        res, add_stars, format_pval
+    )  # stars come from the numeric p-values
 
     return res

@@ -379,14 +379,23 @@ def test_two_way_fixed_effects_match_dummy_regression(sim):
     np.testing.assert_allclose(rep["se"], ols.bse[["x1", "x2"]], rtol=1e-8)
     assert m["df_resid"] == ols.df_resid == len(df) - N - T + 1 - 2
     # within R² of the two-way demeaned model, adjusted by the dummies of both effects
-    yd = df.y - df.groupby("county").y.transform("mean") - df.groupby("year").y.transform("mean") + df.y.mean()
+    yd = (
+        df.y
+        - df.groupby("county").y.transform("mean")
+        - df.groupby("year").y.transform("mean")
+        + df.y.mean()
+    )
     r_sq = 1 - np.sum(np.asarray(r.resids) ** 2) / np.sum(yd**2)
     assert m["r_sq"] == pytest.approx(r_sq)
-    assert m["r_sq_adj"] == pytest.approx(1 - (1 - r_sq) * (len(df) - N - T + 1) / ols.df_resid)
+    assert m["r_sq_adj"] == pytest.approx(
+        1 - (1 - r_sq) * (len(df) - N - T + 1) / ols.df_resid
+    )
     # the one-way model is unchanged
     (r1,), (m1,) = fit(df, w, "fe", backend="linearmodels")
     assert m1["r_sq"] == pytest.approx(float(r1.rsquared_within))
-    assert m1["r_sq_adj"] == pytest.approx(1 - (1 - m1["r_sq"]) * (len(df) - N) / r1.df_resid)
+    assert m1["r_sq_adj"] == pytest.approx(
+        1 - (1 - m1["r_sq"]) * (len(df) - N) / r1.df_resid
+    )
 
 
 @needs_lm
@@ -400,17 +409,188 @@ def test_effects_argument(sim):
     for effects, dummies in forms.items():
         (r,), (m,) = fit(df, w, "fe", backend="linearmodels", effects=effects)
         ols = smf.ols(f"y ~ x1 + x2 + {dummies}", df).fit()
-        np.testing.assert_allclose(coef(r).to_numpy(), ols.params[["x1", "x2"]], rtol=1e-8)
+        np.testing.assert_allclose(
+            coef(r).to_numpy(), ols.params[["x1", "x2"]], rtol=1e-8
+        )
         assert m["df_resid"] == ols.df_resid == len(df) - absorbed[effects] - 2
         assert 0 < m["r_sq_adj"] < m["r_sq"] < 1
     # explicit linearmodels arguments take precedence; default is the entity model
-    (a,), _ = fit(df, w, "fe", backend="linearmodels", effects="time", fe_model_entity_effects=True)
+    (a,), _ = fit(
+        df,
+        w,
+        "fe",
+        backend="linearmodels",
+        effects="time",
+        fe_model_entity_effects=True,
+    )
     (b,), _ = fit(df, w, "fe", backend="linearmodels", effects="twoway")
     np.testing.assert_allclose(coef(a).to_numpy(), coef(b).to_numpy())
-    with pytest.raises(NotImplementedError, match="linearmodels"):
-        fit(df, w, "fe", effects="twoway")
     with pytest.raises(ValueError, match="effects"):
         fit(df, w, "fe", backend="linearmodels", effects="both")
+    with pytest.raises(ValueError, match="effects"):
+        fit(df, w, "fe", effects="both")
+
+
+###############################################
+#  period effects with spreg (period dummies)  #
+###############################################
+
+
+def two_way_reference(df, w, kind, effects):
+    """
+    Maximum likelihood of the spatial models with period effects, written out without spreg:
+    lag model with *all* entity and period dummies as parameters (profile likelihood in rho),
+    error model on the entity-demeaned data (Elhorst) with the period dummies, or the pooled
+    error model with a constant and the period dummies (``effects="time"``).
+    """
+    import scipy.optimize as so
+
+    p = make_panel(df, "y", ["x1", "x2"], entity="county", time="year", w=w)
+    n = len(p.y)
+    wb = np.kron(np.eye(T), w.sparse.toarray())
+    y, x = p.y.to_numpy(), p.x.to_numpy()
+    dt = (p.tim[:, None] == np.arange(1, T)[None, :]).astype(float)
+    de = (p.ent[:, None] == np.arange(N)[None, :]).astype(float)
+    ln_det = lambda r: T * np.linalg.slogdet(np.eye(N) - r * w.sparse.toarray())[1]  # noqa: E731
+
+    def ols(v, z):
+        b = np.linalg.lstsq(z, v, rcond=None)[0]
+        return b, float(np.sum((v - z @ b) ** 2))
+
+    if kind == "lag":
+        z, yy, filt = np.column_stack([x, de, dt]), y, (lambda r, a: a - r * wb @ a)  # noqa: E731
+        z_filtered = lambda r: z  # noqa: E731
+    else:
+        z, yy = np.column_stack([x, dt]), y
+        if effects == "twoway":
+            demean = lambda a: (
+                a - np.array([a[p.ent == i].mean(axis=0) for i in range(N)])[p.ent]
+            )  # noqa: E731
+            z, yy = demean(z), demean(y[:, None])[:, 0]
+        else:
+            z = np.column_stack([np.ones(n), z])
+        filt = lambda r, a: a - r * wb @ a  # noqa: E731
+        z_filtered = lambda r: filt(r, z)  # noqa: E731
+
+    def nll(r):
+        return n / 2 * np.log(ols(filt(r, yy), z_filtered(r))[1] / n) - ln_det(r)
+
+    r = so.minimize_scalar(
+        nll, bounds=(-0.95, 0.95), method="bounded", options={"xatol": 1e-10}
+    ).x
+    b = ols(filt(r, yy), z_filtered(r))[0]
+    return r, (b[:2] if effects == "twoway" or kind == "lag" else b[1:3])
+
+
+@pytest.mark.parametrize("effects", ["time", "twoway"])
+def test_spreg_period_effects_non_spatial(sim, effects):
+    """spreg fe with period effects = OLS with dummies: coefficients, fit metrics (R², df, F) by hand."""
+    import statsmodels.formula.api as smf
+
+    df, w = sim
+    (r,), (m,) = fit(df, w, "fe", effects=effects)
+    dummies = {"time": "C(year)", "twoway": "C(county) + C(year)"}[effects]
+    ols = smf.ols(f"y ~ x1 + x2 + {dummies}", df).fit()
+    rep = plm_report([r], [m], decimal=None, add_stars=False)[0]
+    assert list(rep.index) == (["Intercept"] if effects == "time" else []) + [
+        "x1",
+        "x2",
+    ]  # no dummy rows
+    np.testing.assert_allclose(
+        rep.loc[["x1", "x2"], "coef"], ols.params[["x1", "x2"]], rtol=1e-8
+    )
+    if (
+        effects == "time"
+    ):  # exact OLS: same standard errors; the entity-effects model keeps spreg's N·T - N
+        np.testing.assert_allclose(
+            rep.loc[["x1", "x2"], "se"], ols.bse[["x1", "x2"]], rtol=1e-8
+        )
+    absorbed = {"time": T, "twoway": N + T - 1}[effects]
+    assert m["df_resid"] == ols.df_resid == len(df) - absorbed - 2
+    d = df.copy()  # within R²: y without the effects, residuals of the full model
+    yd = d.y - d.groupby("year").y.transform("mean")
+    if effects == "twoway":
+        yd = yd - d.groupby("county").y.transform("mean") + d.y.mean()
+    r_sq = 1 - ols.ssr / np.sum(yd**2)
+    assert m["r_sq"] == pytest.approx(r_sq)
+    assert m["r_sq_adj"] == pytest.approx(
+        1 - (1 - r_sq) * (len(df) - absorbed) / ols.df_resid
+    )
+    f = (r_sq / 2) / ((1 - r_sq) / ols.df_resid)
+    assert m["f_stat"] == pytest.approx(f)
+    assert m["mae"] == pytest.approx(np.mean(np.abs(ols.resid)))
+
+
+@needs_lm
+@pytest.mark.parametrize("effects", ["time", "twoway"])
+def test_spreg_period_effects_match_linearmodels(sim, effects):
+    df, w = sim
+    (r,), (m,) = fit(df, w, "fe", effects=effects)
+    (lm_r,), (lm_m,) = fit(df, w, "fe", backend="linearmodels", effects=effects)
+    np.testing.assert_allclose(
+        plm_report([r], [m], decimal=None, add_stars=False)[0].loc[
+            ["x1", "x2"], "coef"
+        ],
+        lm_r.params,
+        rtol=1e-8,
+    )
+    for key in (
+        "r_sq",
+        "r_sq_adj",
+        "f_stat",
+        "df_model",
+        "df_resid",
+        "n_obs",
+        "n_params",
+    ):
+        assert m[key] == pytest.approx(lm_m[key]), key
+
+
+@pytest.mark.parametrize(
+    "model, kind, effects",
+    [
+        ("slm_fe", "lag", "twoway"),
+        ("sem_fe", "error", "twoway"),
+        ("sem_fe", "error", "time"),
+    ],
+)
+@pytest.mark.parametrize("rho, seed", [(0.4, 7), (0.6, 3)])
+def test_spreg_period_effects_spatial_models_match_reference(
+    model, kind, effects, rho, seed
+):
+    """Spatial parameter and slopes equal a maximum-likelihood fit written out without spreg."""
+    df, w = simulate(rho=rho, seed=seed)
+    (r,), (m,) = fit(df, w, model, effects=effects)
+    rep = plm_report([r], [m], decimal=None, add_stars=False)[0]
+    par = "rho" if kind == "lag" else "lambda"
+    ref_par, ref_beta = two_way_reference(df, w, kind, effects)
+    assert rep.loc[par, "coef"] == pytest.approx(ref_par, abs=1e-5)
+    np.testing.assert_allclose(rep.loc[["x1", "x2"], "coef"], ref_beta, atol=1e-5)
+    assert not any(str(i).startswith("time[") for i in rep.index)
+    assert m["r_sq_type"] == "pseudo"
+
+
+def test_spreg_period_effects_other_cases(sim):
+    df, w = sim
+    # models without entity effects are not changed by `effects`, FE models in the same call are
+    both, _ = fit(df, w, ["pooled", "fe", "re"], effects="twoway")
+    plain, _ = fit(df, w, ["pooled", "re"])
+    np.testing.assert_allclose(coef(both[0]).to_numpy(), coef(plain[0]).to_numpy())
+    np.testing.assert_allclose(coef(both[2]).to_numpy(), coef(plain[1]).to_numpy())
+    assert both[1].plm_effects == "twoway" and plain[0].plm_effects == "entity"
+    with pytest.raises(NotImplementedError, match="slm_fe"):
+        fit(df, w, "slm_fe", effects="time")
+    with pytest.raises(NotImplementedError, match="slx_lags"):
+        fit(df, w, "slm_fe", effects="twoway", slx_lags=1)
+    # the tests that compare with RE / pooled models skip models with period effects
+    fe, re_, pooled = fit(df, w, ["fe", "re", "pooled"], effects="twoway")[0]
+    tests = plm_tests([fe, re_, pooled], decimal=None)
+    assert not tests["test"].str.contains("Hausman|entity effects").any()
+    assert tests["test"].str.contains("Mundlak").any()
+    # period effects cannot be predicted for a held-out period
+    with pytest.warns(UserWarning, match="period effects"):
+        out = pred_metrics([fe], fe.plm_panel, group="time")
+    assert np.isnan(out[0]["pred_loo_r_sq"])
 
 
 def test_errors(sim):
@@ -606,7 +786,9 @@ RAW_COLUMNS = ["test", "model", "statistic", "df", "df_denom", "p-value", "repor
 
 def raw_tests(results, **kwargs):
     """plm_tests() with the raw numbers: numeric p-values, no stars, no rounding."""
-    return plm_tests(results, format_pval=False, add_stars=False, decimal=None, **kwargs)
+    return plm_tests(
+        results, format_pval=False, add_stars=False, decimal=None, **kwargs
+    )
 
 
 @needs_lm
@@ -649,7 +831,11 @@ def test_plm_tests_table(sim):
     assert raw_tests(r_s[:1][:0]).empty
 
 
-FORMATTED = {"format_pval": True, "add_stars": True, "decimal": 3}  # a table for a paper
+FORMATTED = {
+    "format_pval": True,
+    "add_stars": True,
+    "decimal": 3,
+}  # a table for a paper
 
 
 def test_plm_tests_default_output_is_the_raw_table(sim):
@@ -704,9 +890,17 @@ def test_plm_tests_options(sim):
     assert np.array_equal(starred["p-value"], raw["p-value"])
     assert starred["sig"].tolist() == [get_stars(p) for p in raw["p-value"]]
     # rounding; None (default) and 0 keep the full precision
-    assert plm_tests(results, decimal=1)["statistic"].tolist() == raw["statistic"].round(1).tolist()
-    assert plm_tests(results, decimal=None)["statistic"].tolist() == raw["statistic"].tolist()
-    assert plm_tests(results, decimal=0)["statistic"].tolist() == raw["statistic"].tolist()
+    assert (
+        plm_tests(results, decimal=1)["statistic"].tolist()
+        == raw["statistic"].round(1).tolist()
+    )
+    assert (
+        plm_tests(results, decimal=None)["statistic"].tolist()
+        == raw["statistic"].tolist()
+    )
+    assert (
+        plm_tests(results, decimal=0)["statistic"].tolist() == raw["statistic"].tolist()
+    )
     # custom functions for the p-values and for the stars
     custom = plm_tests(
         results,
@@ -725,7 +919,13 @@ def test_plm_tests_returns_an_empty_table_when_nothing_applies(sim):
     """Regression: rounding or formatting an empty table used to raise a TypeError."""
     df, w = sim
     (fe,), _ = fit(df, w, "fe")  # a single model: nothing to compare it with
-    options = [{}, {"decimal": 2}, {"add_stars": True}, {"format_pval": True}, FORMATTED]
+    options = [
+        {},
+        {"decimal": 2},
+        {"add_stars": True},
+        {"format_pval": True},
+        FORMATTED,
+    ]
     for results in ([], [fe]):
         for kwargs in options:
             out = plm_tests(results, **kwargs)
