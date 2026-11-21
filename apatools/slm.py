@@ -5,12 +5,15 @@ from itertools import zip_longest
 
 import numpy as np
 import scipy
+from scipy.stats import chi2, jarque_bera
 
 from ._deps import missing_dependency
 
 try:
     import spreg as spr
-    from pandas import to_numeric
+    from pandas import DataFrame, to_numeric
+    from spreg import diagnostics as spr_diag
+    from spreg import diagnostics_sp as spr_sp
     from statsmodels.api import add_constant
     from statsmodels.formula.formulatools import handle_formula_data
 except ImportError as e:  # pragma: no cover
@@ -631,3 +634,204 @@ def slm_report(
         output.append(params)
 
     return output
+
+
+def _moran_permutation(e, w, n_perm, seed):
+    """Moran's I of ``e`` and its two-sided permutation p-value (``n_perm`` random reorderings of ``e``)."""
+    z = np.asarray(e, dtype=float).ravel()
+    z = z - z.mean()
+    denominator = float(z @ z)
+    scale = len(z) / float(w.s0)
+
+    def moran(values):
+        return scale * float(values @ (w.sparse @ values)) / denominator
+
+    observed = moran(z)
+    rng = np.random.default_rng(seed)
+    extreme = sum(abs(moran(rng.permutation(z))) >= abs(observed) for _ in range(n_perm))
+    return observed, (extreme + 1) / (n_perm + 1)
+
+
+def slm_tests(
+    results, w=None, format_pval=False, add_stars=False, decimal=None, n_perm=999, seed=13
+):
+    """
+    Diagnostic tests of the models fitted with :func:`slm`, as a tidy DataFrame.
+
+    They check the assumptions of the models and the need for a spatial term; they are not
+    measures of the quality of the fit (see ``base_metrics`` / ``pred_metrics`` for those).
+    Computed per model of ``results`` (a list as returned by :func:`slm`):
+
+    * **OLS** (``"ols"``): Moran's I of the residuals (``z`` test; Cliff & Ord, 1972), the
+      Lagrange multiplier tests for a missing spatial lag (``LM-lag``) and for spatial error
+      dependence (``LM-error``), their robust versions (robust to the other alternative) and
+      ``LM-SARMA`` for both together (Anselin et al., 1996; Burridge, 1980; Bera & Yoon, 1993),
+      and the tests of normality (Jarque-Bera) and heteroskedasticity (Breusch-Pagan,
+      Koenker-Bassett, White) of the residuals. The spatial tests need ``w``. Null hypotheses: no
+      spatial autocorrelation of the residuals / no spatial lag / no spatial error dependence /
+      neither; normally distributed residuals; homoskedastic residuals.
+    * **Spatial lag** (``"slm"``) and **spatial error** (``"sem"``) models: the z test of the
+      spatial parameter (``rho`` / ``lambda``, null: 0), the likelihood-ratio test of the same
+      null against the OLS model (needs an OLS model fitted to the same data among ``results``;
+      1 df), Jarque-Bera test of the residuals and Moran's I of the residuals with a permutation
+      p-value (``n_perm`` reorderings; needs ``w``). The residuals are those of the model: for the
+      lag model ``y - rho Wy - Xb``, for the error model the filtered ones, ``(I - lambda W)(y -
+      Xb)``. A significant Moran's I means that spatial dependence is left in the model.
+
+    A common way to use the OLS tests (Anselin & Rey, 2014): if LM-lag and LM-error are both
+    insignificant, OLS is fine; otherwise fit the model of the more significant one, and if both
+    are significant, decide by the robust versions. This function does not make that decision.
+
+    Parameters
+    ----------
+    results : list of spreg models
+        As returned by :func:`slm` (``spreg.OLS``, ``spreg.ML_Lag`` and ``spreg.ML_Error``
+        objects). Other models are skipped with a warning.
+    w : libpysal.weights.W, optional
+        The spatial weights the models were fitted with (the results do not keep them). Without
+        it only the tests that do not need weights are computed (with a warning).
+    format_pval : bool or callable, default False
+        Format the p-values as strings (True: APA style without the ``p``, ``"<.001"``;
+        a callable receives one p-value); False keeps the numbers.
+    add_stars : bool or callable, default False
+        Add a ``sig`` column with significance stars (True: :func:`apatools.format.get_stars`;
+        or a callable). They are computed from the unformatted p-values.
+    decimal : int, optional
+        Round ``statistic`` to this many decimals (None: no rounding).
+    n_perm : int, default 999
+        Number of permutations for the p-value of Moran's I of the residuals of the ML models
+        (0 leaves that test out).
+    seed : int, default 13
+        Seed of the random generator for the permutations (a local generator).
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per test with the columns ``test``, ``model`` (``ols``, ``slm``, ``sem``; a
+        repeated model gets the suffix ``_2``, ...), ``statistic`` (chi-square, ``z``, Moran's I
+        for the permutation test), ``df`` (NaN where not applicable), ``p-value``, optionally
+        ``sig``, and an APA-style string ``report``. Use ``format_pval=False, add_stars=False,
+        decimal=None`` for the raw numbers.
+
+    Notes
+    -----
+    With many observations nearly every test becomes significant, and among many tests some are
+    by chance; judge the size of the departure (e.g. Moran's I, the spatial parameter), not only
+    the p-value. The permutation test of Moran's I treats the residuals as exchangeable, an
+    approximation for model residuals.
+
+    References
+    ----------
+    Anselin, L. (1988). *Spatial Econometrics: Methods and Models*. Kluwer.
+    https://doi.org/10.1007/978-94-015-7799-1
+
+    Anselin, L., Bera, A. K., Florax, R., & Yoon, M. J. (1996). Simple diagnostic tests for spatial
+    dependence. *Regional Science and Urban Economics, 26*(1), 77-104.
+    https://doi.org/10.1016/0166-0462(95)02111-6
+
+    Anselin, L., & Rey, S. J. (2014). *Modern Spatial Econometrics in Practice: A Guide to GeoDa,
+    GeoDaSpace and PySAL*. GeoDa Press.
+
+    Bera, A. K., & Yoon, M. J. (1993). Specification testing with locally misspecified
+    alternatives. *Econometric Theory, 9*(4), 649-658. https://doi.org/10.1017/S0266466600008021
+
+    Breusch, T. S., & Pagan, A. R. (1979). A simple test for heteroscedasticity and random
+    coefficient variation. *Econometrica, 47*(5), 1287-1294. https://doi.org/10.2307/1911963
+
+    Burridge, P. (1980). On the Cliff-Ord test for spatial correlation. *Journal of the Royal
+    Statistical Society: Series B, 42*(1), 107-108.
+    https://doi.org/10.1111/j.2517-6161.1980.tb01108.x
+
+    Cliff, A., & Ord, K. (1972). Testing for spatial autocorrelation among regression residuals.
+    *Geographical Analysis, 4*(3), 267-284. https://doi.org/10.1111/j.1538-4632.1972.tb00475.x
+
+    Jarque, C. M., & Bera, A. K. (1980). Efficient tests for normality, homoscedasticity and serial
+    independence of regression residuals. *Economics Letters, 6*(3), 255-259.
+    https://doi.org/10.1016/0165-1765(80)90024-5
+
+    Koenker, R., & Bassett, G. (1982). Robust tests for heteroscedasticity based on regression
+    quantiles. *Econometrica, 50*(1), 43-61. https://doi.org/10.2307/1912528
+
+    White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator and a direct
+    test for heteroskedasticity. *Econometrica, 48*(4), 817-838. https://doi.org/10.2307/1912934
+
+    Examples
+    --------
+    >>> results, metrics = slm(df, "y", ["x1", "x2"], w, model=["ols", "slm"])  # doctest: +SKIP
+    >>> slm_tests(results, w, format_pval=True, add_stars=True, decimal=3)  # doctest: +SKIP
+    """
+    rows = []
+
+    def add(model, label, statistic, df, p, text):
+        rows.append((label, model, statistic, df, p, f"{text}, {format_p(p)}"))
+
+    def classical(r, model, label, compute, key):  # a test of spreg.diagnostics: {key: statistic, df, pvalue}
+        d = compute(r)
+        add(model, label, float(d[key]), d["df"], float(d["pvalue"]), f"{label}({d['df']}) = {d[key]:.2f}")
+
+    def attempt(model, label, *args):
+        try:
+            classical(*args)
+        except (ValueError, ZeroDivisionError, np.linalg.LinAlgError) as e:
+            warnings.warn(f"{label} could not be computed for '{model}': {e}", UserWarning, stacklevel=3)
+
+    kinds = {spr.OLS: "ols", spr.ML_Lag: "slm", spr.ML_Error: "sem"}
+    supported = [r for r in results if type(r) in kinds]
+    for r in results:
+        if type(r) not in kinds:
+            warnings.warn(f"{type(r).__name__} is not supported by slm_tests and was skipped.", UserWarning)
+    ols_fits = [r for r in supported if type(r) is spr.OLS]
+    if w is None and supported:
+        warnings.warn("Without w only the tests that do not need spatial weights are computed.", UserWarning)
+
+    seen = {}
+    for r in supported:
+        kind = kinds[type(r)]
+        seen[kind] = seen.get(kind, 0) + 1
+        model = kind if seen[kind] == 1 else f"{kind}_{seen[kind]}"
+        if kind == "ols":
+            if w is not None:
+                mi = spr_sp.MoranRes(r, w, z=True)
+                add(model, "Moran's I (residuals)", float(mi.zI), np.nan, float(mi.p_norm), f"Moran's I = {mi.I:.3f}, z = {mi.zI:.2f}")
+                lm = spr_sp.LMtests(r, w)
+                for label, (stat, p), df in (
+                    ("LM-lag", lm.lml, 1),
+                    ("LM-error", lm.lme, 1),
+                    ("Robust LM-lag", lm.rlml, 1),
+                    ("Robust LM-error", lm.rlme, 1),
+                    ("LM-SARMA", lm.sarma, 2),
+                ):
+                    add(model, label, float(stat), df, float(p), f"{label}({df}) = {stat:.2f}")
+            for label, compute, key in (
+                ("Jarque-Bera", spr_diag.jarque_bera, "jb"),
+                ("Breusch-Pagan", spr_diag.breusch_pagan, "bp"),
+                ("Koenker-Bassett", spr_diag.koenker_bassett, "kb"),
+                ("White", spr_diag.white, "wh"),
+            ):
+                attempt(model, label, r, model, label, compute, key)
+            continue
+
+        name, parameter = ("rho", r.rho) if kind == "slm" else ("lambda", r.lam)
+        z, p = r.z_stat[-1]
+        add(model, f"z test of {name}", float(z), np.nan, float(p), f"{name} = {float(parameter):.3f}, z = {z:.2f}")
+        base = next((o for o in ols_fits if o.n == r.n), None)
+        if base is not None:
+            lr = max(2 * (float(r.logll) - float(base.logll)), 0.0)
+            add(model, f"LR test of {name}", lr, 1, float(chi2.sf(lr, 1)), f"LR test of {name}(1) = {lr:.2f}")
+        residuals = np.asarray(r.u, dtype=float).ravel()
+        if kind == "sem" and w is not None:
+            residuals = residuals - float(r.lam) * (w.sparse @ residuals)  # filtered: (I - lambda W) u
+        jb = jarque_bera(residuals)
+        add(model, "Jarque-Bera", float(jb.statistic), 2, float(jb.pvalue), f"Jarque-Bera(2) = {jb.statistic:.2f}")
+        if w is not None and n_perm:
+            moran, p_perm = _moran_permutation(residuals, w, n_perm, seed)
+            add(model, "Moran's I (residuals)", moran, np.nan, p_perm, f"Moran's I = {moran:.3f} ({n_perm} permutations)")
+
+    res = DataFrame(rows, columns=["test", "model", "statistic", "df", "p-value", "report"])
+    res["statistic"] = res["statistic"].astype(float)  # also for an empty table (object columns)
+    res["df"] = res["df"].astype(float)
+    res["p-value"] = res["p-value"].astype(float)
+    if decimal:
+        res["statistic"] = res["statistic"].round(decimal)
+    format_significance(res, add_stars, format_pval)
+    return res

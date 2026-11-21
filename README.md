@@ -134,6 +134,17 @@ results_rep = slm_report(results, metrics)
 print(results_rep, metrics)
 ```
 
+#### Diagnostic tests: `slm_tests`
+`slm_tests(results, w)` collects the usual diagnostics of the fitted models in one table (columns `test`, `model`, `statistic`, `df`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions and the need for a spatial term, not the quality of the fit.
+
+* **OLS**: Moran's I of the residuals, `LM-lag`, `LM-error`, their robust versions and `LM-SARMA` (Anselin et al., 1996), and Jarque-Bera (normality), Breusch-Pagan, Koenker-Bassett and White (heteroskedasticity). The spatial tests need `w`.
+* **SLM / SEM**: the z test and the likelihood-ratio test (against the OLS model among the results) of `rho` / `lambda`, Jarque-Bera of the residuals, and Moran's I of the residuals with a permutation p-value (`n_perm`, `seed`): a significant value means that spatial dependence is left in the model.
+
+```python
+from apatools.slm import slm_tests
+print(slm_tests(results, w, format_pval=True, add_stars=True, decimal=3))
+```
+
 
 ### *apatools.plm*
 Panel regressions (pooled, fixed effects, random effects, optionally with a spatial lag or spatial error) in the same format as `lm` and `slm`. Two backends: *spreg* (default; all models) and the optional *linearmodels* (`pip install "apatools[linearmodels]"`; non-spatial models, adds e.g. clustered standard errors and two-way fixed effects).

@@ -53,6 +53,10 @@ This list is not complete yet: it covers `apatools.lib` and the changes listed b
   significance stars and p-value formatting (private, in `apatools._common`); their output is unchanged.
 
 ### Added
+- `slm_tests`: diagnostic tests of the fitted `slm` models in one table, in the format of `plm_tests`: for OLS Moran's I
+  of the residuals, LM-lag, LM-error, their robust versions, LM-SARMA, Jarque-Bera, Breusch-Pagan, Koenker-Bassett and
+  White; for the spatial lag and error models the z and likelihood-ratio tests of the spatial parameter,
+  Jarque-Bera and Moran's I (permutation test) of the residuals.
 - `sem(engine="lavaan")`: fits the model with the R package lavaan (through `Rscript`, no further Python package) and
   returns the same tables as the semopy engine (`method` accepts semopy's and lavaan's estimator names, `lavaan_args`
   passes further arguments to `lavaan::sem`, `bootstrap` gives bootstrap standard errors, SRMR is added to the fit
