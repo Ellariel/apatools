@@ -14,7 +14,7 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | install | module | brings in |
 |---|---|---|
 | `pip install apatools` | `calc`, `format` | numpy, scipy |
-| `pip install "apatools[lm]"` | `lm` | pandas, statsmodels, lxml |
+| `pip install "apatools[lm]"` | `lm` | pandas, statsmodels |
 | `pip install "apatools[slm]"` | `slm` | pandas, statsmodels, spreg, libpysal |
 | `pip install "apatools[plm]"` | `plm` | pandas, spreg, libpysal, patsy |
 | `pip install "apatools[sem]"` | `sem` | pandas, semopy |

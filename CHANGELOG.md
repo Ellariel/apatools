@@ -17,6 +17,10 @@
   (6-7 % scaled). Hausman, Mundlak and the spatial LM tests stay without period effects.
 
 ### Fixed
+- `lm_report` no longer needs `lxml`: the coefficient table was read from the HTML of the statsmodels summary and so
+  carried only the rounded display values (a small coefficient 0.000254 became 0.0003 and its interval 0.000 to
+  0.000; p-values below the display rounding became 0). It is built from the results at full precision now; the
+  columns and the fit summary are unchanged. The `lm` extra no longer installs `lxml`.
 - `plm_tests` treated a linearmodels two-way (or time-effects) model as an entity-effects model in the Hausman test
   and the F test of entity effects.
 - `plm_report` / `base_metrics` of a fixed-effects model with time effects (`backend="linearmodels"`): R² is now the

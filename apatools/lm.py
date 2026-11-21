@@ -1,6 +1,5 @@
 import warnings
 from functools import partial
-from io import StringIO
 from itertools import zip_longest
 
 import numpy as np
@@ -10,9 +9,8 @@ from scipy.stats import shapiro
 from ._deps import missing_dependency
 
 try:
-    import lxml  # noqa: F401  (pandas.read_html in lm_report needs it)
     import statsmodels.api as sm
-    from pandas import DataFrame, Series, read_html, to_numeric
+    from pandas import DataFrame, Series, to_numeric
     from statsmodels.api import add_constant
     from statsmodels.formula.formulatools import handle_formula_data
     from statsmodels.regression.mixed_linear_model import MixedLMResultsWrapper
@@ -665,7 +663,7 @@ def lm(data, y=None, x=None, model="ols", formula=None, **kwargs):
 
     Notes
     -----
-    Requires statsmodels (and lxml/pandas for :func:`lm_report`).
+    Requires statsmodels (and pandas for :func:`lm_report`).
 
     Examples
     --------
@@ -847,9 +845,10 @@ def lm_report(
 
     Notes
     -----
-    The table is built from the summary table of the statsmodels results
-    (``results.summary().tables[1]``), so the confidence level is always 95%. Requires
-    ``lxml`` for non-mixed models (``pandas.read_html``).
+    The coefficients, standard errors, test statistics, p-values and 95% confidence limits
+    (always confidence level 0.95, as in the statsmodels summary) are taken from the results
+    at full precision (not from the rounded summary text). For mixed models the table is the
+    summary table of statsmodels, which also contains the variance parameters.
     """
 
     if metrics is None:  # reporting without metrics is allowed
@@ -890,9 +889,7 @@ def lm_report(
         if isinstance(r, MixedLMResultsWrapper):
             params = r.summary().tables[1]
         else:
-            params = read_html(
-                StringIO(r.summary().tables[1].as_html()), header=0, index_col=0
-            )[0]
+            params = _coefficient_table(r)
         params = params.apply(to_numeric, errors="coerce").rename(
             columns={
                 "Coef.": "coef",
@@ -916,6 +913,25 @@ def lm_report(
     return output
 
 
+def _coefficient_table(r):
+    """Coefficient table (coef, se, t or z, p-value, cil, cir) of a non-mixed statsmodels result, unrounded."""
+    statistic = (
+        "z" if "z" in list(r.summary().tables[1].data[0]) else "t"
+    )  # named like the summary
+    limits = np.asarray(r.conf_int(), dtype=float)
+    return DataFrame(
+        {
+            "coef": np.asarray(r.params, dtype=float),
+            "se": np.asarray(r.bse, dtype=float),
+            statistic: np.asarray(r.tvalues, dtype=float),
+            "p-value": np.asarray(r.pvalues, dtype=float),
+            "cil": limits[:, 0],
+            "cir": limits[:, 1],
+        },
+        index=list(r.model.exog_names),
+    )
+
+
 def _white_df(exog):
     """Degrees of freedom of statsmodels' White test: the rank of the auxiliary regression without constant."""
     first, second = np.triu_indices(exog.shape[1])
@@ -933,10 +949,30 @@ def _design_diagnostics(add, model, r):
     """Largest VIF of the predictors and the condition number of the design matrix (they need only the design)."""
     exog, names = np.asarray(r.model.exog, dtype=float), list(r.model.exog_names)
     columns = [i for i, name in enumerate(names) if name not in INTERCEPT_NAMES]
-    vifs = [variance_inflation_factor(exog, i) for i in columns] if len(columns) > 1 else [1.0]
-    add(model, "Max VIF", float(max(vifs)), np.nan, np.nan, np.nan, f"max VIF = {max(vifs):.2f}")
+    vifs = (
+        [variance_inflation_factor(exog, i) for i in columns]
+        if len(columns) > 1
+        else [1.0]
+    )
+    add(
+        model,
+        "Max VIF",
+        float(max(vifs)),
+        np.nan,
+        np.nan,
+        np.nan,
+        f"max VIF = {max(vifs):.2f}",
+    )
     condition = float(np.linalg.cond(exog))
-    add(model, "Condition number", condition, np.nan, np.nan, np.nan, f"condition number = {condition:.1f}")
+    add(
+        model,
+        "Condition number",
+        condition,
+        np.nan,
+        np.nan,
+        np.nan,
+        f"condition number = {condition:.1f}",
+    )
 
 
 def _leverage_row(add, model, r, leverage):
@@ -962,8 +998,14 @@ def _hosmer_lemeshow(y, p, groups=10):
     statistic = 0.0
     for index in np.array_split(np.arange(len(y)), groups):
         expected = p[index].sum()
-        statistic += (y[index].sum() - expected) ** 2 / (expected * (1 - expected / len(index)))
-    return float(statistic), groups - 2, float(scipy.stats.chi2.sf(statistic, groups - 2))
+        statistic += (y[index].sum() - expected) ** 2 / (
+            expected * (1 - expected / len(index))
+        )
+    return (
+        float(statistic),
+        groups - 2,
+        float(scipy.stats.chi2.sf(statistic, groups - 2)),
+    )
 
 
 def _glm_link_test(r):
@@ -987,7 +1029,11 @@ def _poisson_overdispersion(r):
     """Cameron & Trivedi's test: t test in the regression of ((y - mu)^2 - y) / mu on mu (H0: variance = mean)."""
     y, mu = np.asarray(r.model.endog, dtype=float), np.asarray(r.mu, dtype=float)
     auxiliary = sm.OLS(((y - mu) ** 2 - y) / mu, mu).fit()
-    return float(auxiliary.tvalues[0]), int(auxiliary.df_resid), float(auxiliary.pvalues[0])
+    return (
+        float(auxiliary.tvalues[0]),
+        int(auxiliary.df_resid),
+        float(auxiliary.pvalues[0]),
+    )
 
 
 def _randomized_quantile_residuals(r, seed):
@@ -995,18 +1041,32 @@ def _randomized_quantile_residuals(r, seed):
     model = r.model
     name = type(model.family).__name__
     if model._has_freq_weights or model._has_var_weights:
-        raise NotImplementedError("models with freq_weights or var_weights are not supported")
-    y, mu, phi = np.asarray(model.endog, dtype=float), np.asarray(r.mu, dtype=float), float(r.scale)
+        raise NotImplementedError(
+            "models with freq_weights or var_weights are not supported"
+        )
+    y, mu, phi = (
+        np.asarray(model.endog, dtype=float),
+        np.asarray(r.mu, dtype=float),
+        float(r.scale),
+    )
     rng = np.random.default_rng(seed)
     discrete = name in ("Poisson", "Binomial", "NegativeBinomial")
     if name == "Poisson":
-        lower, upper = scipy.stats.poisson.cdf(y - 1, mu), scipy.stats.poisson.cdf(y, mu)
+        lower, upper = (
+            scipy.stats.poisson.cdf(y - 1, mu),
+            scipy.stats.poisson.cdf(y, mu),
+        )
     elif name == "NegativeBinomial":
         size, prob = 1 / model.family.alpha, 1 / (1 + model.family.alpha * mu)
-        lower, upper = scipy.stats.nbinom.cdf(y - 1, size, prob), scipy.stats.nbinom.cdf(y, size, prob)
+        lower, upper = (
+            scipy.stats.nbinom.cdf(y - 1, size, prob),
+            scipy.stats.nbinom.cdf(y, size, prob),
+        )
     elif name == "Binomial":
         if not set(np.unique(y)) <= {0.0, 1.0}:
-            raise NotImplementedError("only binary responses are supported for the binomial family")
+            raise NotImplementedError(
+                "only binary responses are supported for the binomial family"
+            )
         lower, upper = np.where(y > 0, 1 - mu, 0.0), np.where(y > 0, 1.0, 1 - mu)
     elif name == "Gaussian":
         lower = upper = scipy.stats.norm.cdf(y, mu, np.sqrt(phi))
@@ -1026,26 +1086,67 @@ def _glm_diagnostics(add, model, r, seed):
     endog = np.asarray(r.model.endog, dtype=float)
     binary = name == "Binomial" and set(np.unique(endog)) <= {0.0, 1.0}
     dispersion = float(r.pearson_chi2 / r.df_resid)
-    add(model, "Dispersion", dispersion, nan, nan, nan, f"dispersion (Pearson χ²/df) = {dispersion:.2f}")
+    add(
+        model,
+        "Dispersion",
+        dispersion,
+        nan,
+        nan,
+        nan,
+        f"dispersion (Pearson χ²/df) = {dispersion:.2f}",
+    )
     if name == "Poisson":
         t, df, p = _poisson_overdispersion(r)
         add(model, "Overdispersion", t, nan, df, p, f"Overdispersion t({df}) = {t:.2f}")
-    if name in ("Poisson", "Binomial") and not binary:  # fixed dispersion and counts that are not too small
+    if (
+        name in ("Poisson", "Binomial") and not binary
+    ):  # fixed dispersion and counts that are not too small
         df = int(r.df_resid)
-        for label, statistic in (("Pearson GOF", r.pearson_chi2), ("Deviance GOF", r.deviance)):
-            add(model, label, float(statistic), df, nan, float(scipy.stats.chi2.sf(statistic, df)), f"{label}({df}) = {statistic:.2f}")
+        for label, statistic in (
+            ("Pearson GOF", r.pearson_chi2),
+            ("Deviance GOF", r.deviance),
+        ):
+            add(
+                model,
+                label,
+                float(statistic),
+                df,
+                nan,
+                float(scipy.stats.chi2.sf(statistic, df)),
+                f"{label}({df}) = {statistic:.2f}",
+            )
     if binary:
         statistic, df, p = _hosmer_lemeshow(endog, r.mu)
-        add(model, "Hosmer-Lemeshow", statistic, df, nan, p, f"Hosmer-Lemeshow({df}) = {statistic:.2f}")
+        add(
+            model,
+            "Hosmer-Lemeshow",
+            statistic,
+            df,
+            nan,
+            p,
+            f"Hosmer-Lemeshow({df}) = {statistic:.2f}",
+        )
     z, p = _glm_link_test(r)
     add(model, "Link test", z, nan, nan, p, f"Link test z = {z:.2f}")
     try:
         quantile_residuals = _randomized_quantile_residuals(r, seed)
     except NotImplementedError as e:
-        warnings.warn(f"Normality of the quantile residuals could not be computed for '{model}': {e}", UserWarning, stacklevel=3)
+        warnings.warn(
+            f"Normality of the quantile residuals could not be computed for '{model}': {e}",
+            UserWarning,
+            stacklevel=3,
+        )
     else:
         w_stat, p = shapiro(quantile_residuals)
-        add(model, "Shapiro-Wilk (quantile residuals)", float(w_stat), nan, nan, float(p), f"Shapiro-Wilk W = {w_stat:.3f} (quantile residuals)")
+        add(
+            model,
+            "Shapiro-Wilk (quantile residuals)",
+            float(w_stat),
+            nan,
+            nan,
+            float(p),
+            f"Shapiro-Wilk W = {w_stat:.3f} (quantile residuals)",
+        )
     influence = r.get_influence()
     _leverage_row(add, model, r, influence.hat_matrix_diag)
     studentized = np.abs(np.asarray(influence.resid_studentized, dtype=float))
@@ -1060,14 +1161,25 @@ def _glm_diagnostics(add, model, r, seed):
         f"max |studentized residual| = {studentized[position]:.2f} (observation {_row_label(r, position)}; {int((studentized > 3).sum())} above 3)",
     )
     cook = np.asarray(influence.cooks_distance[0], dtype=float)
-    add(model, "Cook's distance", float(cook.max()), nan, nan, nan, f"max Cook's D = {cook.max():.3f} ({int((cook > 4 / len(cook)).sum())} above 4/n)")
+    add(
+        model,
+        "Cook's distance",
+        float(cook.max()),
+        nan,
+        nan,
+        nan,
+        f"max Cook's D = {cook.max():.3f} ({int((cook > 4 / len(cook)).sum())} above 4/n)",
+    )
     _design_diagnostics(add, model, r)
 
 
 # ------------------------------------------------------------------ RLM
 def _rlm_diagnostics(add, model, r, approximate, lags, reset_power):
     nan = np.nan
-    endog, exog = np.asarray(r.model.endog, dtype=float), np.asarray(r.model.exog, dtype=float)
+    endog, exog = (
+        np.asarray(r.model.endog, dtype=float),
+        np.asarray(r.model.exog, dtype=float),
+    )
     ols = sm.OLS(endog, exog).fit()
     weights = np.asarray(r.weights, dtype=float)
     position = int(np.argmin(weights))
@@ -1081,7 +1193,15 @@ def _rlm_diagnostics(add, model, r, approximate, lags, reset_power):
         f"min weight = {weights[position]:.2f} (observation {_row_label(r, position)}; {int((weights < 0.5).sum())} below .5)",
     )
     ratio = float(r.scale / np.sqrt(ols.mse_resid))
-    add(model, "Scale ratio", ratio, nan, nan, nan, f"robust scale / OLS residual SD = {ratio:.2f}")
+    add(
+        model,
+        "Scale ratio",
+        ratio,
+        nan,
+        nan,
+        nan,
+        f"robust scale / OLS residual SD = {ratio:.2f}",
+    )
     change = np.abs(np.asarray(r.params) - np.asarray(ols.params)) / np.asarray(ols.bse)
     worst = int(np.argmax(change))
     add(
@@ -1094,26 +1214,64 @@ def _rlm_diagnostics(add, model, r, approximate, lags, reset_power):
         f"largest RLM-OLS difference = {change[worst]:.2f} OLS standard errors ({r.model.exog_names[worst]})",
     )
     q, _ = np.linalg.qr(exog)
-    _leverage_row(add, model, r, (q**2).sum(axis=1))  # leverage depends on the design only
+    _leverage_row(
+        add, model, r, (q**2).sum(axis=1)
+    )  # leverage depends on the design only
     if approximate:
         resid = np.asarray(r.resid, dtype=float)
         lm_stat, p = sm_diag.het_breuschpagan(resid, exog)[:2]
         df = exog.shape[1] - 1
-        add(model, "Breusch-Pagan (approx.)", float(lm_stat), df, nan, float(p), f"Breusch-Pagan({df}) = {lm_stat:.2f} (approx.)")
+        add(
+            model,
+            "Breusch-Pagan (approx.)",
+            float(lm_stat),
+            df,
+            nan,
+            float(p),
+            f"Breusch-Pagan({df}) = {lm_stat:.2f} (approx.)",
+        )
         lm_stat, p = sm_diag.het_white(resid, exog)[:2]
         df = _white_df(exog)
-        add(model, "White (approx.)", float(lm_stat), df, nan, float(p), f"White({df}) = {lm_stat:.2f} (approx.)")
+        add(
+            model,
+            "White (approx.)",
+            float(lm_stat),
+            df,
+            nan,
+            float(p),
+            f"White({df}) = {lm_stat:.2f} (approx.)",
+        )
         fitted = np.asarray(r.fittedvalues, dtype=float)
         powers = np.column_stack([fitted**power for power in range(2, reset_power + 1)])
-        augmented = type(r.model)(endog, np.column_stack([exog, powers]), M=r.model.M).fit()
+        augmented = type(r.model)(
+            endog, np.column_stack([exog, powers]), M=r.model.M
+        ).fit()
         k = exog.shape[1]
-        restrictions = np.column_stack([np.zeros((powers.shape[1], k)), np.eye(powers.shape[1])])
+        restrictions = np.column_stack(
+            [np.zeros((powers.shape[1], k)), np.eye(powers.shape[1])]
+        )
         wald = augmented.wald_test(restrictions, scalar=True)
         df = powers.shape[1]
-        add(model, "RESET (approx.)", float(wald.statistic), df, nan, float(wald.pvalue), f"RESET robust Wald χ²({df}) = {float(wald.statistic):.2f} (approx.)")
+        add(
+            model,
+            "RESET (approx.)",
+            float(wald.statistic),
+            df,
+            nan,
+            float(wald.pvalue),
+            f"RESET robust Wald χ²({df}) = {float(wald.statistic):.2f} (approx.)",
+        )
         if lags:
             bg, p = sm_diag.acorr_breusch_godfrey(r, nlags=lags)[:2]
-            add(model, "Breusch-Godfrey (approx.)", float(bg), lags, nan, float(p), f"Breusch-Godfrey({lags}) = {bg:.2f} (approx.)")
+            add(
+                model,
+                "Breusch-Godfrey (approx.)",
+                float(bg),
+                lags,
+                nan,
+                float(p),
+                f"Breusch-Godfrey({lags}) = {bg:.2f} (approx.)",
+            )
             dw = float(durbin_watson(resid))
             add(model, "Durbin-Watson", dw, nan, nan, nan, f"Durbin-Watson = {dw:.2f}")
     _design_diagnostics(add, model, r)
@@ -1127,38 +1285,82 @@ def _mlm_diagnostics(add, model, r, max_refits):
     if single:
         icc = float(mlm_icc(r))
         add(model, "ICC", icc, nan, nan, nan, f"ICC = {icc:.3f}")
-        maximum_likelihood = mixed.fit(reml=False)  # the REML fit does not allow to compare with the model without random effect
+        maximum_likelihood = mixed.fit(
+            reml=False
+        )  # the REML fit does not allow to compare with the model without random effect
         without = sm.OLS(mixed.endog, mixed.exog).fit()
         lr = max(2 * (float(maximum_likelihood.llf) - float(without.llf)), 0.0)
-        p = 1.0 if lr <= 0 else 0.5 * float(scipy.stats.chi2.sf(lr, 1))  # the null value is on the boundary
-        add(model, "LR test of random effect", lr, nan, nan, p, f"LR test of the random effect variance (0.5 χ²(0) + 0.5 χ²(1)) = {lr:.2f}")
+        p = (
+            1.0 if lr <= 0 else 0.5 * float(scipy.stats.chi2.sf(lr, 1))
+        )  # the null value is on the boundary
+        add(
+            model,
+            "LR test of random effect",
+            lr,
+            nan,
+            nan,
+            p,
+            f"LR test of the random effect variance (0.5 χ²(0) + 0.5 χ²(1)) = {lr:.2f}",
+        )
     else:
         warnings.warn(
             f"The likelihood-ratio test of the random effect needs a model with exactly one random effect and no variance components ('{model}').",
             UserWarning,
             stacklevel=3,
         )
-    effects = np.array([float(np.asarray(effect)[0]) for effect in r.random_effects.values()])
+    effects = np.array(
+        [float(np.asarray(effect)[0]) for effect in r.random_effects.values()]
+    )
     if len(effects) >= 3:
         w_stat, p = shapiro(effects)
-        add(model, "Shapiro-Wilk (random effects, approx.)", float(w_stat), nan, nan, float(p), f"Shapiro-Wilk W = {w_stat:.3f} (random effects, approx.)")
+        add(
+            model,
+            "Shapiro-Wilk (random effects, approx.)",
+            float(w_stat),
+            nan,
+            nan,
+            float(p),
+            f"Shapiro-Wilk W = {w_stat:.3f} (random effects, approx.)",
+        )
     w_stat, p = shapiro(np.asarray(r.resid, dtype=float))
-    add(model, "Shapiro-Wilk (conditional residuals, approx.)", float(w_stat), nan, nan, float(p), f"Shapiro-Wilk W = {w_stat:.3f} (conditional residuals, approx.)")
+    add(
+        model,
+        "Shapiro-Wilk (conditional residuals, approx.)",
+        float(w_stat),
+        nan,
+        nan,
+        float(p),
+        f"Shapiro-Wilk W = {w_stat:.3f} (conditional residuals, approx.)",
+    )
     labels = list(mixed.group_labels)
     if mixed.k_vc > 0:
-        warnings.warn(f"Group influence is not available for models with variance components ('{model}').", UserWarning, stacklevel=3)
+        warnings.warn(
+            f"Group influence is not available for models with variance components ('{model}').",
+            UserWarning,
+            stacklevel=3,
+        )
     elif len(labels) > max_refits:
-        warnings.warn(f"Group influence needs one refit per group; skipped for {len(labels)} groups (max_refits={max_refits}).", UserWarning, stacklevel=3)
+        warnings.warn(
+            f"Group influence needs one refit per group; skipped for {len(labels)} groups (max_refits={max_refits}).",
+            UserWarning,
+            stacklevel=3,
+        )
     else:
         k = int(r.k_fe)
-        estimate, inverse = np.asarray(r.fe_params, dtype=float), np.linalg.pinv(np.asarray(r.cov_params(), dtype=float)[:k, :k])
+        estimate, inverse = (
+            np.asarray(r.fe_params, dtype=float),
+            np.linalg.pinv(np.asarray(r.cov_params(), dtype=float)[:k, :k]),
+        )
         groups = np.asarray(mixed.groups)
         distances, failed = {}, []
         for label in labels:
             keep = groups != label
             try:
                 refit = sm.MixedLM(
-                    np.asarray(mixed.endog)[keep], np.asarray(mixed.exog)[keep], groups[keep], exog_re=np.asarray(mixed.exog_re)[keep]
+                    np.asarray(mixed.endog)[keep],
+                    np.asarray(mixed.exog)[keep],
+                    groups[keep],
+                    exog_re=np.asarray(mixed.exog_re)[keep],
                 ).fit(reml=r.reml)
             except (ValueError, np.linalg.LinAlgError):
                 failed.append(label)
@@ -1166,11 +1368,23 @@ def _mlm_diagnostics(add, model, r, max_refits):
             change = estimate - np.asarray(refit.fe_params, dtype=float)
             distances[label] = float(change @ inverse @ change / k)
         if failed:
-            warnings.warn(f"Group influence: the model could not be refitted without {failed}.", UserWarning, stacklevel=3)
+            warnings.warn(
+                f"Group influence: the model could not be refitted without {failed}.",
+                UserWarning,
+                stacklevel=3,
+            )
         if distances:
             worst = max(distances, key=distances.get)
             above = sum(value > 4 / len(labels) for value in distances.values())
-            add(model, "Cook's distance (groups)", distances[worst], nan, nan, nan, f"max Cook's D = {distances[worst]:.3f} (group {worst}; {above} above 4/groups)")
+            add(
+                model,
+                "Cook's distance (groups)",
+                distances[worst],
+                nan,
+                nan,
+                nan,
+                f"max Cook's D = {distances[worst]:.3f} (group {worst}; {above} above 4/groups)",
+            )
     _design_diagnostics(add, model, r)
 
 
@@ -1419,14 +1633,26 @@ def lm_tests(
     def attempt(model, label, compute, *args):
         try:
             compute(model, *args)
-        except (ValueError, NotImplementedError, np.linalg.LinAlgError, ZeroDivisionError) as e:
-            warnings.warn(f"{label} could not be computed for '{model}': {e}", UserWarning, stacklevel=3)
+        except (
+            ValueError,
+            NotImplementedError,
+            np.linalg.LinAlgError,
+            ZeroDivisionError,
+        ) as e:
+            warnings.warn(
+                f"{label} could not be computed for '{model}': {e}",
+                UserWarning,
+                stacklevel=3,
+            )
 
     nan = np.nan
     kinds = ((sm.OLS, "ols"), (sm.GLM, "glm"), (sm.RLM, "rlm"), (sm.MixedLM, "mlm"))
     supported = []
     for r in results:
-        kind = next((name for cls, name in kinds if isinstance(getattr(r, "model", None), cls)), None)
+        kind = next(
+            (name for cls, name in kinds if isinstance(getattr(r, "model", None), cls)),
+            None,
+        )
         if kind is None:
             name = type(getattr(r, "model", r)).__name__
             warnings.warn(
@@ -1440,29 +1666,79 @@ def lm_tests(
     def normality(model, r):
         resid = np.asarray(r.resid, dtype=float)
         jb, p = jarque_bera(resid)[:2]
-        add(model, "Jarque-Bera", float(jb), 2, nan, float(p), f"Jarque-Bera(2) = {jb:.2f}")
+        add(
+            model,
+            "Jarque-Bera",
+            float(jb),
+            2,
+            nan,
+            float(p),
+            f"Jarque-Bera(2) = {jb:.2f}",
+        )
         k2, p = omni_normtest(resid)
         add(model, "Omnibus", float(k2), 2, nan, float(p), f"Omnibus(2) = {k2:.2f}")
         w_stat, p = shapiro(resid)
-        add(model, "Shapiro-Wilk", float(w_stat), nan, nan, float(p), f"Shapiro-Wilk W = {w_stat:.3f}")
+        add(
+            model,
+            "Shapiro-Wilk",
+            float(w_stat),
+            nan,
+            nan,
+            float(p),
+            f"Shapiro-Wilk W = {w_stat:.3f}",
+        )
 
     def variance(model, r):
         resid, exog = np.asarray(r.resid, dtype=float), r.model.exog
         lm_stat, p = sm_diag.het_breuschpagan(resid, exog)[:2]
         df = exog.shape[1] - 1
-        add(model, "Breusch-Pagan", float(lm_stat), df, nan, float(p), f"Breusch-Pagan({df}) = {lm_stat:.2f}")
+        add(
+            model,
+            "Breusch-Pagan",
+            float(lm_stat),
+            df,
+            nan,
+            float(p),
+            f"Breusch-Pagan({df}) = {lm_stat:.2f}",
+        )
         lm_stat, p = sm_diag.het_white(resid, exog)[:2]
         df = _white_df(exog)
-        add(model, "White", float(lm_stat), df, nan, float(p), f"White({df}) = {lm_stat:.2f}")
+        add(
+            model,
+            "White",
+            float(lm_stat),
+            df,
+            nan,
+            float(p),
+            f"White({df}) = {lm_stat:.2f}",
+        )
 
     def specification(model, r):
-        reset = sm_diag.linear_reset(r, power=reset_power, test_type="fitted", use_f=True)
+        reset = sm_diag.linear_reset(
+            r, power=reset_power, test_type="fitted", use_f=True
+        )
         df, df_denom = int(reset.df_num), int(reset.df_denom)
-        add(model, "RESET", float(reset.fvalue), df, df_denom, float(reset.pvalue), f"RESET F({df}, {df_denom}) = {float(reset.fvalue):.2f}")
+        add(
+            model,
+            "RESET",
+            float(reset.fvalue),
+            df,
+            df_denom,
+            float(reset.pvalue),
+            f"RESET F({df}, {df_denom}) = {float(reset.fvalue):.2f}",
+        )
 
     def autocorrelation(model, r):
         bg, p = sm_diag.acorr_breusch_godfrey(r, nlags=lags)[:2]
-        add(model, "Breusch-Godfrey", float(bg), lags, nan, float(p), f"Breusch-Godfrey({lags}) = {bg:.2f}")
+        add(
+            model,
+            "Breusch-Godfrey",
+            float(bg),
+            lags,
+            nan,
+            float(p),
+            f"Breusch-Godfrey({lags}) = {bg:.2f}",
+        )
         dw = float(durbin_watson(np.asarray(r.resid, dtype=float)))
         add(model, "Durbin-Watson", dw, nan, nan, nan, f"Durbin-Watson = {dw:.2f}")
 
@@ -1472,16 +1748,36 @@ def lm_tests(
         leverage = np.asarray(influence.hat_matrix_diag, dtype=float)
         df_denom = int(r.df_resid) - 1
         # externally studentized residuals in closed form (statsmodels refits the model n times for them)
-        variance_without = (r.df_resid * r.mse_resid - resid**2 / (1 - leverage)) / df_denom
+        variance_without = (
+            r.df_resid * r.mse_resid - resid**2 / (1 - leverage)
+        ) / df_denom
         with np.errstate(divide="ignore", invalid="ignore"):
             student = resid / np.sqrt(variance_without * (1 - leverage))
         position = int(np.nanargmax(np.abs(student)))
         largest = float(abs(student[position]))
-        p = float(min(1.0, len(student) * 2 * scipy.stats.t.sf(largest, df_denom)))  # Bonferroni
-        add(model, "Outlier test", largest, nan, df_denom, p, f"max |studentized residual| = {largest:.2f} (observation {_row_label(r, position)}), Bonferroni")
+        p = float(
+            min(1.0, len(student) * 2 * scipy.stats.t.sf(largest, df_denom))
+        )  # Bonferroni
+        add(
+            model,
+            "Outlier test",
+            largest,
+            nan,
+            df_denom,
+            p,
+            f"max |studentized residual| = {largest:.2f} (observation {_row_label(r, position)}), Bonferroni",
+        )
         cook = np.asarray(influence.cooks_distance[0], dtype=float)
         count = int((cook > 4 / len(cook)).sum())
-        add(model, "Cook's distance", float(cook.max()), nan, nan, nan, f"max Cook's D = {cook.max():.3f} ({count} above 4/n)")
+        add(
+            model,
+            "Cook's distance",
+            float(cook.max()),
+            nan,
+            nan,
+            nan,
+            f"max Cook's D = {cook.max():.3f} ({count} above 4/n)",
+        )
 
     seen = {}
     for kind, r in supported:
@@ -1501,14 +1797,35 @@ def lm_tests(
         elif kind == "glm":
             attempt(model, "GLM diagnostics", partial(_glm_diagnostics, add), r, seed)
         elif kind == "rlm":
-            attempt(model, "RLM diagnostics", partial(_rlm_diagnostics, add), r, approximate, lags, reset_power)
+            attempt(
+                model,
+                "RLM diagnostics",
+                partial(_rlm_diagnostics, add),
+                r,
+                approximate,
+                lags,
+                reset_power,
+            )
         else:
-            attempt(model, "MixedLM diagnostics", partial(_mlm_diagnostics, add), r, max_refits)
+            attempt(
+                model,
+                "MixedLM diagnostics",
+                partial(_mlm_diagnostics, add),
+                r,
+                max_refits,
+            )
 
-    res = DataFrame(rows, columns=["test", "model", "statistic", "df", "df_denom", "p-value", "report"])
+    res = DataFrame(
+        rows,
+        columns=["test", "model", "statistic", "df", "df_denom", "p-value", "report"],
+    )
     for column in ("statistic", "df", "df_denom", "p-value"):
-        res[column] = res[column].astype(float)  # also for an empty table (object columns)
+        res[column] = res[column].astype(
+            float
+        )  # also for an empty table (object columns)
     if decimal:
         res["statistic"] = res["statistic"].round(decimal)
-    format_significance(res, add_stars, format_pval, na_rep="")  # statistics without a test: empty cells
+    format_significance(
+        res, add_stars, format_pval, na_rep=""
+    )  # statistics without a test: empty cells
     return res

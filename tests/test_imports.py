@@ -16,7 +16,7 @@ REQUIRES = {
     "calc": [],
     "citation": [],
     "format": [],
-    "lm": ["pandas", "statsmodels", "lxml"],
+    "lm": ["pandas", "statsmodels"],
     "lib": ["pandas", "statsmodels"],
     "slm": ["pandas", "statsmodels", "spreg", "libpysal"],
     "plm": ["pandas", "spreg", "libpysal", "patsy"],
@@ -27,7 +27,7 @@ CORE = [name for name, packages in REQUIRES.items() if not packages]
 
 # every third-party package that is not part of the core
 HEAVY = [
-    "pandas", "statsmodels", "patsy", "lxml", "spreg", "libpysal", "semopy", "psmpy",
+    "pandas", "statsmodels", "patsy", "spreg", "libpysal", "semopy", "psmpy",
     "sklearn", "linearmodels", "graphviz", "krippendorff", "matplotlib", "seaborn",
 ]  # fmt: skip
 

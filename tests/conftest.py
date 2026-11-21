@@ -14,7 +14,7 @@ REQUIRES = {
     "test_r_bridge.py": ["pandas"],
     "test_lib.py": ["pandas", "statsmodels"],
     "test_mcdonald.py": ["pandas", "statsmodels"],
-    "test_lm.py": ["pandas", "statsmodels", "lxml"],
+    "test_lm.py": ["pandas", "statsmodels"],
     "test_slm.py": ["pandas", "statsmodels", "spreg", "libpysal"],
     "test_plm.py": ["pandas", "spreg", "libpysal", "patsy"],
     "test_sem.py": ["pandas", "semopy"],
