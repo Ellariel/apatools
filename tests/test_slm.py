@@ -193,7 +193,8 @@ import pytest
 import spreg
 
 import apatools.slm as slm_module
-from apatools.slm import pred_metrics, w_subset_rows
+from apatools._common import w_subset_rows
+from apatools.slm import pred_metrics
 
 
 @pytest.fixture(scope="module")
@@ -431,6 +432,13 @@ def test_slm_na_rows_keep_weights_aligned(columbus):
             df2, w=w, model="slm", formula="HOVAL ~ 1 + INC + CRIME", verbose=False
         )
     assert res_f[0].rho == pytest.approx(ref[1].rho)
+
+
+def test_slm_report_renames_only_the_intercept(columbus):
+    df, w = columbus
+    d = df.rename(columns={"INC": "const_income"})
+    results, metrics = slm(d, "HOVAL", ["const_income", "CRIME"], w, model="ols", verbose=False)
+    assert list(slm_report(results, metrics)[0].index) == ["Intercept", "const_income", "CRIME"]
 
 
 if __name__ == "__main__":

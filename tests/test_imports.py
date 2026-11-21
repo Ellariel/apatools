@@ -16,7 +16,6 @@ REQUIRES = {
     "calc": [],
     "citation": [],
     "format": [],
-    "utils": ["pandas"],
     "lm": ["pandas", "statsmodels", "lxml"],
     "lib": ["pandas", "statsmodels"],
     "slm": ["pandas", "statsmodels", "spreg", "libpysal"],
@@ -111,8 +110,8 @@ def test_missing_dependencies_name_the_extra(module, package, extra):
         assert named.group(1) == package
 
 
-def test_utils_names_pandas_when_it_is_missing():
-    out = run_python(blocking("pandas") + "import apatools.utils")
+def test_common_names_pandas_when_it_is_missing():
+    out = run_python(blocking("pandas") + "import apatools._common")
     assert out.returncode != 0 and "pip install pandas" in out.stderr
 
 
@@ -125,7 +124,6 @@ def test_utils_names_pandas_when_it_is_missing():
         ("sklearn", "apatools.lm"),
         ("sklearn", "apatools.lib"),  # mcdonald_omega fits its factor model itself
         ("factor_analyzer", "apatools.lib"),
-        ("nest_asyncio", "apatools.utils"),
     ],
 )
 def test_optional_packages_are_not_needed_at_import(blocked, module):

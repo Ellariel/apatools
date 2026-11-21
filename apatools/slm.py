@@ -16,13 +16,15 @@ try:
 except ImportError as e:  # pragma: no cover
     missing_dependency("slm", "slm", e)
 
-from .citation import Citation
-from .format import format_p, format_r, get_stars
-from .utils import (
-    df_check_intercept,
+from ._common import (
     df_standardize,
+    format_significance,
+    rename_intercept,
+    round_columns,
     w_subset_rows,
 )
+from .citation import Citation
+from .format import format_p, format_r
 
 # https://pysal.org/spreg/index.html
 CITATION = Citation(
@@ -485,28 +487,13 @@ def slm_report(
         alpha_z = scipy.stats.norm.ppf(0.975)  # 95% CI
         params["cil"] = params["coef"] - alpha_z * params["se"]
         params["cir"] = params["coef"] + alpha_z * params["se"]
-        if decimal:
-            for c in ["coef", "se", "cil", "cir"]:
-                params[c] = params[c].round(decimal)
-        if add_stars:
-            add_stars = add_stars if callable(add_stars) else get_stars
-            params["sig"] = [add_stars(c) for c in params["p-value"]]
-        if format_pval:
-            format_pval = (
-                format_pval
-                if callable(format_pval)
-                else lambda x: format_p(
-                    x, use_letter=False, keep_spaces=False, no_equals=True
-                )
-            )
-            params["p-value"] = [format_pval(c) for c in params["p-value"]]
+        round_columns(params, decimal)
+        format_significance(params, add_stars, format_pval)
         if add_vif and "vif" in i and i["vif"] is not None:
             params = params.join(i["vif"])
         if len(i):
             params.loc[params.index[0], "model"] = s
-        const_name = df_check_intercept(params, params.index)
-        if const_name != intercept_name:
-            params.index = params.index.str.replace(const_name, intercept_name)
+        params.index = rename_intercept(params.index, intercept_name)
         output.append(params)
 
     return output

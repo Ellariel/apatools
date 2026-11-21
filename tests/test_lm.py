@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import statsmodels.api as sm
 
 from apatools.lm import lm, lm_report
@@ -202,6 +203,27 @@ def test_lm_regressions():
         d2, "mpg", ["wt"], model="mlm", verbose=False, mlm_model_groups="cyl"
     )
     assert results[0].nobs == 31
+
+
+def test_lm_report_names_the_coefficients_of_models_without_intercept():
+    """Regression: the coefficient names used to become NaN when there was no intercept to rename."""
+    rng = np.random.default_rng(0)
+    d = pd.DataFrame({"x1": rng.normal(size=80), "x2": rng.normal(size=80)})
+    d["y"] = 1.5 * d.x1 - d.x2 + rng.normal(size=80)
+    for results, metrics in (
+        lm(d, "y", ["x1", "x2"], intercept=False, verbose=False),
+        lm(d, formula="y ~ x1 + x2 - 1", verbose=False),
+    ):
+        assert list(lm_report(results, metrics)[0].index) == ["x1", "x2"]
+    # with an intercept it is renamed, to the name that is asked for
+    results, metrics = lm(d, "y", ["x1", "x2"], verbose=False)
+    assert list(lm_report(results, metrics)[0].index) == ["Intercept", "x1", "x2"]
+    renamed = lm_report(results, metrics, intercept_name="(Intercept)")
+    assert list(renamed[0].index) == ["(Intercept)", "x1", "x2"]
+    # only the intercept is renamed, not variables whose names contain "const"
+    d2 = d.rename(columns={"x1": "const_income", "x2": "myconst"})
+    results, metrics = lm(d2, "y", ["const_income", "myconst"], verbose=False)
+    assert list(lm_report(results, metrics)[0].index) == ["Intercept", "const_income", "myconst"]
 
 
 if __name__ == "__main__":

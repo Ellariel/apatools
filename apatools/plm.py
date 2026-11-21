@@ -57,9 +57,15 @@ try:
 except ImportError as e:  # pragma: no cover
     missing_dependency("plm", "plm", e)
 
+from ._common import (
+    INTERCEPT_NAMES,
+    format_significance,
+    rename_intercept,
+    round_columns,
+    w_subset_rows,
+)
 from .citation import Citation
-from .format import format_p, format_r, get_stars
-from .utils import w_subset_rows
+from .format import format_p, format_r
 
 # https://pysal.org/spreg/index.html
 # https://bashtage.github.io/linearmodels/
@@ -89,16 +95,13 @@ LINEARMODELS_MODELS = ("pooled", "fe", "re")
 
 # rows of a spreg coefficient table that are not slope coefficients
 _NON_SLOPE = {
-    "CONSTANT",
-    "const",
-    "Intercept",
+    *INTERCEPT_NAMES,
     "rho",
     "lambda",
     "phi",
     "sigma2_v",
     "sigma2_1",
 }
-_CONSTANTS = ("CONSTANT", "const", "Intercept")
 
 
 ###################
@@ -572,7 +575,7 @@ def base_metrics(r, panel=None):
         n_obs = int(r.nobs)
         n_ent, n_per = int(r.entity_info["total"]), int(r.time_info["total"])
         resid = np.asarray(r.resids, dtype=float).ravel()
-        has_const = any(c in table.index for c in _CONSTANTS)
+        has_const = any(c in table.index for c in INTERCEPT_NAMES)
         if name == "fe":
             r_sq, r_type = float(r.rsquared_within), "within"
             outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - n_ent) / r.df_resid
@@ -634,7 +637,7 @@ def _predict_rows(coefs, name, panel_full, wy_full, train_mask, test_mask):
     )
     slopes = list(panel_full.x.columns)
     xb = panel_full.x.to_numpy() @ coefs[slopes].to_numpy()
-    for c in _CONSTANTS:
+    for c in INTERCEPT_NAMES:
         if c in coefs.index:
             xb = xb + float(coefs[c])
     if spatial == "lag":
@@ -994,24 +997,11 @@ def plm_report(
         s = ", ".join(s)
 
         params = _param_table(r)
-        if decimal:
-            for c in ["coef", "se", "cil", "cir"]:
-                params[c] = params[c].round(decimal)
-        if add_stars:
-            add_stars = add_stars if callable(add_stars) else get_stars
-            params["sig"] = [add_stars(c) for c in params["p-value"]]
-        if format_pval:
-            format_pval = (
-                format_pval
-                if callable(format_pval)
-                else lambda x_: format_p(
-                    x_, use_letter=False, keep_spaces=False, no_equals=True
-                )
-            )
-            params["p-value"] = [format_pval(c) for c in params["p-value"]]
+        round_columns(params, decimal)
+        format_significance(params, add_stars, format_pval)
         if len(i):
             params.loc[params.index[0], "model"] = s
-        params.index = [intercept_name if n in _CONSTANTS else n for n in params.index]
+        params.index = rename_intercept(params.index, intercept_name)
         output.append(params)
     return output
 
@@ -1261,17 +1251,6 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     res["p-value"] = res["p-value"].astype(float)
     if decimal:
         res["statistic"] = res["statistic"].round(decimal)
-    if add_stars:  # computed from the numeric p-values, before they are formatted
-        add_stars = add_stars if callable(add_stars) else get_stars
-        res["sig"] = [add_stars(c) for c in res["p-value"]]
-    if format_pval:
-        format_pval = (
-            format_pval
-            if callable(format_pval)
-            else lambda x_: format_p(
-                x_, use_letter=False, keep_spaces=False, no_equals=True
-            )
-        )
-        res["p-value"] = [format_pval(c) for c in res["p-value"]]
+    format_significance(res, add_stars, format_pval)  # stars come from the numeric p-values
 
     return res

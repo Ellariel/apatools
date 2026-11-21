@@ -9,6 +9,7 @@ import importlib.util
 
 # test file -> third-party packages it needs (see the extras in pyproject.toml)
 REQUIRES = {
+    "test_common.py": ["pandas"],
     "test_lib.py": ["pandas", "statsmodels"],
     "test_lm.py": ["pandas", "statsmodels", "lxml"],
     "test_slm.py": ["pandas", "statsmodels", "spreg", "libpysal"],

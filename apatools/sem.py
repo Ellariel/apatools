@@ -8,6 +8,7 @@ try:
 except ImportError as e:  # pragma: no cover
     missing_dependency("sem", "sem", e)
 
+from ._common import format_significance
 from .citation import Citation
 from .format import format_p, get_stars
 
@@ -102,21 +103,7 @@ def sem_report(stats, metrics, format_pval=True, add_stars=False, decimal=3):
     """
 
     stats = stats.copy()
-    if add_stars:
-        add_stars = get_stars if not callable(add_stars) else add_stars
-        stats["sig"] = stats["p-value"].fillna("").apply(add_stars)
-    if format_pval:
-        stats["p-value"] = (
-            stats["p-value"]
-            .fillna("")
-            .apply(
-                format_pval
-                if callable(format_pval)
-                else lambda x: format_p(
-                    x, use_letter=False, keep_spaces=False, no_equals=True
-                )
-            )
-        )
+    format_significance(stats, add_stars, format_pval, na_rep="")
     # select metrics by name: positional slicing would silently break if semopy reorders them
     chi = metrics["value"]
     fit_names = [i for i in ("CFI", "GFI", "AGFI", "NFI", "TLI") if i in chi.index]
