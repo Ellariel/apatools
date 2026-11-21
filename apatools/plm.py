@@ -1010,8 +1010,9 @@ def plm(
         added to the regressors (``time[<period>]`` in ``r.summary``; hidden by
         :func:`plm_report`), valid for any spatial weights; ``"time"`` is then the pooled model
         with the dummies (``fe`` and ``sem_fe``; there is no pooled spatial lag model, so not
-        ``slm_fe``), and ``slx_lags`` is not available. Models with period effects are left out
-        of :func:`plm_tests` (Hausman, F test) and have no ``pred_*`` metrics. The standard errors
+        ``slm_fe``), and ``slx_lags`` is not available. :func:`plm_tests` compares models
+        with period effects by F / likelihood-ratio tests (no Hausman test), and they have no
+        ``pred_*`` metrics. The standard errors
         of spreg's entity-effects models use ``N·T - N`` degrees of freedom (see
         :func:`base_metrics`), so with ``"twoway"`` they are slightly too small. The standard errors
         of ``rho`` / ``lambda`` come from spreg's analytic information matrix and understate the
@@ -1391,6 +1392,37 @@ def mundlak(r_re):
     return stat, len(names), float(scipy.stats.chi2.sf(stat, len(names)))
 
 
+def _effects_of(r):
+    """Effects of a fitted result: ``"entity"``, ``"time"`` or ``"twoway"`` (``"other"``: none, linearmodels)."""
+    if _is_spreg(r):
+        return getattr(r, "plm_effects", "entity")
+    model = r.model
+    if type(model).__name__ != "PanelOLS":
+        return "entity"  # pooled / random effects: not an effects variant
+    flags = (bool(model.entity_effects), bool(model.time_effects))
+    return {(True, False): "entity", (False, True): "time", (True, True): "twoway"}.get(
+        flags, "other"
+    )
+
+
+def _ssr_df(r):
+    """Residual sum of squares and residual degrees of freedom of a non-spatial pooled / FE result."""
+    if not _is_spreg(r):
+        return float(r.resid_ss), float(r.df_resid)
+    n, t = int(r.n), int(r.t)
+    k = len(_slopes(_param_table(r).index))
+    if _model_name(r) == "pooled":
+        return float(np.sum(np.square(r.u))), n - k - 1
+    return float(np.sum(np.square(_within_resid(r)[0]))), n - _absorbed(
+        r, n // t, t
+    ) - k
+
+
+def _label(r):
+    effects = _effects_of(r)
+    return _model_name(r) if effects == "entity" else f"{_model_name(r)} ({effects})"
+
+
 def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None):
     """
     Specification tests for the models fitted with :func:`plm`, as a tidy DataFrame.
@@ -1404,6 +1436,19 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
       are uncorrelated with the predictors (random effects are consistent).
     * **F test of entity effects** (``fe`` vs ``pooled``, non-spatial, same backend). Null: no
       entity effects.
+    * Models with period effects (``effects="time"`` / ``"twoway"``; Hausman and Mundlak need random-effects
+      models with period effects, which are not available): **F tests** of period effects
+      (``twoway`` vs ``fe``, ``time`` vs ``pooled``), of entity effects given period effects (``twoway`` vs
+      ``time``) and of both (``twoway`` vs ``pooled``), for the non-spatial models of the same backend that
+      are among ``results``; **likelihood-ratio test** of period effects (``slm_fe`` / ``sem_fe`` with
+      ``twoway`` vs without, ``T - 1`` degrees of freedom). The Baltagi-Song-Koh and Anselin LM tests
+      are available for the pooled model only. The likelihood-ratio statistic is multiplied by the residual
+      degrees of freedom over ``N·T`` (the within likelihood counts ``N·T`` observations; unscaled it rejects
+      12-16 % of the time at the 5 % level in simulations with ``N`` = 36-100 and ``T`` = 6, scaled 6-7 %). Note: the F test of time effects against ``pooled`` is conservative when the data have
+      strong entity effects, because they inflate the pooled residuals (in simulations with ``N`` = 36, ``T`` = 6:
+      0 % rejections of true nulls at the 5 % level and 87 % power for time effects with an SD of half the
+      error SD, against 7 % and 97 % for ``twoway`` vs ``fe``); with entity effects in the data prefer that
+      entity-conditional test.
     * **Baltagi-Song-Koh LM tests** (spreg, from ``pooled``; need weights): marginal random
       effects (LM1), marginal spatial error (LM2) and their joint test (LMJ), and the
       Anselin LM tests for a spatial lag / error (and their robust versions).
@@ -1456,9 +1501,10 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     Anselin, L., Le Gallo, J., & Jayet, H. (2008). Spatial panel econometrics. In L. Mátyás &
     P. Sevestre (Eds.), *The econometrics of panel data* (pp. 625-660). Springer.
     """
-    by_name = {}
+    by_name, variants = {}, {}
     for r in results:
-        if getattr(r, "plm_effects", "entity") != "entity":
+        variants.setdefault((_model_name(r), _is_spreg(r), _effects_of(r)), r)
+        if _effects_of(r) != "entity":
             continue  # models with period effects are not comparable with the RE / pooled models
         by_name.setdefault((_model_name(r), _is_spreg(r)), r)
     panel = next(
@@ -1529,6 +1575,71 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
             rows.append(
                 _row("F test of entity effects", "fe vs pooled", f, df1, p, "F", df2)
             )
+
+    for sp in (True, False):  # F tests of nested non-spatial models
+        get = lambda name, eff: variants.get((name, sp, eff))  # noqa: E731
+        pooled, fe, fe_time, fe_two = (
+            get("pooled", "entity"),
+            get("fe", "entity"),
+            get("fe", "time"),
+            get("fe", "twoway"),
+        )
+        for label, full, restricted in (
+            ("F test of time effects", fe_two, fe),
+            ("F test of time effects", fe_time, pooled),
+            ("F test of entity effects (with time effects)", fe_two, fe_time),
+            ("F test of entity and time effects", fe_two, pooled),
+        ):
+            if full is None or restricted is None:
+                continue
+            ssr_u, df_u = _ssr_df(full)
+            ssr_r, df_r = _ssr_df(restricted)
+            df1 = int(round(df_r - df_u))
+            if df1 <= 0:
+                continue
+            f = ((ssr_r - ssr_u) / df1) / (ssr_u / df_u)
+            rows.append(
+                _row(
+                    label,
+                    f"{_label(full)} vs {_label(restricted)}",
+                    f,
+                    df1,
+                    float(scipy.stats.f.sf(f, df1, df_u)),
+                    "F",
+                    int(round(df_u)),
+                )
+            )
+    for name in ("slm_fe", "sem_fe"):  # likelihood-ratio test of period effects (spreg)
+        full, restricted = (
+            variants.get((name, True, "twoway")),
+            variants.get((name, True, "entity")),
+        )
+        if full is None or restricted is None:
+            continue
+        n_obs, n_per = int(full.n), int(full.t)
+        k = (
+            len(_slopes(_param_table(full).index)) + 1
+        )  # slopes and the spatial parameter
+        # The within likelihood counts N·T observations although the effects use up N + T - 1 of
+        # them: the plain LR statistic is too large (12-16 % rejections at the 5 % level in simulations).
+        # It is multiplied by the residual degrees of freedom over N·T (about 6-7 % rejections).
+        scale = (n_obs - n_obs // n_per - (n_per - 1) - k) / n_obs
+        lr = (
+            scale
+            * 2
+            * (float(np.ravel(full.logll)[0]) - float(np.ravel(restricted.logll)[0]))
+        )
+        df = n_per - 1
+        rows.append(
+            _row(
+                "LR test of time effects",
+                f"{_label(full)} vs {_label(restricted)}",
+                lr,
+                df,
+                float(scipy.stats.chi2.sf(lr, df)),
+                "χ²",
+            )
+        )
 
     r_p = by_name.get(("pooled", True))
     if r_p is not None:

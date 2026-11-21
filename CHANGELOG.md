@@ -8,10 +8,17 @@
   `time_effects` (still available as `fe_model_*` arguments); with spreg the period effects are period dummies
   (`fe`, `slm_fe`, `sem_fe`; `effects="time"` not for `slm_fe`), hidden in `plm_report`. Checked against OLS with
   dummies, linearmodels (coefficients, R², adjusted R², F, df: identical) and a maximum-likelihood fit written out
-  without spreg for the spatial models (estimates equal to 5 decimals). Models with period effects are skipped by
-  `plm_tests` and have no `pred_*` metrics.
+  without spreg for the spatial models (estimates equal to 5 decimals). Models with period effects have no `pred_*`
+  metrics.
+- `plm_tests` for models with period effects: F tests of time effects (`twoway` vs `fe`, `time` vs `pooled`), of
+  entity effects given time effects (`twoway` vs `time`) and of both (`twoway` vs `pooled`), equal to `anova_lm` of the
+  dummy regressions; likelihood-ratio test of time effects for `slm_fe` / `sem_fe`, scaled by the residual degrees of
+  freedom over N·T because the plain within-likelihood statistic rejected 12-16 % of true nulls at the 5 % level
+  (6-7 % scaled). Hausman, Mundlak and the spatial LM tests stay without period effects.
 
 ### Fixed
+- `plm_tests` treated a linearmodels two-way (or time-effects) model as an entity-effects model in the Hausman test
+  and the F test of entity effects.
 - `plm_report` / `base_metrics` of a fixed-effects model with time effects (`backend="linearmodels"`): R² is now the
   within R² after removing all effects and the adjusted R² accounts for the time dummies as well (before, only the
   entity effects were counted). Coefficients, standard errors and degrees of freedom were correct.
