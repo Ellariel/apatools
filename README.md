@@ -208,7 +208,7 @@ print(psm_effect_size(model))
 
 ### *apatools.lib*
 
-Assorted helpers (extra `lib`: `pip install "apatools[lib]"`): percentile bootstrap, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), McDonald's omega, pooling and comparing correlations, HTMT ratio and the Gini coefficient.
+Assorted helpers (extra `lib`: `pip install "apatools[lib]"`): percentile bootstrap, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), McDonald's omega (delta-method or bootstrap confidence interval), pooling and comparing correlations, HTMT ratio and the Gini coefficient.
 
 #### Bootstrap examples
 ```python

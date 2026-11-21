@@ -7,12 +7,14 @@ import pytest
 from scipy.stats import norm, spearmanr
 from statsmodels.stats.inter_rater import fleiss_kappa as sm_fleiss_kappa
 from statsmodels.multivariate.factor import Factor
+from statsmodels.tools.numdiff import approx_fprime, approx_hess
 from statsmodels.stats.inter_rater import aggregate_raters
 
-import apatools.lib as lib
+import apatools.lib as lib_package
+import apatools.lib.omega as omega_module
 from apatools.calc import ci_from_r, p_from_r
+from apatools.lib.omega import _omega_delta_se, _omega_from_theta, _one_factor_ml
 from apatools.lib import (
-    _one_factor_loadings,
     average_correlations,
     bootstrap,
     dependent_correlations,
@@ -704,6 +706,10 @@ def cronbach_alpha(df):
     return k / (k - 1) * (1 - np.trace(c) / c.sum())
 
 
+def omega_only(data, **kwargs):
+    return mcdonald_omega(data, **kwargs)[0]
+
+
 @pytest.mark.parametrize(
     "loadings",
     [
@@ -715,8 +721,8 @@ def cronbach_alpha(df):
     ],
 )
 def test_omega_equals_the_population_value_for_a_one_factor_structure(loadings):
-    assert mcdonald_omega(exact_items(one_factor_corr(loadings))) == pytest.approx(
-        true_omega(loadings), abs=1e-7
+    assert omega_only(exact_items(one_factor_corr(loadings))) == pytest.approx(
+        true_omega(loadings), abs=1e-6
     )
 
 
@@ -730,52 +736,64 @@ def test_omega_with_three_items_uses_the_exact_solution():
             r[0, 2] * r[1, 2] / r[0, 1],
         ]
     )
-    assert mcdonald_omega(exact_items(r)) == pytest.approx(true_omega(l), abs=1e-7)
-    assert _one_factor_loadings(r) == pytest.approx(l, abs=1e-6)
+    assert omega_only(exact_items(r)) == pytest.approx(true_omega(l), abs=1e-6)
+    theta = _one_factor_ml(r)
+    assert theta[:3] == pytest.approx(l, abs=1e-5)
+    assert theta[3:] == pytest.approx(1 - l**2, abs=1e-5)
 
 
 def test_omega_and_cronbachs_alpha():
     # tau-equivalent items (equal loadings): omega == alpha
     tau = exact_items(one_factor_corr([0.6] * 6))
-    assert mcdonald_omega(tau) == pytest.approx(cronbach_alpha(tau), abs=1e-7)
+    assert omega_only(tau) == pytest.approx(cronbach_alpha(tau), abs=1e-6)
     # congeneric items: alpha underestimates the reliability
     cong = exact_items(one_factor_corr([0.9, 0.8, 0.5, 0.4, 0.3]))
-    assert cronbach_alpha(cong) < mcdonald_omega(cong) - 0.01
+    assert cronbach_alpha(cong) < omega_only(cong) - 0.01
 
 
 def test_omega_agrees_with_an_independent_ml_factor_analysis():
-    df = simulated_items([0.8, 0.7, 0.6, 0.5, 0.4], 5000, seed=3)
-    fit = Factor(df.to_numpy(), n_factor=1, method="ml").fit()
-    l, u = fit.loadings.ravel(), fit.uniqueness
-    assert mcdonald_omega(df) == pytest.approx(
-        l.sum() ** 2 / (l.sum() ** 2 + u.sum()), abs=1e-3
-    )
+    for seed in range(5):
+        df = simulated_items([0.8, 0.7, 0.6, 0.5, 0.4], 2000, seed=seed)
+        fit = Factor(df.to_numpy(), n_factor=1, method="ml").fit()
+        l, u = fit.loadings.ravel(), fit.uniqueness
+        theta = _one_factor_ml(np.corrcoef(df.to_numpy(), rowvar=False))
+        assert theta[:5] == pytest.approx(l * np.sign(l.sum()), abs=1e-4)
+        assert theta[5:] == pytest.approx(u, abs=1e-4)
+        assert omega_only(df) == pytest.approx(l.sum() ** 2 / (l.sum() ** 2 + u.sum()), abs=1e-5)
+
+
+def test_omega_returns_the_estimate_with_its_interval():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=4)
+    result = mcdonald_omega(df)
+    assert isinstance(result, tuple) and len(result) == 3
+    omega, low, high = result
+    assert all(isinstance(v, float) for v in result)
+    assert 0 < low < omega < high < 1
+    assert mcdonald_omega(df, bootstrap_iter=100)[0] == omega  # same estimate, whatever the interval
 
 
 def test_omega_is_invariant_to_scale_shift_sign_and_input_type():
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 1000, seed=6)
     base = mcdonald_omega(df)
-    assert mcdonald_omega(df * 10 + 5) == pytest.approx(base, abs=1e-9)  # correlations
-    assert mcdonald_omega(-df) == pytest.approx(base, abs=1e-9)
-    assert mcdonald_omega(df.to_numpy()) == pytest.approx(base, abs=1e-12)
-    assert mcdonald_omega(df.to_numpy().tolist()) == pytest.approx(base, abs=1e-12)
-    assert isinstance(base, float) and 0 < base < 1
+    for other in (df * 10 + 5, -df, df.to_numpy(), df.to_numpy().tolist()):
+        assert mcdonald_omega(other) == pytest.approx(base, abs=1e-7)  # estimate and interval
+    assert 0 < base[0] < 1
     with pytest.raises(TypeError):  # the former `scale` option had no effect: removed
         mcdonald_omega(df, scale=True)
 
 
 def test_omega_warns_about_reverse_keyed_items():
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 1000, seed=6)
-    base = mcdonald_omega(df)
+    base = omega_only(df)
     flipped = df.assign(i4=-df["i4"])
     with pytest.warns(UserWarning, match="different signs"):
-        too_low = mcdonald_omega(flipped)
+        too_low = omega_only(flipped)
     assert too_low < base - 0.1
     # recoding the item restores the value, without a warning
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        recoded = mcdonald_omega(flipped.assign(i4=-flipped["i4"]))
-    assert recoded == pytest.approx(base, abs=1e-9)
+        recoded = omega_only(flipped.assign(i4=-flipped["i4"]))
+    assert recoded == pytest.approx(base, abs=1e-7)
 
 
 def test_omega_drops_incomplete_rows():
@@ -784,9 +802,7 @@ def test_omega_drops_incomplete_rows():
     holes.iloc[[3, 50, 51], 0] = np.nan
     holes.iloc[10, 2] = np.nan
     assert len(holes.dropna()) == 496
-    assert mcdonald_omega(holes) == pytest.approx(
-        mcdonald_omega(holes.dropna()), abs=1e-12
-    )
+    assert mcdonald_omega(holes) == pytest.approx(mcdonald_omega(holes.dropna()), abs=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -795,10 +811,7 @@ def test_omega_drops_incomplete_rows():
         (pd.DataFrame({"a": [1.0, 2, 3, 4], "b": [2.0, 1, 4, 3]}), "At least 3 items"),
         (np.arange(10.0), "two-dimensional"),
         (pd.DataFrame(np.ones((10, 3))), "constant"),
-        (
-            pd.DataFrame(np.random.default_rng(0).normal(size=(3, 3))),
-            "More respondents",
-        ),
+        (pd.DataFrame(np.random.default_rng(0).normal(size=(3, 3))), "More respondents"),
         (
             pd.DataFrame({"a": list("xyzw"), "b": [1.0, 2, 3, 4], "c": [4.0, 3, 2, 1]}),
             "could not convert",
@@ -820,59 +833,162 @@ def test_omega_validates_the_options():
             mcdonald_omega(df, conf_level=bad)
 
 
-def test_omega_stays_proper_in_heywood_cases():
-    # r13 * r23 / r12 > 1: the exact solution needs a loading above 1; it is held on the bound
+def test_omega_in_heywood_cases():
+    # r13 * r23 / r12 > 1: the exact solution needs a uniqueness below zero; it is held on the bound
     r = np.array([[1, 0.3, 0.6], [0.3, 1, 0.7], [0.6, 0.7, 1]])
-    assert _one_factor_loadings(r).max() == pytest.approx(np.sqrt(1 - 0.005))
-    omega = mcdonald_omega(exact_items(r))
-    assert 0 < omega <= 1 and np.isfinite(omega)
+    items = exact_items(r)
+    theta = _one_factor_ml(r)
+    assert theta[3:].min() == pytest.approx(0.005, abs=1e-9)
+    # the estimate is fine, the delta method is not available and says so; the bootstrap works
+    with pytest.warns(UserWarning, match="boundary"):
+        omega, low, high = mcdonald_omega(items)
+    assert 0 < omega < 1 and np.isnan(low) and np.isnan(high)
+    omega_boot, low_boot, high_boot = mcdonald_omega(items, bootstrap_iter=50)
+    assert omega_boot == omega and 0 < low_boot <= high_boot <= 1
+
+
+###################################
+# omega: delta-method interval    #
+###################################
+
+
+def test_omega_delta_interval_is_a_logit_interval():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=4)
+    omega, low, high = mcdonald_omega(df)
+    logit = lambda v: np.log(v / (1 - v))
+    # symmetric on the logit scale, with the half-width z * SE / (omega * (1 - omega))
+    assert logit(high) - logit(omega) == pytest.approx(logit(omega) - logit(low), abs=1e-9)
+    theta = _one_factor_ml(np.corrcoef(df.to_numpy(), rowvar=False))
+    se = _omega_delta_se(theta, len(df))
+    assert logit(high) - logit(omega) == pytest.approx(
+        1.959964 * se / (omega * (1 - omega)), abs=1e-5
+    )
+    # a higher confidence level gives a wider interval, more respondents a narrower one
+    wide, narrow = mcdonald_omega(df, conf_level=0.99), mcdonald_omega(df, conf_level=0.80)
+    assert wide[2] - wide[1] > high - low > narrow[2] - narrow[1]
+    big = simulated_items([0.8, 0.7, 0.6, 0.5], 3000, seed=4)
+    assert np.ptp(mcdonald_omega(big)[1:]) < high - low
+    # stays inside (0, 1) even for a very reliable scale in a small sample
+    small = simulated_items([0.95] * 6, 40, seed=5)
+    _, low, high = mcdonald_omega(small)
+    assert 0 < low < high < 1
+
+
+def test_omega_delta_se_matches_the_observed_information():
+    """Independent route: the numerical Hessian of the likelihood instead of the expected information."""
+    n = 4000
+    x = simulated_items([0.8, 0.7, 0.6, 0.5], n, seed=3).to_numpy()
+    r = np.corrcoef(x, rowvar=False)
+    theta = _one_factor_ml(r)
+
+    def discrepancy(t):
+        s = np.outer(t[:4], t[:4]) + np.diag(t[4:])
+        return np.linalg.slogdet(s)[1] + np.trace(np.linalg.solve(s, r))
+
+    observed = n / 2 * approx_hess(theta, discrepancy)
+    gradient = np.ravel(approx_fprime(theta, _omega_from_theta, centered=True))
+    se_observed = np.sqrt(gradient @ np.linalg.inv(observed) @ gradient)
+    assert _omega_delta_se(theta, n) == pytest.approx(se_observed, rel=0.02)
+
+
+def test_omega_delta_se_has_the_right_size_and_the_interval_the_right_coverage():
+    """Monte Carlo with normal items: mean SE ~ spread of the estimate, coverage ~ 95%."""
+    rng = np.random.default_rng(21)
+    loadings = np.array([0.8, 0.7, 0.6, 0.5])
+    truth, n, sims = true_omega(loadings), 200, 400
+    estimates, ses, covered = [], [], 0
+    for _ in range(sims):
+        f = rng.normal(size=(n, 1))
+        x = f * loadings + rng.normal(size=(n, 4)) * np.sqrt(1 - loadings**2)
+        omega, low, high = mcdonald_omega(x)
+        estimates.append(omega)
+        ses.append(_omega_delta_se(_one_factor_ml(np.corrcoef(x, rowvar=False)), n))
+        covered += low <= truth <= high
+    assert np.mean(estimates) == pytest.approx(truth, abs=0.005)
+    assert np.mean(ses) == pytest.approx(np.std(estimates, ddof=1), rel=0.12)
+    assert 0.91 <= covered / sims <= 0.98  # nominal 95%, simulation error about 1 point
+
+
+def test_omega_delta_and_bootstrap_intervals_agree_for_normal_items():
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 500, seed=12)
+    _, low, high = mcdonald_omega(df)
+    _, low_boot, high_boot = mcdonald_omega(df, bootstrap_iter=500)
+    assert low == pytest.approx(low_boot, abs=0.01) and high == pytest.approx(high_boot, abs=0.01)
+
+
+###################################
+# omega: bootstrap interval       #
+###################################
 
 
 def test_omega_bootstrap():
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=8)
-    point = mcdonald_omega(df)
-    ci = mcdonald_omega(df, bootstrap_iter=200)
-    assert ci.shape == (3,) and ci[0] <= ci[1] <= ci[2]
-    assert ci[0] <= point <= ci[2] and abs(ci[1] - point) < 0.02
-    # reproducible; other seeds (and seed=None) give other resamples
-    assert mcdonald_omega(df, bootstrap_iter=200) == pytest.approx(ci)
-    assert not np.allclose(mcdonald_omega(df, bootstrap_iter=200, seed=99), ci)
+    point = omega_only(df)
+    result = mcdonald_omega(df, bootstrap_iter=200)
+    # the estimate of the original sample together with the limits of the interval
+    assert isinstance(result, tuple) and len(result) == 3
+    omega, low, high = result
+    assert all(isinstance(v, float) for v in result)
+    assert omega == point  # not the bootstrap median
+    assert low <= omega <= high
+    # reproducible; other seeds (and seed=None) give other resamples, but the same estimate
+    assert mcdonald_omega(df, bootstrap_iter=200) == result
+    other = mcdonald_omega(df, bootstrap_iter=200, seed=99)
+    assert other[0] == omega and other[1:] != result[1:]
     unseeded = [mcdonald_omega(df, bootstrap_iter=50, seed=None) for _ in range(2)]
-    assert not np.allclose(*unseeded)
+    assert unseeded[0][0] == unseeded[1][0] and unseeded[0][1:] != unseeded[1][1:]
     # a higher confidence level gives a wider interval, more respondents a narrower one
     wide = mcdonald_omega(df, bootstrap_iter=200, conf_level=0.99)
     narrow = mcdonald_omega(df, bootstrap_iter=200, conf_level=0.80)
-    assert wide[2] - wide[0] > ci[2] - ci[0] > narrow[2] - narrow[0]
+    assert wide[2] - wide[1] > high - low > narrow[2] - narrow[1]
+    assert wide[0] == narrow[0] == omega  # the estimate does not depend on the level
     big = simulated_items([0.8, 0.7, 0.6, 0.5], 3000, seed=8)
-    assert np.ptp(mcdonald_omega(big, bootstrap_iter=200)[[0, 2]]) < ci[2] - ci[0]
-    # a single resample is fine
-    assert len(set(mcdonald_omega(df, bootstrap_iter=1))) == 1
+    _, big_low, big_high = mcdonald_omega(big, bootstrap_iter=200)
+    assert big_high - big_low < high - low
+    # a single resample is fine: both limits are that resample's omega
+    _, only_low, only_high = mcdonald_omega(df, bootstrap_iter=1)
+    assert only_low == only_high
+
+
+def test_omega_bootstrap_interval_is_a_percentile_interval():
+    """The limits are the (1 - level) / 2 and (1 + level) / 2 percentiles of the resampled omegas."""
+    df = simulated_items([0.8, 0.7, 0.6, 0.5], 200, seed=2)
+    rng = np.random.default_rng(13)  # the generator and the draws of mcdonald_omega
+    x = df.to_numpy()
+    omegas = [
+        _omega_from_theta(
+            _one_factor_ml(np.corrcoef(x[rng.integers(0, len(x), size=len(x))], rowvar=False))
+        )
+        for _ in range(100)
+    ]
+    _, low, high = mcdonald_omega(df, bootstrap_iter=100, conf_level=0.90, seed=13)
+    assert low == pytest.approx(np.percentile(omegas, 5))
+    assert high == pytest.approx(np.percentile(omegas, 95))
 
 
 def test_omega_bootstrap_resamples_are_all_different(monkeypatch):
     """Regression: re-seeding in a recursive call used to give two resamples the same data."""
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=8)
     values = []
-    original = lib._omega_from_loadings
+    original = omega_module._omega_from_theta
 
-    def record(loadings):
-        values.append(original(loadings))
+    def record(theta):
+        values.append(original(theta))
         return values[-1]
 
-    monkeypatch.setattr(lib, "_omega_from_loadings", record)
+    monkeypatch.setattr(omega_module, "_omega_from_theta", record)
     mcdonald_omega(df, bootstrap_iter=40)
-    assert (
-        len(values) == 40
-    )  # one omega per resample (no point estimate with a bootstrap)
-    assert len(set(values)) == 40
+    assert len(values) == 41  # the estimate of the original sample, then 40 resamples
+    assert len(set(values[1:])) == 40
 
 
-def test_omega_does_not_touch_numpys_global_random_state():
+@pytest.mark.parametrize("kwargs", [{}, {"bootstrap_iter": 10}])
+def test_omega_does_not_touch_numpys_global_random_state(kwargs):
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 200)
     np.random.seed(5)
     expected = np.random.rand()
     np.random.seed(5)
-    mcdonald_omega(df, bootstrap_iter=10)
+    mcdonald_omega(df, **kwargs)
     assert np.random.rand() == expected
 
 
@@ -961,6 +1077,32 @@ def test_bootstrap_properties():
     assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
     # a constant sample has a degenerate interval
     assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]
+
+
+def test_lib_is_a_package_that_exports_everything_from_one_place():
+    public = {
+        "bootstrap", "gini", "gini_from_percentiles", "log_transform", "z_transform", "htmt_ratio",
+        "fleiss_kappa", "krippendorffs_alpha", "mcdonald_omega",
+        "average_correlations", "dependent_correlations", "independent_correlations", "rz_ci", "rho_rxy_rxz",
+    }  # fmt: skip
+    assert set(lib_package.__all__) == public
+    expected_module = {
+        "fleiss_kappa": "fleiss",
+        "krippendorffs_alpha": "krippendorff",
+        "mcdonald_omega": "omega",
+        "average_correlations": "correlations",
+        "dependent_correlations": "correlations",
+        "independent_correlations": "correlations",
+        "rz_ci": "correlations",
+        "rho_rxy_rxz": "correlations",
+    }
+    for name in public:
+        function = getattr(lib_package, name)
+        assert callable(function)
+        assert function.__module__ == f"apatools.lib.{expected_module.get(name, 'misc')}"
+    # private helpers and the dependency check do not leak into the package namespace
+    assert not [n for n in vars(lib_package) if n.startswith("_") and not n.startswith("__")]
+    assert not {"pandas", "statsmodels", "np", "pd"} & set(vars(lib_package))
 
 
 if __name__ == "__main__":

@@ -8,12 +8,16 @@ Only the changes to `apatools.lib` are listed here.
 - `krippendorffs_alpha` returned wrong values except for nominal data without missing ratings.
 
 ### Changed
+- `apatools.lib` is a package now (`misc`, `fleiss`, `krippendorff`, `correlations`, `omega`); everything is
+  still imported from `apatools.lib`, only the private helpers moved into the submodules.
 - **Breaking:** `bootstrap` moved from `apatools.calc` to `apatools.lib` (`from apatools.lib import bootstrap`),
   so it now needs the `lib` extra; `apatools.calc` no longer has it.
 
 ### Added
-- `mcdonald_omega`: McDonald's omega with an optional bootstrap interval; the one-factor model is fitted
-  with numpy/scipy.
+- `mcdonald_omega`: McDonald's omega, always returned with its confidence interval as `(omega, lower, upper)`:
+  a delta-method interval (normal-theory maximum likelihood, computed on the logit scale) by default, or a
+  percentile bootstrap interval with `bootstrap_iter`. The one-factor model is fitted by maximum likelihood
+  with numpy/scipy (no scikit-learn or factor-analyzer).
 
 ### Removed
 - The `krippendorff` extra: the package (GPL-3.0-or-later) is no longer used.
