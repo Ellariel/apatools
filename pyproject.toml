@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apatools"
-version = "0.1.0"
-description = "A toolbox for meta-analysis and APA-compliant reporting of regression, spatial, panel, SEM and propensity score matching results."
+version = "0.2.0"
+description = "A toolbox for statistical and meta-analysis, and APA-compliant reporting of quantitative results."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Danila Valko", email = "danila.valko@proton.me" }]
 requires-python = ">=3.10"
 keywords = [
-    "apa", "reporting", "meta-analysis", "effect size", "regression", "statsmodels",
+    "APA", "reporting", "meta-analysis", "effect size", "regression", "statsmodels",
     "spatial regression", "panel data", "SEM", "RLM", "MLM", "propensity score matching",
 ]
 classifiers = [
@@ -76,9 +76,9 @@ linearmodels = ["apatools[plm]", "linearmodels>=6.0"]
 # SEM path diagrams, apatools.sem.sem_plot (includes the sem extra); the Graphviz executables
 # must also be installed and on the PATH
 graphviz = ["apatools[sem]", "graphviz>=0.20.3"]
-# apatools.lib.krippendorffs_alpha (includes the lib extra); krippendorff is GPL-3.0-or-later
-krippendorff = ["apatools[lib]", "krippendorff"]
-all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,krippendorff]"]
+# SEM path diagrams without Graphviz: sem_plot(engine="networkx") with networkx and matplotlib
+networkx = ["apatools[sem]", "networkx>=3.2", "matplotlib>=3.8"]
+all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,networkx]"]
 
 [project.urls]
 Homepage = "https://github.com/Ellariel/apatools"
@@ -106,9 +106,7 @@ testpaths = ["tests"]
 
 [tool.mypy]
 ignore_missing_imports = true
-files = [
-  "apatools/*.py",
-]
+files = ["apatools"]
 
 [tool.uv]
 managed = true

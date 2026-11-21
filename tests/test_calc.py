@@ -257,42 +257,6 @@ def test_conversion():
     assert s(cir) == "0.192"
 
 
-def test_bootstrap():
-    cil, m, cir = bootstrap(
-        [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        func=np.mean,
-        n_rep=1000,
-        seed=13,
-    )
-    assert s(cil) == "3.333"
-    assert s(m) == "5.000"
-    assert s(cir) == "6.667"
-
-    def f(*args):
-        return spearmanr(*args).statistic
-
-    cil, m, cir = bootstrap(
-        [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        [4, 5, 8, 4, 5, 6, 7, 8, 9],
-        func=f,
-        n_rep=1000,
-        seed=13,
-    )
-    assert s(cil) == "0.029"
-    assert s(m) == "0.745"
-    assert s(cir) == "1.000"
-
-    p = p_from_r(m, 9)
-    cil, cir = ci_from_r(m, 9)
-    assert s(cil) == "0.159"
-    assert s(p) == "0.021"
-    assert s(cir) == "0.943"
-
-    # spearmanr
-    # SignificanceResult(statistic=np.float64(0.7173570516842638),
-    # pvalue=np.float64(0.02958657594620456))
-
-
 def test_regressions():
     # CI width must be positive and the p-value must not depend on its sign
     assert abs(p_from_ci(0.5, 0.1, 0.9) - 0.0143) < 1e-3
@@ -304,14 +268,6 @@ def test_regressions():
     assert abs(unbiased_z(0.5, 10_000) - z_from_r(0.5)) < 1e-3
     # r <-> t <-> p round trip
     assert abs(p_from_r(r_from_p(0.01, 40), 40) - 0.01) < 1e-9
-
-
-def test_bootstrap_is_still_importable_from_lib():
-    pytest.importorskip("pandas")  # apatools.lib needs the lib extra
-    pytest.importorskip("statsmodels")
-    from apatools.lib import bootstrap as lib_bootstrap
-
-    assert lib_bootstrap is bootstrap
 
 
 @pytest.mark.parametrize("r", [-0.9, -0.3, 0.0, 0.1, 0.5, 0.95])
@@ -371,11 +327,13 @@ def test_confidence_intervals():
     assert lo == pytest.approx(np.tanh(np.atanh(0.5) - 1.959964 * 0.1), abs=1e-5)
     assert hi == pytest.approx(np.tanh(np.atanh(0.5) + 1.959964 * 0.1), abs=1e-5)
     # narrower interval for a lower confidence level
-    lo90, hi90 = ci_from_r(0.5, 103, alpha=0.90)
+    lo90, hi90 = ci_from_r(0.5, 103, conf_level=0.90)
     assert lo < lo90 < 0.5 < hi90 < hi
     # a normal-theory 95% CI that just excludes zero gives p ~ .05
     est, se = 0.98, 0.5  # z = 1.96, so the interval is (0, 1.96)
-    assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se) == pytest.approx(0.05, abs=2e-3)
+    assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se) == pytest.approx(
+        0.05, abs=2e-3
+    )
     assert p_from_ci(2.0, 1.02, 2.98) == pytest.approx(p_from_z(2.0 / 0.5), abs=1e-3)
     # the t-based version is more conservative
     assert p_from_ci(est, est - 1.96 * se, est + 1.96 * se, n=20) > p_from_ci(
@@ -386,19 +344,25 @@ def test_confidence_intervals():
     assert lo < r_from_p(0.01, 40) < hi
 
 
-def test_bootstrap_properties():
-    x = np.arange(1, 10)
-    lo, m, hi = bootstrap(x, func=np.mean, n_rep=500, seed=1)
-    assert lo < m < hi
-    assert bootstrap(x, func=np.mean, n_rep=500, seed=1).tolist() == [lo, m, hi]  # reproducible
-    lo99, _, hi99 = bootstrap(x, func=np.mean, n_rep=500, seed=1, alpha=0.99)
-    assert lo99 <= lo and hi99 >= hi  # a higher confidence level gives a wider interval
-    # a constant sample has a degenerate interval
-    assert bootstrap([3, 3, 3, 3], func=np.mean, n_rep=50).tolist() == [3.0, 3.0, 3.0]
-
-
 if __name__ == "__main__":
     test_conversion()
     test_regressions()
-    test_bootstrap()
     print("Tests for apatools.calc are PASSED!")
+
+
+def test_d_r_z_p_conversions_round_trip_for_any_number_of_groups():
+    for k in (2, 3, 4):
+        for d in (-1.2, 0.0, 0.3, 2.0):
+            r = r_from_d(d, n_groups=k)
+            assert d_from_r(r, n_groups=k) == pytest.approx(d)
+            assert d_from_z(z_from_d(d, n_groups=k), n_groups=k) == pytest.approx(d)
+            assert cohen_d_from_r(r, n_groups=k) == pytest.approx(d)
+            assert cohen_d_from_z(z_from_r(r), n_groups=k) == pytest.approx(d)
+            assert d_from_p(p_from_d(d, 80, n_groups=k), 80, n_groups=k) == pytest.approx(abs(d), abs=1e-6) or d == 0
+            assert cohen_d_from_p(p_from_d(1.0, 80, n_groups=k), 80, n_groups=k) == pytest.approx(1.0)
+    # the default is two groups: d = 2r / sqrt(1 - r^2)
+    assert d_from_r(0.5) == pytest.approx(2 * 0.5 / np.sqrt(0.75))
+    assert d_from_r(0.5) == d_from_r(0.5, n_groups=2)
+    assert d_from_z(0.5) == d_from_z(0.5, n_groups=2) and z_from_d(0.5) == z_from_d(0.5, n_groups=2)
+    # more groups: the same r belongs to a larger d
+    assert d_from_r(0.5, n_groups=4) > d_from_r(0.5, n_groups=2)

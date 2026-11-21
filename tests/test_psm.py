@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from apatools.psm import psm, psm_effect_size, CITATION
+from apatools.citation import cite
+from apatools.psm import psm, psm_effect_size
 
 
 def mtcars():
@@ -16,15 +17,25 @@ def test_psm_smoke():
     rng = np.random.default_rng(0)
     n = 120
     d = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n)})
-    d["treated"] = (rng.uniform(size=n) < 1 / (1 + np.exp(-(0.8 * d.x1 - 0.4 * d.x2)))).astype(int)
+    d["treated"] = (
+        rng.uniform(size=n) < 1 / (1 + np.exp(-(0.8 * d.x1 - 0.4 * d.x2)))
+    ).astype(int)
     d["y"] = d.x1 + 0.5 * d.treated + rng.normal(size=n)
 
-    df, model = psm(d, treatment_variable="treated", include_vars=["x1", "x2"], return_model=True, seed=1)
+    df, model = psm(
+        d,
+        treatment_variable="treated",
+        include_vars=["x1", "x2"],
+        return_model=True,
+        seed=1,
+    )
     assert set(df["treated"]) == {0, 1}
     assert {"x1", "x2", "y", "index"} <= set(df.columns)
     effects = psm_effect_size(model)
     assert list(effects.columns) == ["variable", "matching", "effect_size"]
-    assert set(effects["matching"]) == {"before", "after"} and set(effects["variable"]) == {"x1", "x2"}
+    assert set(effects["matching"]) == {"before", "after"} and set(
+        effects["variable"]
+    ) == {"x1", "x2"}
     assert np.isfinite(effects["effect_size"]).all()
     # matching balances the covariates: smaller standardized differences afterwards
     by = effects.groupby("matching")["effect_size"].apply(lambda s: s.abs().sum())
@@ -32,7 +43,7 @@ def test_psm_smoke():
     # reproducible
     df2 = psm(d, treatment_variable="treated", include_vars=["x1", "x2"], seed=1)
     pd.testing.assert_frame_equal(df, df2)
-    assert isinstance(CITATION.APA, str)
+    assert cite("psm")[0].startswith("Kline")
 
 
 def test_psm():
@@ -41,7 +52,7 @@ def test_psm():
     test_data = mtcars()
     assert len(test_data) == 32
 
-    print(CITATION.APA)
+    print(cite("psm")[0])
 
     df, model = psm(
         test_data,
@@ -76,7 +87,9 @@ def test_psm():
 
 def test_psm_options():
     d = mtcars()
-    kw = dict(treatment_variable="vs", index_variable="rownames", balance=False, seed=13)
+    kw = dict(
+        treatment_variable="vs", index_variable="rownames", balance=False, seed=13
+    )
 
     a = psm(d, include_vars=["mpg", "cyl"], **kw)
     # include_vars wins over exclude_vars
@@ -85,13 +98,17 @@ def test_psm_options():
     # a single string is accepted
     assert len(psm(d, include_vars="mpg", **kw)) > 0
     # exclude_vars alone
-    e = psm(d, exclude_vars=["am", "gear", "qsec", "hp", "carb", "drat", "disp", "wt"], **kw)
+    e = psm(
+        d, exclude_vars=["am", "gear", "qsec", "hp", "carb", "drat", "disp", "wt"], **kw
+    )
     assert len(e) > 0
 
     # stacked output holds treated and matched controls
     assert set(a["vs"]) == {0, 1}
     # coupled output has the matched columns side by side with a suffix
-    coupled = psm(d, include_vars=["mpg", "cyl"], return_coupled=True, coupled_suffix="_m", **kw)
+    coupled = psm(
+        d, include_vars=["mpg", "cyl"], return_coupled=True, coupled_suffix="_m", **kw
+    )
     assert "vs_m" in coupled.columns and "mpg_m" in coupled.columns
     assert (coupled["vs"] != coupled["vs_m"]).all()
     # no shared mutable default arguments
@@ -101,3 +118,17 @@ def test_psm_options():
 if __name__ == "__main__":
     test_psm()
     print("Tests for apatools.psm are PASSED!")
+
+
+def test_psm_seed_controls_psmpy_sampling():
+    """With unequal groups and balance=True psmpy samples the larger group: the seed must reach it."""
+    rng = np.random.default_rng(5)
+    n = 300
+    d = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n)})
+    d["treated"] = (rng.uniform(size=n) < 1 / (1 + np.exp(-(1.5 * d.x1 - 2.5)))).astype(int)
+    assert 10 < d["treated"].sum() < n / 4  # a clear minority
+    kw = dict(treatment_variable="treated", include_vars=["x1", "x2"], balance=True)
+    first = psm(d, seed=1, **kw)
+    pd.testing.assert_frame_equal(first, psm(d, seed=1, **kw))
+    others = [psm(d, seed=s, **kw) for s in (2, 3, 4)]
+    assert any(not o.equals(first) for o in others)

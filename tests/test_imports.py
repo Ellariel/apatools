@@ -16,7 +16,6 @@ REQUIRES = {
     "calc": [],
     "citation": [],
     "format": [],
-    "utils": ["pandas"],
     "lm": ["pandas", "statsmodels", "lxml"],
     "lib": ["pandas", "statsmodels"],
     "slm": ["pandas", "statsmodels", "spreg", "libpysal"],
@@ -55,7 +54,11 @@ def test_version():
 
 def test_all_public_modules_are_listed():
     """Guards against a forgotten module (or a removed one that is still referenced)."""
-    found = {m.name for m in pkgutil.iter_modules(apatools.__path__) if not m.name.startswith("_")}
+    found = {
+        m.name
+        for m in pkgutil.iter_modules(apatools.__path__)
+        if not m.name.startswith("_")
+    }
     assert found == set(REQUIRES)
 
 
@@ -70,13 +73,12 @@ def test_core_works_without_any_optional_package():
     """calc, format and citation must run with pandas, statsmodels, spreg, ... all missing."""
     code = (
         blocking(*HEAVY)
-        + "from apatools.calc import r_from_z, p_from_r, bootstrap;"
+        + "from apatools.calc import r_from_z, p_from_r;"
         + "from apatools.format import format_p, format_r, get_stars;"
-        + "from apatools.citation import Citation;"
+        + "from apatools.citation import cite;"
         + "import numpy as np;"
         + "assert abs(r_from_z(1.0) - np.tanh(1.0)) < 1e-12;"
         + "assert format_p(0.0004) == 'p < .001' and format_r(-0.5) == 'r = -.50';"
-        + "lo, m, hi = bootstrap([1, 2, 3, 4, 5], n_rep=50); assert lo <= m <= hi"
     )
     out = run_python(code)
     assert out.returncode == 0, out.stderr[-500:]
@@ -108,8 +110,8 @@ def test_missing_dependencies_name_the_extra(module, package, extra):
         assert named.group(1) == package
 
 
-def test_utils_names_pandas_when_it_is_missing():
-    out = run_python(blocking("pandas") + "import apatools.utils")
+def test_common_names_pandas_when_it_is_missing():
+    out = run_python(blocking("pandas") + "import apatools._common")
     assert out.returncode != 0 and "pip install pandas" in out.stderr
 
 
@@ -119,8 +121,11 @@ def test_utils_names_pandas_when_it_is_missing():
         ("linearmodels", "apatools.plm"),
         ("krippendorff", "apatools.lib"),
         ("graphviz", "apatools.sem"),
+        ("networkx", "apatools.sem"),
+        ("matplotlib", "apatools.sem"),
         ("sklearn", "apatools.lm"),
-        ("nest_asyncio", "apatools.utils"),
+        ("sklearn", "apatools.lib"),  # mcdonald_omega fits its factor model itself
+        ("factor_analyzer", "apatools.lib"),
     ],
 )
 def test_optional_packages_are_not_needed_at_import(blocked, module):
@@ -131,18 +136,6 @@ def test_optional_packages_are_not_needed_at_import(blocked, module):
     out = run_python(blocking(blocked) + f"import {module}")
     # semopy needs scikit-learn itself, so it cannot be tested through apatools.lm/sem
     assert out.returncode == 0, out.stderr[-500:]
-
-
-def test_krippendorff_raises_a_helpful_error_when_missing(monkeypatch):
-    if not installed("pandas", "statsmodels"):
-        pytest.skip("needs the lib extra")
-    import pandas as pd
-
-    from apatools import lib
-
-    monkeypatch.setitem(sys.modules, "krippendorff", None)
-    with pytest.raises(ImportError, match=r"apatools\[krippendorff\]"):
-        lib.krippendorffs_alpha(pd.DataFrame({"a": ["x", "y"], "b": ["x", "y"]}))
 
 
 def test_linearmodels_backend_raises_a_helpful_error_when_missing(monkeypatch):
