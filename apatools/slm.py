@@ -15,6 +15,7 @@ try:
     from spreg import diagnostics as spr_diag
     from spreg import diagnostics_sp as spr_sp
     from statsmodels.api import add_constant
+    from statsmodels.stats.diagnostic import het_breuschpagan
     from statsmodels.formula.formulatools import handle_formula_data
 except ImportError as e:  # pragma: no cover
     missing_dependency("slm", "slm", e)
@@ -125,8 +126,8 @@ def base_metrics(results):
         including ``rho``/``lambda``), ``df_resid`` (``n - k``), ``f_stat``, ``f_pvalue``,
         ``n_obs``, ``n_params`` (including the constant and ``rho``/``lambda``), ``mae`` (mean
         absolute residual ``y - predy``), ``mad`` (median absolute deviation of the residuals,
-        ``median(|e - median(e)|)``, not rescaled), ``aic``, ``bic`` (spreg's Schwarz criterion)
-        and ``llf`` (log-likelihood; spreg's ``logll``).
+        ``median(|e - median(e)|)``, not rescaled), ``aic``, ``bic`` (Schwarz criterion;
+        like spreg's, but counting ``lambda`` of the error model as a parameter) and ``llf`` (log-likelihood; spreg's ``logll``).
 
     References
     ----------
@@ -140,8 +141,13 @@ def base_metrics(results):
     n_params = int(results.k)
     n_obs = int(results.n)
 
+    aic, bic = results.aic, results.schwarz
     if isinstance(results, spr.ML_Error):
         n_params += 1  # lambda counts
+        # spreg's criteria of the error model leave lambda out of k (those of the lag model count rho):
+        # count it, so that the criteria of the three models are comparable
+        aic += 2.0
+        bic += np.log(n_obs)
     df_model = n_params - 1  # predictors (+ rho / lambda), without the constant
     df_resid = n_obs - n_params  # n - k, as in spreg's OLS F-test
 
@@ -167,8 +173,8 @@ def base_metrics(results):
             "n_params": n_params,
             "mae": np.mean(np.abs(resid)),
             "mad": np.median(np.abs(resid - np.median(resid))),
-            "aic": results.aic,
-            "bic": results.schwarz,
+            "aic": aic,
+            "bic": bic,
             "llf": results.logll,
         }
     )
@@ -447,7 +453,9 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
             print(f"Formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
 
         if constant:
-            X = add_constant(X)  # no effect: spreg adds the constant itself and does not duplicate it
+            X = add_constant(
+                X
+            )  # no effect: spreg adds the constant itself and does not duplicate it
     else:
         (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
         if w is not None and len(Y) != len(data):
@@ -636,6 +644,16 @@ def slm_report(
     return output
 
 
+def _breusch_pagan(reg, robust):
+    """Breusch-Pagan (``robust=False``) or Koenker-Bassett (``robust=True``) test of an OLS fit of spreg."""
+    stat, p, _, _ = het_breuschpagan(
+        np.asarray(reg.u, dtype=float).ravel(),
+        np.asarray(reg.x, dtype=float),
+        robust=robust,
+    )
+    return {"bp": stat, "df": reg.x.shape[1] - 1, "pvalue": p}
+
+
 def _moran_permutation(e, w, n_perm, seed):
     """Moran's I of ``e`` and its two-sided permutation p-value (``n_perm`` random reorderings of ``e``)."""
     z = np.asarray(e, dtype=float).ravel()
@@ -648,12 +666,20 @@ def _moran_permutation(e, w, n_perm, seed):
 
     observed = moran(z)
     rng = np.random.default_rng(seed)
-    extreme = sum(abs(moran(rng.permutation(z))) >= abs(observed) for _ in range(n_perm))
+    extreme = sum(
+        abs(moran(rng.permutation(z))) >= abs(observed) for _ in range(n_perm)
+    )
     return observed, (extreme + 1) / (n_perm + 1)
 
 
 def slm_tests(
-    results, w=None, format_pval=False, add_stars=False, decimal=None, n_perm=999, seed=13
+    results,
+    w=None,
+    format_pval=False,
+    add_stars=False,
+    decimal=None,
+    n_perm=999,
+    seed=13,
 ):
     """
     Diagnostic tests of the models fitted with :func:`slm`, as a tidy DataFrame.
@@ -667,7 +693,7 @@ def slm_tests(
       dependence (``LM-error``), their robust versions (robust to the other alternative) and
       ``LM-SARMA`` for both together (Anselin et al., 1996; Burridge, 1980; Bera & Yoon, 1993),
       and the tests of normality (Jarque-Bera) and heteroskedasticity (Breusch-Pagan,
-      Koenker-Bassett, White) of the residuals. The spatial tests need ``w``. Null hypotheses: no
+      Koenker-Bassett with the regressors of the model as in R's ``bptest``, White) of the residuals. The spatial tests need ``w``. Null hypotheses: no
       spatial autocorrelation of the residuals / no spatial lag / no spatial error dependence /
       neither; normally distributed residuals; homoskedastic residuals.
     * **Spatial lag** (``"slm"``) and **spatial error** (``"sem"``) models: the z test of the
@@ -765,24 +791,43 @@ def slm_tests(
     def add(model, label, statistic, df, p, text):
         rows.append((label, model, statistic, df, p, f"{text}, {format_p(p)}"))
 
-    def classical(r, model, label, compute, key):  # a test of spreg.diagnostics: {key: statistic, df, pvalue}
+    def classical(
+        r, model, label, compute, key
+    ):  # a test of spreg.diagnostics: {key: statistic, df, pvalue}
         d = compute(r)
-        add(model, label, float(d[key]), d["df"], float(d["pvalue"]), f"{label}({d['df']}) = {d[key]:.2f}")
+        add(
+            model,
+            label,
+            float(d[key]),
+            d["df"],
+            float(d["pvalue"]),
+            f"{label}({d['df']}) = {d[key]:.2f}",
+        )
 
     def attempt(model, label, *args):
         try:
             classical(*args)
         except (ValueError, ZeroDivisionError, np.linalg.LinAlgError) as e:
-            warnings.warn(f"{label} could not be computed for '{model}': {e}", UserWarning, stacklevel=3)
+            warnings.warn(
+                f"{label} could not be computed for '{model}': {e}",
+                UserWarning,
+                stacklevel=3,
+            )
 
     kinds = {spr.OLS: "ols", spr.ML_Lag: "slm", spr.ML_Error: "sem"}
     supported = [r for r in results if type(r) in kinds]
     for r in results:
         if type(r) not in kinds:
-            warnings.warn(f"{type(r).__name__} is not supported by slm_tests and was skipped.", UserWarning)
+            warnings.warn(
+                f"{type(r).__name__} is not supported by slm_tests and was skipped.",
+                UserWarning,
+            )
     ols_fits = [r for r in supported if type(r) is spr.OLS]
     if w is None and supported:
-        warnings.warn("Without w only the tests that do not need spatial weights are computed.", UserWarning)
+        warnings.warn(
+            "Without w only the tests that do not need spatial weights are computed.",
+            UserWarning,
+        )
 
     seen = {}
     for r in supported:
@@ -792,7 +837,14 @@ def slm_tests(
         if kind == "ols":
             if w is not None:
                 mi = spr_sp.MoranRes(r, w, z=True)
-                add(model, "Moran's I (residuals)", float(mi.zI), np.nan, float(mi.p_norm), f"Moran's I = {mi.I:.3f}, z = {mi.zI:.2f}")
+                add(
+                    model,
+                    "Moran's I (residuals)",
+                    float(mi.zI),
+                    np.nan,
+                    float(mi.p_norm),
+                    f"Moran's I = {mi.I:.3f}, z = {mi.zI:.2f}",
+                )
                 lm = spr_sp.LMtests(r, w)
                 for label, (stat, p), df in (
                     ("LM-lag", lm.lml, 1),
@@ -801,11 +853,20 @@ def slm_tests(
                     ("Robust LM-error", lm.rlme, 1),
                     ("LM-SARMA", lm.sarma, 2),
                 ):
-                    add(model, label, float(stat), df, float(p), f"{label}({df}) = {stat:.2f}")
+                    add(
+                        model,
+                        label,
+                        float(stat),
+                        df,
+                        float(p),
+                        f"{label}({df}) = {stat:.2f}",
+                    )
             for label, compute, key in (
                 ("Jarque-Bera", spr_diag.jarque_bera, "jb"),
-                ("Breusch-Pagan", spr_diag.breusch_pagan, "bp"),
-                ("Koenker-Bassett", spr_diag.koenker_bassett, "kb"),
+                # the regressors of the model explain the variance, as in R's bptest and statsmodels (spreg's
+                # breusch_pagan / koenker_bassett use their squares by default)
+                ("Breusch-Pagan", lambda reg: _breusch_pagan(reg, robust=False), "bp"),
+                ("Koenker-Bassett", lambda reg: _breusch_pagan(reg, robust=True), "bp"),
                 ("White", spr_diag.white, "wh"),
             ):
                 attempt(model, label, r, model, label, compute, key)
@@ -813,22 +874,56 @@ def slm_tests(
 
         name, parameter = ("rho", r.rho) if kind == "slm" else ("lambda", r.lam)
         z, p = r.z_stat[-1]
-        add(model, f"z test of {name}", float(z), np.nan, float(p), f"{name} = {float(parameter):.3f}, z = {z:.2f}")
+        add(
+            model,
+            f"z test of {name}",
+            float(z),
+            np.nan,
+            float(p),
+            f"{name} = {float(parameter):.3f}, z = {z:.2f}",
+        )
         base = next((o for o in ols_fits if o.n == r.n), None)
         if base is not None:
             lr = max(2 * (float(r.logll) - float(base.logll)), 0.0)
-            add(model, f"LR test of {name}", lr, 1, float(chi2.sf(lr, 1)), f"LR test of {name}(1) = {lr:.2f}")
+            add(
+                model,
+                f"LR test of {name}",
+                lr,
+                1,
+                float(chi2.sf(lr, 1)),
+                f"LR test of {name}(1) = {lr:.2f}",
+            )
         residuals = np.asarray(r.u, dtype=float).ravel()
         if kind == "sem" and w is not None:
-            residuals = residuals - float(r.lam) * (w.sparse @ residuals)  # filtered: (I - lambda W) u
+            residuals = residuals - float(r.lam) * (
+                w.sparse @ residuals
+            )  # filtered: (I - lambda W) u
         jb = jarque_bera(residuals)
-        add(model, "Jarque-Bera", float(jb.statistic), 2, float(jb.pvalue), f"Jarque-Bera(2) = {jb.statistic:.2f}")
+        add(
+            model,
+            "Jarque-Bera",
+            float(jb.statistic),
+            2,
+            float(jb.pvalue),
+            f"Jarque-Bera(2) = {jb.statistic:.2f}",
+        )
         if w is not None and n_perm:
             moran, p_perm = _moran_permutation(residuals, w, n_perm, seed)
-            add(model, "Moran's I (residuals)", moran, np.nan, p_perm, f"Moran's I = {moran:.3f} ({n_perm} permutations)")
+            add(
+                model,
+                "Moran's I (residuals)",
+                moran,
+                np.nan,
+                p_perm,
+                f"Moran's I = {moran:.3f} ({n_perm} permutations)",
+            )
 
-    res = DataFrame(rows, columns=["test", "model", "statistic", "df", "p-value", "report"])
-    res["statistic"] = res["statistic"].astype(float)  # also for an empty table (object columns)
+    res = DataFrame(
+        rows, columns=["test", "model", "statistic", "df", "p-value", "report"]
+    )
+    res["statistic"] = res["statistic"].astype(
+        float
+    )  # also for an empty table (object columns)
     res["df"] = res["df"].astype(float)
     res["p-value"] = res["p-value"].astype(float)
     if decimal:

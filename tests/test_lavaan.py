@@ -4,28 +4,17 @@ Every test here runs R: they need Rscript with the R package lavaan (the diagram
 module is skipped without them. The tests that need no R are in test_r_bridge.py.
 """
 
-import subprocess
-
 import numpy as np
 import pandas as pd
 import pytest
 
 import apatools._lavaan as bridge
-from apatools._lavaan import find_rscript, run_r
+from apatools._lavaan import run_r
+
+from .r_reference import installed, rscript
 
 
-def _r_packages():
-    """Path of Rscript and which of the R packages lavaan / semPlot are installed (None, {} without R)."""
-    try:
-        exe = find_rscript()
-    except RuntimeError:
-        return None, {}
-    code = 'cat(requireNamespace("lavaan", quietly = TRUE), requireNamespace("semPlot", quietly = TRUE))'
-    out = subprocess.run([exe, "-e", code], capture_output=True, text=True, check=False).stdout.split()
-    return exe, {"lavaan": out[:1] == ["TRUE"], "semPlot": out[1:] == ["TRUE"]}
-
-
-_RSCRIPT, _PACKAGES = _r_packages()
+_RSCRIPT, _PACKAGES = rscript(), installed("lavaan", "semPlot")
 if not _PACKAGES.get("lavaan"):
     pytest.skip("R with the package lavaan is not available", allow_module_level=True)
 
@@ -54,7 +43,9 @@ def test_run_r_errors_need_no_r_packages():
             run_r('stop("MISSING_R_PACKAGE:notapkg", call. = FALSE)', tmp, rscript=exe)
         with pytest.raises(RuntimeError, match="(?s)R failed:.*boom"):
             run_r('stop("boom")', tmp, rscript=exe)
-        assert run_r('message("hello")', tmp, rscript=exe).strip() == "hello"  # stderr is returned
+        assert (
+            run_r('message("hello")', tmp, rscript=exe).strip() == "hello"
+        )  # stderr is returned
         with pytest.raises(RuntimeError, match="did not finish within 1 seconds"):
             run_r("Sys.sleep(30)", tmp, rscript=exe, timeout=1)
 
@@ -90,23 +81,42 @@ def both_fits(democracy):
 def test_the_lavaan_engine_agrees_with_semopy(both_fits):
     (stats_s, metrics_s), (stats_l, metrics_l, fit) = both_fits
     assert list(stats_l.columns) == list(stats_s.columns)
-    assert stats_l.attrs["latent"] == stats_s.attrs["latent"] == ["dem60", "dem65", "ind60"]
+    assert (
+        stats_l.attrs["latent"]
+        == stats_s.attrs["latent"]
+        == ["dem60", "dem65", "ind60"]
+    )
     key = ["lval", "op", "rval"]
-    assert set(map(tuple, stats_l[key].values)) == set(map(tuple, stats_s[key].values))  # the same parameters
+    assert set(map(tuple, stats_l[key].values)) == set(
+        map(tuple, stats_s[key].values)
+    )  # the same parameters
     both = stats_s.merge(stats_l, on=key, suffixes=("_s", "_l"))
     paths = both[both["op"] == "~"]
     # loadings and regressions: the same estimates, standardized estimates and standard errors of the latter
     assert np.allclose(paths["estimate_s"], paths["estimate_l"], atol=0.02)
     assert np.allclose(paths["est_std_s"], paths["est_std_l"], atol=2e-3)
-    assert np.allclose(paths["se_std_s"], paths["se_std_l"], atol=2e-3)  # delta method, as lavaan's own
-    assert np.allclose(paths["std_err_s"], paths["std_err_l"], atol=0.02, equal_nan=True)
+    assert np.allclose(
+        paths["se_std_s"], paths["se_std_l"], atol=2e-3
+    )  # delta method, as lavaan's own
+    assert np.allclose(
+        paths["std_err_s"], paths["std_err_l"], atol=0.02, equal_nan=True
+    )
     # the first loading of every latent variable is fixed to 1: no test of the raw loading, but of the standardized
     fixed = stats_l[(stats_l["op"] == "~") & stats_l["std_err"].isna()]
     assert sorted(fixed["lval"]) == ["x1", "y1", "y5"] and fixed["p-value"].isna().all()
     assert (fixed["p_std"] < 1e-6).all() and (fixed["se_std"] > 0).all()
     # fit statistics
-    for name, tolerance in {"DoF": 0, "chi2": 0.01, "CFI": 2e-3, "TLI": 2e-3, "RMSEA": 2e-3, "NFI": 2e-3}.items():
-        assert metrics_l.loc[name, "value"] == pytest.approx(metrics_s.loc[name, "value"], abs=tolerance)
+    for name, tolerance in {
+        "DoF": 0,
+        "chi2": 0.01,
+        "CFI": 2e-3,
+        "TLI": 2e-3,
+        "RMSEA": 2e-3,
+        "NFI": 2e-3,
+    }.items():
+        assert metrics_l.loc[name, "value"] == pytest.approx(
+            metrics_s.loc[name, "value"], abs=tolerance
+        )
     assert metrics_l.loc["N", "value"] == 75 and "SRMR" in metrics_l.index
     assert fit.version and fit.converged and fit.warnings == []
     assert {"lhs", "op", "rhs", "est", "est.std"} <= set(fit.parameters.columns)
@@ -119,7 +129,11 @@ def test_the_lavaan_tables_feed_sem_report_and_the_other_plots(both_fits):
     _, (stats, metrics, _) = both_fits
     report = sem_report(stats, metrics, add_stars=True)
     summary = report.iloc[0]["model"]
-    assert summary.startswith("χ²(35, N = 75) = 38.12") and "CFI = .99" in summary and "SRMR = " in summary
+    assert (
+        summary.startswith("χ²(35, N = 75) = 38.12")
+        and "CFI = .99" in summary
+        and "SRMR = " in summary
+    )
     assert report["p_std"].map(lambda v: isinstance(v, str)).all()
     pytest.importorskip("matplotlib")
     pytest.importorskip("networkx")
@@ -139,8 +153,14 @@ def test_lavaan_engine_options(democracy):
 
     data, formula = democracy
     # lavaan arguments: all loadings free and the latent variances fixed to 1 (every loading is tested)
-    stats, _ = sem(data, formula, engine="lavaan", se_robust=False, lavaan_args={"std.lv": True})
-    loadings = stats[(stats["op"] == "~") & stats["rval"].isin(["ind60", "dem60", "dem65"]) & stats["lval"].str.match("^[xy]")]
+    stats, _ = sem(
+        data, formula, engine="lavaan", se_robust=False, lavaan_args={"std.lv": True}
+    )
+    loadings = stats[
+        (stats["op"] == "~")
+        & stats["rval"].isin(["ind60", "dem60", "dem65"])
+        & stats["lval"].str.match("^[xy]")
+    ]
     assert loadings["p-value"].notna().all() and loadings["std_err"].notna().all()
     # another estimator, translated names, robust standard errors
     uls, uls_metrics = sem(data, formula, method="ULS", engine="lavaan")
@@ -156,9 +176,13 @@ def test_lavaan_engine_options(democracy):
     assert fiml_metrics.loc["N", "value"] == 75 and np.isfinite(fiml["estimate"]).all()
     # bootstrap standard errors
     boot, _ = sem(data, formula, engine="lavaan", bootstrap=20)
-    assert (boot["std_err"].dropna() > 0).all() and not np.allclose(boot["std_err"], plain["std_err"], equal_nan=True)
+    assert (boot["std_err"].dropna() > 0).all() and not np.allclose(
+        boot["std_err"], plain["std_err"], equal_nan=True
+    )
     again, _ = sem(data, formula, engine="lavaan", bootstrap=20)
-    pd.testing.assert_frame_equal(boot, again)  # the seed makes the bootstrap reproducible
+    pd.testing.assert_frame_equal(
+        boot, again
+    )  # the seed makes the bootstrap reproducible
 
 
 def test_lavaan_engine_reports_problems(democracy):
@@ -191,7 +215,11 @@ def test_sem_plot_with_semplot(need_semplot, both_fits, tmp_path):
     png = tmp_path / "diagram.png"
     fig = sem_plot(stats_l, engine="lavaan", save_to_file=str(png), dpi=60)
     assert fig.format == "png" and fig.path == str(png) and png.read_bytes() == fig.data
-    assert fig.data.startswith(b"\x89PNG") and fig._repr_png_() == fig.data and fig._repr_svg_() is None
+    assert (
+        fig.data.startswith(b"\x89PNG")
+        and fig._repr_png_() == fig.data
+        and fig._repr_svg_() is None
+    )
     assert "RFigure" in repr(fig)
     # dpi sets the resolution (same size in inches)
     big = sem_plot(stats_l, engine="lavaan", dpi=120)
@@ -207,6 +235,15 @@ def test_sem_plot_with_semplot(need_semplot, both_fits, tmp_path):
     assert fig.save(str(other)) == str(other) and other.read_bytes() == fig.data
     # the layouts, the options of the other engines, tables of the semopy engine, return_fig
     for layout in ("tree2", "circle", "spring"):
-        assert sem_plot(stats_l, engine="lavaan", layout=layout, show_stars=True, plot_covs=False, rotation=1).data
-    assert sem_plot(stats_s, engine="lavaan", std_ests=False, format_pval=False).data.startswith(b"\x89PNG")
+        assert sem_plot(
+            stats_l,
+            engine="lavaan",
+            layout=layout,
+            show_stars=True,
+            plot_covs=False,
+            rotation=1,
+        ).data
+    assert sem_plot(
+        stats_s, engine="lavaan", std_ests=False, format_pval=False
+    ).data.startswith(b"\x89PNG")
     assert sem_plot(stats_l, engine="lavaan", return_fig=False) is None

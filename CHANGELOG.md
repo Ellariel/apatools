@@ -17,6 +17,14 @@
   (6-7 % scaled). Hausman, Mundlak and the spatial LM tests stay without period effects.
 
 ### Fixed
+- Found by comparing with R (`plm`, `splm`, `spdep`, `spatialreg`, `lmtest`; see the tests `tests/test_r_*.py`):
+  - `plm_tests`: the Anselin LM tests (LM lag, LM error and the robust versions) of the pooled model were wrong:
+    spreg's `panel_LMlag` divides by the squared trace of `W'W + W²` instead of `T` times it (LM lag 11.8 instead of
+    34.7 in an example) and its panel tests use `e'e / (N·T - k)`. They are computed here now, equal to `splm::slmtest`.
+  - `slm_tests`: Breusch-Pagan and Koenker-Bassett regressed the squared residuals on the *squares* of the
+    regressors (spreg's default); they use the regressors, as R's `bptest` and statsmodels (and `lm_tests`) do.
+  - `slm` metrics: AIC and BIC of the spatial error model did not count `lambda` (spreg's `k`), those of the lag
+    model count `rho`; the error model counts `lambda` now, so the three models are comparable.
 - `lm_report` no longer needs `lxml`: the coefficient table was read from the HTML of the statsmodels summary and so
   carried only the rounded display values (a small coefficient 0.000254 became 0.0003 and its interval 0.000 to
   0.000; p-values below the display rounding became 0). It is built from the results at full precision now; the

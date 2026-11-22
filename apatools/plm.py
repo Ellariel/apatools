@@ -1392,6 +1392,43 @@ def mundlak(r_re):
     return stat, len(names), float(scipy.stats.chi2.sf(stat, len(names)))
 
 
+def _anselin_lm_tests(r_pooled, w):
+    """
+    Anselin's LM tests for a spatial lag / error in the pooled OLS of a balanced panel (stacked data, weights
+    ``I_T ⊗ W``): the statistics of Anselin (1988) with the ML variance ``e'e / (N·T)`` and the trace term
+    ``T·tr(W'W + W²)`` (Anselin, Le Gallo & Jayet, 2008). spreg's ``diagnostics_panel.panel_LMlag`` divides
+    by ``tr(W'W + W²)²`` instead and its panel tests use ``e'e / (N·T - k)``; they differ from the
+    textbook statistics (and from R's ``splm::slmtest``), so they are not used.
+
+    Returns ``{label: (statistic, p-value)}`` for ``LM lag``, ``LM error`` and the robust versions.
+    """
+    x = np.asarray(r_pooled.x, dtype=float)  # with the constant
+    y = np.asarray(r_pooled.y, dtype=float).ravel()
+    e = np.asarray(r_pooled.u, dtype=float).ravel()
+    n = len(y)
+    big_w = sps.kron(sps.identity(n // w.n), w.sparse, format="csr")
+    sigma2 = e @ e / n
+    wy, we = big_w @ y, big_w @ e
+    wxb = big_w @ (x @ np.asarray(r_pooled.betas, dtype=float).ravel())
+    projected = wxb - x @ np.linalg.lstsq(x, wxb, rcond=None)[0]  # M (W X b)
+    trace = (w.sparse.T @ w.sparse + w.sparse @ w.sparse).diagonal().sum() * (n // w.n)
+    denominator = (
+        projected @ projected / sigma2 + trace
+    )  # information of the lag parameter
+    error, lag = e @ we / sigma2, e @ wy / sigma2  # e'We / s2 and e'Wy / s2
+    out = {
+        "LM lag": lag**2 / denominator,
+        "LM error": error**2 / trace,
+        "Robust LM lag": (lag - error) ** 2 / (denominator - trace),
+        "Robust LM error": (error - trace / denominator * lag) ** 2
+        / (trace * (1 - trace / denominator)),
+    }
+    return {
+        label: (float(stat), float(scipy.stats.chi2.sf(stat, 1)))
+        for label, stat in out.items()
+    }
+
+
 def _effects_of(r):
     """Effects of a fitted result: ``"entity"``, ``"time"`` or ``"twoway"`` (``"other"``: none, linearmodels)."""
     if _is_spreg(r):
@@ -1482,7 +1519,9 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     The ``model`` column holds the compared models (``"fe vs re"``) or the model name. ``df``
     is None for the LM tests with one degree of freedom reported as ``LM``; ``df_denom`` is
     set only for the F test. The Baltagi-Song-Koh and Anselin LM tests need spreg and
-    ``w``, and are computed from the pooled spreg model (``spreg.diagnostics_panel``).
+    ``w``. The Baltagi-Song-Koh tests come from spreg (``spreg.diagnostics_panel``); the Anselin tests are
+    computed here for the stacked pooled model (spreg's panel versions differ from the textbook statistics).
+    Both agree with R (``plmtest``, ``splm::slmtest``).
 
     References
     ----------
@@ -1660,14 +1699,9 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
                         lab,
                     )
                 )
-            y, xx = r_p.y, r_p.x[:, 1:]  # without the constant
-            for label, fn in (
-                ("LM lag", dp.panel_LMlag),
-                ("LM error", dp.panel_LMerror),
-                ("Robust LM lag", dp.panel_rLMlag),
-                ("Robust LM error", dp.panel_rLMerror),
-            ):
-                stat, p = fn(y, xx, w)
+            anselin = _anselin_lm_tests(r_p, w)
+            for label in ("LM lag", "LM error", "Robust LM lag", "Robust LM error"):
+                stat, p = anselin[label]
                 rows.append(_row(label, "pooled", stat, 1, p, "χ²"))
 
     res = DataFrame(
