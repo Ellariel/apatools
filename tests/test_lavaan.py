@@ -1,4 +1,4 @@
-"""The R engines: sem(engine="lavaan") and sem_plot(engine="lavaan") (apatools/_lavaan.py).
+"""The R engines: sem(engine="lavaan") and sem_plot(engine="lavaan") (apatools/r/lavaan.py).
 
 Every test here runs R: they need Rscript with the R package lavaan (the diagram tests also semPlot) and the whole
 module is skipped without them. The tests that need no R are in test_r_bridge.py.
@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import apatools._lavaan as bridge
-from apatools._lavaan import run_r
+import apatools.r.bridge as bridge
+from apatools.r.bridge import run_r
 
 from .r_reference import installed, rscript
 

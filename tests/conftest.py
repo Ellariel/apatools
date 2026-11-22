@@ -20,6 +20,7 @@ REQUIRES = {
     "test_r_slm.py": ["pandas", "statsmodels", "spreg", "libpysal"],
     "test_plm.py": ["pandas", "spreg", "libpysal", "patsy"],
     "test_r_plm.py": ["pandas", "spreg", "libpysal", "patsy"],
+    "test_splm.py": ["pandas", "spreg", "libpysal", "patsy"],
     "test_sem.py": ["pandas", "semopy"],
     "test_psm.py": [
         "pandas",

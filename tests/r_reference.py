@@ -2,7 +2,7 @@
 
 The R code of a comparison lives in the test file that needs it; this module only finds R, checks that the
 R packages are installed (the test is skipped otherwise), moves data frames and matrices to R as CSV files
-and reads the results back. It uses the R bridge of the package (``apatools._lavaan``), so
+and reads the results back. It uses the R bridge of the package (``apatools.r.bridge``), so
 ``APATOOLS_RSCRIPT`` selects the Rscript here as well.
 
 Usage::
@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from apatools._lavaan import find_rscript, run_r as _run_script
+from apatools.r.bridge import find_rscript, run_r as _run_script
 
 _PROBED = {}  # R package -> installed (None: no R)
 _EXE = []

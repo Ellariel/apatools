@@ -236,7 +236,7 @@ def sem(
     if engine not in SEM_ENGINES:
         raise NotImplementedError(f"Engine '{engine}' is not implemented, use one of {SEM_ENGINES}.")
     if engine == "lavaan":
-        from ._lavaan import fit_lavaan, lavaan_estimator
+        from .r.lavaan import fit_lavaan, lavaan_estimator
 
         lavaan_args = dict(lavaan_args or {})
         estimator, implied = lavaan_estimator("ML" if method is None else method, lavaan_args)
@@ -450,7 +450,7 @@ def sem_plot(
     if engine == "semopy":
         fig = semopy_plot(stats, latshape="circle", dpi=dpi, **common, **kwargs)
     elif engine == "lavaan":
-        from ._lavaan import semplot
+        from .r.lavaan import semplot
 
         np.random.seed(seed)
         latent, _, edges, covs, order = _path_diagram(

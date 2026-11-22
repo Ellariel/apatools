@@ -25,7 +25,7 @@ The base installation is light: it contains `apatools.calc` and `apatools.format
 | `pip install "apatools[networkx]"` | `sem_plot` path diagrams, `engine="networkx"` | the `sem` extra, *networkx* and *matplotlib*; no external program needed |
 | `pip install "apatools[all]"` | everything | all of the above |
 
-*R engines*: `sem(engine="lavaan")` and `sem_plot(engine="lavaan")` use [R](https://cran.r-project.org) through `Rscript` (no Python package is needed besides the `sem` extra): install R and, in R, `install.packages(c("lavaan", "semPlot"))`. `Rscript` is found on the `PATH`, in the usual install locations, through the environment variable `APATOOLS_RSCRIPT` or the argument `rscript`.
+*R engines*: `sem(engine="lavaan")`, `sem_plot(engine="lavaan")` and `plm(backend="splm")` use [R](https://cran.r-project.org) through `Rscript` (no Python package is needed besides the extra of the module): install R and, in R, `install.packages(c("lavaan", "semPlot"))` for `sem` and `install.packages(c("plm", "splm", "spdep"))` for `plm`. `Rscript` is found on the `PATH`, in the usual install locations, through the environment variable `APATOOLS_RSCRIPT` or the argument `rscript`.
 
 Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a module without its extra gives an `ImportError` that names the extra to install.
 
@@ -161,18 +161,18 @@ print(slm_tests(results, w, format_pval=True, add_stars=True, decimal=3))
 
 
 ### *apatools.plm*
-Panel regressions (pooled, fixed effects, random effects, optionally with a spatial lag or spatial error) in the same format as `lm` and `slm`. Two backends: *spreg* (default; all models) and the optional *linearmodels* (`pip install "apatools[linearmodels]"`; non-spatial models, adds e.g. clustered standard errors and two-way fixed effects).
+Panel regressions (pooled, fixed effects, random effects, optionally with a spatial lag or spatial error) in the same format as `lm` and `slm`. Three backends: *spreg* (default; all models), the optional *linearmodels* (`pip install "apatools[linearmodels]"`; non-spatial models, adds e.g. clustered standard errors and two-way fixed effects) and the R packages *plm* and *splm* (`backend="splm"`, see below).
 
 Data are an ordinary *long* data frame with an entity and a time column (or an `(entity, time)` index). The module checks that the panel is balanced, aligns the entities with the rows of the spatial weights `w` (the entity values must be the ids `w.id_order`, otherwise pass `w_ids`) and brings the rows into the layout spreg needs, so the row order of your data does not matter.
 
-Models (`model=`): `pooled`, `fe`, `re` (both backends), `slm_fe`, `slm_re`, `sem_pooled`, `sem_fe`, `sem_re`, `sem_pooled_gm`, `sem_re_gm` (spreg: spatial lag / spatial error with ML or GMM estimation). `sem_re` (ML) failed with older numpy/scipy versions (numpy 2.0-2.2, scipy 1.13-1.15) in *spreg* 1.9.0, but worked with recent ones; `sem_re_gm` worked everywhere.
+Models (`model=`): `pooled`, `fe`, `re` (all backends), `slm_fe`, `slm_re`, `sem_pooled`, `sem_fe`, `sem_re` (spreg and splm: spatial lag / spatial error with ML estimation) and `sem_pooled_gm`, `sem_re_gm` (spreg: GMM). `sem_re` (ML) failed with older numpy/scipy versions (numpy 2.0-2.2, scipy 1.13-1.15) in *spreg* 1.9.0, but worked with recent ones; `sem_re_gm` worked everywhere.
 
 Specific parameters:
 * `entity`, `time` - columns (or index levels) identifying entity and period; `balance="drop"` drops entities that are not observed in all periods instead of raising an error
-* `backend` - `"spreg"` (default) or `"linearmodels"`
+* `backend` - `"spreg"` (default), `"linearmodels"` or `"splm"` (R; also `rscript=` and `r_timeout=`)
 * `slx_lags` - number of spatial lags of the predictors (spreg; `slx_lags=1` gives a Durbin-type model)
 * `<model>_model_<arg>` / `<model>_fit_<arg>` - arguments for the model class / `.fit()`, e.g. `slm_fe_model_method="LU"`, or for linearmodels `fe_fit_cov_type="clustered"`, `fe_fit_cluster_entity=True`
-* `effects="entity"` (default), `"time"` or `"twoway"` - effects of the fixed-effects models (`fe`; with spreg also `slm_fe`, `sem_fe`). With spreg the period effects are period dummies (hidden in `plm_report`; `"time"` is not available for `slm_fe`); `plm_tests` adds F tests of the period effects (LR test for `slm_fe` / `sem_fe`) and `pred_metrics` skips such models
+* `effects="entity"` (default), `"time"` or `"twoway"` - effects of the fixed-effects models (`fe`; with spreg also `slm_fe`, `sem_fe`; with splm all of them, also `"time"` for `slm_fe`). With spreg the period effects are period dummies (hidden in `plm_report`; `"time"` is not available for `slm_fe`); `plm_tests` adds F tests of the period effects (LR test for `slm_fe` / `sem_fe`) and `pred_metrics` skips such models
 * `pred_metrics` - adds leave-one-*group*-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`). Leaving out single observations is not meaningful in panels, so whole entities (`pred_group="entity"`, predicts a new entity; not possible for fixed-effects models) or whole periods (`pred_group="time"`) are held out, the model and the weights are refitted, and the held-out rows are predicted (`x·β`, plus `ρ·Wy` for spatial lag and the estimated entity effect for fixed effects). With spatial data the neighbours of a held-out entity stay in the training sample, which is optimistic; `pred_exclude_neighbors=True` removes them as well (see the caveat for `slm`).
 
 ```python
@@ -192,7 +192,14 @@ print(results_rep, metrics)
 print(plm_tests(results))  # Hausman, Mundlak, F test of entity effects, spatial LM tests
 ```
 
-`plm_tests()` returns a tidy table: Hausman test (FE vs RE; undefined when `V_fe - V_re` is not positive definite, which is typical when the effects *are* correlated with the predictors), the regression-based Mundlak test (robust to that problem), the F test of entity effects, and, for pooled spreg models with weights, the Baltagi-Song-Koh and Anselin LM tests for random effects and spatial dependence.
+`plm_tests()` returns a tidy table: Hausman test (FE vs RE; undefined when `V_fe - V_re` is not positive definite, which is typical when the effects *are* correlated with the predictors), the regression-based Mundlak test (robust to that problem), the F test of entity effects, and, for pooled spreg or splm models with weights, the Baltagi-Song-Koh and Anselin LM tests for random effects and spatial dependence.
+
+#### The splm backend (R)
+`plm(df, ..., backend="splm")` fits the models with the R packages *plm* (Croissant & Millo, 2008; `pooled`, `fe`, `re`) and *splm* (Millo & Piras, 2012; the spatial ML models; *spdep* turns `w` into R's weights) and returns the same tables and metrics, so that `plm_report`, `base_metrics`, `plm_tests` and `mundlak` work unchanged; the results are `SplmFit` objects (the coefficient table, covariance matrix, residuals, R versions and warnings). Arguments of the R functions go in `<model>_model_<arg>` (e.g. `slm_fe_model_zero.policy=True`). Every model starts R (about 1-2 seconds per model for 36 entities and 6 periods; larger panels take longer, I have not timed them). Not available: the GMM models, `slx_lags` and the prediction metrics (`pred_metrics` is NaN with a warning).
+
+*`r_timeout`*: seconds that every single R run (one per model, not the whole call) may take; when it is exceeded the R process is stopped and a `RuntimeError` ("R did not finish within ... seconds") is raised. The default is no limit. Leave it unset while you explore, since a slow fit is usually just a big panel (the spatial ML models are the slow ones, presumably because of the determinant of `I - rho W` / `I - lambda W`, which grows quickly with the number of entities). Set it for unattended runs, scripts and CI, where a hanging R process would block everything: choose a generous multiple of the time a typical fit takes (e.g. `r_timeout=300`), because the first run is slower (R starts and loads the packages) and a too short limit fails a fit that would have worked. After a timeout, fit the models one by one (the models fitted before the failing one are lost, as with any other error) or reduce the panel.
+
+The results agree with the other backends: coefficients of `fe` / `re` / `pooled` and the standard errors equal those of linearmodels, the Hausman test equals R's `phtest`, and the spatial models agree with spreg (the spatial parameter within 0.001, the slopes within 0.0002 and the standard errors within a few percent: splm's optimizer is less tight; the random-effects variance ratio `phi` is estimated differently). Conventions of R that were kept: the R² of the random-effects model is a pseudo R² (the squared correlation of y and x·β), and the AIC/BIC of the spatial models count the coefficients, the spatial parameter and, for random effects, `phi`, but not the error variance.
 
 Notes: R² is `R²within` for fixed effects, `R²overall` for random effects with linearmodels, `R²pseudo` (squared correlation of observed and predicted y) for spatial and spreg random-effects models and the plain R² for pooled OLS. spreg's `PanelFE` reports residuals and a pseudo R² that ignore the fixed effects and uses `N·T - N` instead of `N·T - N - k` degrees of freedom for the standard errors (slightly too small); the within R², the residual statistics and the F test use the correct values and agree with linearmodels. AIC/BIC from spreg do not count the fixed effects.
 
@@ -328,7 +335,7 @@ print("\n\n".join(cite("plm", engine="linearmodels")))                  # PySAL,
 print("\n\n".join(cite("sem", engine=["lavaan", "semPlot"])))           # R, lavaan, semPlot
 print("\n\n".join(cite("sem", engine=["semopy", "networkx"])))          # semopy, NetworkX, matplotlib
 ```
-Engines: `lm`: `statsmodels`; `slm`: `spreg`; `plm`: `spreg`, `linearmodels`; `sem`: `semopy`, `lavaan`, `semPlot`, `networkx`, `graphviz`; `psm`: `psmpy`. `cite` needs no extra; the references (DOIs checked against Crossref) are collected in `apatools.citation.REFERENCES`. Check the year and version of the software you used.
+Engines: `lm`: `statsmodels`; `slm`: `spreg`; `plm`: `spreg`, `linearmodels`, `splm`; `sem`: `semopy`, `lavaan`, `semPlot`, `networkx`, `graphviz`; `psm`: `psmpy`. `cite` needs no extra; the references (DOIs checked against Crossref) are collected in `apatools.citation.REFERENCES`. Check the year and version of the software you used.
 
 ## License
 MIT, see [LICENSE](LICENSE).

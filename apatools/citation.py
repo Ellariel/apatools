@@ -42,6 +42,18 @@ REFERENCES = {
         "Structural Equation Modeling: A Multidisciplinary Journal, 22(3), 474\u2013483. "
         "https://doi.org/10.1080/10705511.2014.937847"
     ),
+    "plm": (
+        "Croissant, Y., & Millo, G. (2008). Panel data econometrics in R: The plm package. "
+        "Journal of Statistical Software, 27(2), 1–43. https://doi.org/10.18637/jss.v027.i02"
+    ),
+    "splm": (
+        "Millo, G., & Piras, G. (2012). splm: Spatial panel data models in R. "
+        "Journal of Statistical Software, 47(1), 1–38. https://doi.org/10.18637/jss.v047.i01"
+    ),
+    "spdep": (
+        "Bivand, R. S., & Wong, D. W. S. (2018). Comparing implementations of global and local indicators of "
+        "spatial association. TEST, 27(3), 716–748. https://doi.org/10.1007/s11749-018-0599-x"
+    ),
     "R": (
         "R Core Team. (2025). R: A language and environment for statistical computing [Computer software]. "
         "R Foundation for Statistical Computing. https://www.R-project.org/"
@@ -71,9 +83,20 @@ REFERENCES = {
 ENGINES = {
     "lm": {"statsmodels": ["statsmodels"]},
     "slm": {"spreg": ["pysal"]},
-    "plm": {"spreg": ["pysal"], "linearmodels": ["pysal", "linearmodels"]},
+    "plm": {
+        "spreg": ["pysal"],
+        "linearmodels": ["pysal", "linearmodels"],
+        "splm": [
+            "R",
+            "plm",
+            "splm",
+            "spdep",
+        ],  # R packages plm (non-spatial models), splm (spatial) and spdep (weights)
+    },
     "sem": {
-        "semopy": ["semopy"],  # fitting (and the Graphviz drawing of semopy_plot: add "graphviz")
+        "semopy": [
+            "semopy"
+        ],  # fitting (and the Graphviz drawing of semopy_plot: add "graphviz")
         "lavaan": ["R", "lavaan"],
         "semPlot": ["R", "semPlot"],  # drawing with R
         "networkx": ["networkx", "matplotlib"],  # drawing in Python
@@ -93,7 +116,7 @@ def cite(module, engine=None):
         The apatools module whose results are reported.
     engine : str or list of str, optional
         The engines (software) that were used; list all that should be cited. By default the first one:
-        ``"statsmodels"`` (``lm``), ``"spreg"`` (``slm``, ``plm``; also ``"linearmodels"``), ``"semopy"``
+        ``"statsmodels"`` (``lm``), ``"spreg"`` (``slm``, ``plm``; also ``"linearmodels"`` and ``"splm"``, the R packages), ``"semopy"``
         (``sem``; also ``"lavaan"`` for fitting and ``"semPlot"``, ``"networkx"``, ``"graphviz"`` for the
         path diagram) and ``"psmpy"`` (``psm``).
 
@@ -110,10 +133,18 @@ def cite(module, engine=None):
     if module not in ENGINES:
         raise ValueError(f"Unknown module '{module}', use one of {sorted(ENGINES)}.")
     available = ENGINES[module]
-    wanted = [next(iter(available))] if engine is None else [engine] if isinstance(engine, str) else list(engine)
+    wanted = (
+        [next(iter(available))]
+        if engine is None
+        else [engine]
+        if isinstance(engine, str)
+        else list(engine)
+    )
     names = set()
     for name in wanted:
         if name not in available:
-            raise ValueError(f"Unknown engine '{name}' for '{module}', use one of {sorted(available)}.")
+            raise ValueError(
+                f"Unknown engine '{name}' for '{module}', use one of {sorted(available)}."
+            )
         names.update(available[name])
     return sorted(REFERENCES[name] for name in names)

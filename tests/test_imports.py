@@ -22,6 +22,7 @@ REQUIRES = {
     "plm": ["pandas", "spreg", "libpysal", "patsy"],
     "sem": ["pandas", "semopy"],
     "psm": ["pandas", "psmpy"],
+    "r": [],  # the package of the R bridge: its modules need pandas (and R) only when an R engine is used
 }
 CORE = [name for name, packages in REQUIRES.items() if not packages]
 

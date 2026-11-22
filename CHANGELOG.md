@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+- `plm(backend="splm")`: the R packages *plm* (`pooled`, `fe`, `re`) and *splm* (`slm_fe`, `slm_re`, `sem_pooled`,
+  `sem_fe`, `sem_re`; ML) as the engine of the panel models, the way lavaan is the engine of `sem`; *spdep* turns the
+  weights into R's. The results (`SplmFit`) feed `plm_report`, `base_metrics`, `plm_tests`, `hausman` and `mundlak`
+  unchanged; `effects="time"` works for `slm_fe` as well. Arguments of the R functions go in `<model>_model_<arg>`,
+  `rscript=` and `r_timeout=` control R. Not available with splm: the GMM models, `slx_lags` and `pred_metrics` (NaN
+  with a warning). `cite("plm", engine="splm")` gives R, plm, splm and spdep.
+- `plm_tests`: the Baltagi-Song-Koh LM tests are computed by apatools (they equal spreg's `BSK_tests`, R's `plmtest`
+  and `slmtest`; the p-values of LM1 and LMJ no longer underflow to 0), so they also work for splm results.
+
+### Changed
+- The R bridge lives in the subpackage `apatools.r`: `bridge` (finding and calling `Rscript`, shared by all R engines),
+  `lavaan` (formerly `apatools._lavaan`) and `splm`.
+
 ## 0.2.1
 
 ### Added
