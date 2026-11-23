@@ -28,7 +28,8 @@ pip install -e ".[docs]"
 sphinx-build -W -b html docs docs/_build/html
 ```
 
-The API reference and the literature page are generated from the docstrings at build time
+The API reference and the *Literature* section at the end of each module page are generated from the docstrings at
+build time
 (`docs/_ext/apatools_docs.py`), so they cannot drift from the code: write complete NumPy-style docstrings, with a
 `References` section for every non-trivial method (author, year, title, journal, DOI). The module pages in
 `docs/guide/` are written by hand; when a change alters a convention, a tolerance or a caveat, update the *Design

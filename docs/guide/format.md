@@ -32,3 +32,11 @@ get_stars(0.04)               # '*'
 
 Base R has no APA formatter; R packages for reporting (for example papaja) do the same job. The rules above are those of
 the Publication Manual (7th edition); where a journal asks for something else, follow the journal.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_format.md
+```

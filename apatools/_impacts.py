@@ -25,9 +25,12 @@ Two ways to the standard errors are offered (both use the covariance matrix of t
 References
 ----------
 LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
-Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*. Springer.
-Bivand, R. S., Hauke, J., & Kossowski, T. (2013). Computing the Jacobian in Gaussian spatial autoregressive models:
-An illustrated comparison of available methods. *Geographical Analysis, 45*(2), 150-179.
+https://doi.org/10.1201/9781420064254
+Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
+Springer. https://doi.org/10.1007/978-3-642-40340-8
+Bivand, R. S., Hauke, J., & Kossowski, T. (2013). Computing the Jacobian in Gaussian spatial
+autoregressive models: An illustrated comparison of available methods. *Geographical Analysis,
+45*(2), 150-179. https://doi.org/10.1111/gean.12008
 """
 
 import warnings

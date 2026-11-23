@@ -49,3 +49,11 @@ when the same assumptions (equal groups, the same degrees of freedom) are made.
 
 The formulas are covered by unit tests, including the property that conversions are inverses of each other where they
 are defined (a round trip d → r → d returns d), which is the reason `n_groups` exists in all of them.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_calc.md
+```

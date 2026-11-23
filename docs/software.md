@@ -2,7 +2,7 @@
 
 apatools wraps other software: the numbers in a table come from an *engine*, and the engine is what a reader needs to know
 about (and what you should cite) next to apatools itself. The references below were checked against Crossref; check the
-year and the version of the software you used. The literature behind the *methods* is on the [literature page](literature.md).
+year and the version of the software you used. The literature behind the *methods* is at the end of the page of each module.
 
 ## What to cite for which engine
 
@@ -34,7 +34,7 @@ Rey, S. J., & Anselin, L. (2007). PySAL: A Python library of spatial analytical 
 
 **linearmodels**
 
-Sheppard, K., & contributors. (2026). linearmodels: Linear models for panel data, instrumental variables and system regression [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.2591973
+Sheppard, K., & contributors. (2026). linearmodels (v7.1) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.2591973
 
 **semopy**
 

@@ -94,3 +94,11 @@ Pearson and deviance goodness of fit of a Poisson GLM agree with R to 1e-5 or be
 is no standard implementation to compare with): the Hosmer–Lemeshow and Cameron–Trivedi tests, the quantile-residual
 test, the group Cook's distance of mixed models and the approximate tests of RLM; they are validated by their
 definitions and by simulations of their size and power.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_lm.md
+```

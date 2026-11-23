@@ -2,14 +2,16 @@
 
 * ``api/<module>.md``: the API reference of every public module (one ``autofunction`` / ``autoclass`` per public
   function, so that the module docstrings, which contain section headings, are not pulled into the page);
-* ``literature.md``: every reference found in the ``References`` sections of the docstrings, de-duplicated, with the
-  modules that use it.
+* ``_generated/references_<module>.md``: the references found in the ``References`` sections of the docstrings of a
+  module (its functions and, for ``lib``, its submodules), de-duplicated; every guide page includes its own list under
+  the heading *Literature*.
 
 Both are written before the build (``builder-inited``), so they cannot drift from the code.
 """
 
 import importlib
 import inspect
+import pkgutil
 import re
 import warnings
 from pathlib import Path
@@ -90,48 +92,37 @@ def docstrings(module):
     for member in public_members(module):
         obj = getattr(module, member)
         yield f"{module.__name__}.{member}", inspect.getdoc(obj) or ""
+    if hasattr(module, "__path__"):  # a package (lib): the docstrings of its submodules as well
+        for info in pkgutil.iter_modules(module.__path__):
+            if not info.name.startswith("_"):
+                sub = importlib.import_module(f"{module.__name__}.{info.name}")
+                yield sub.__name__, inspect.getdoc(sub) or ""
 
 
-def collect_references():
-    """``{normalized key: (text, set of modules)}`` from the References sections of all public docstrings."""
+def references_of(name):
+    """The de-duplicated references of the docstrings of ``apatools.<name>``, sorted: a list of strings."""
     found = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        module = importlib.import_module(f"apatools.{name}")
+    for _, doc in docstrings(module):
+        for section in REFERENCE_SECTION.findall("\n" + doc):
+            for paragraph in re.split(r"\n\s*\n", section.strip()):
+                text = " ".join(paragraph.split())
+                if len(text) < 25 or not re.search(r"\((?:19|20)\d\d[a-z]?[,)]", text):
+                    continue  # credits and bare web links in a References section are not literature
+                key = re.sub(r"[^a-z0-9]", "", text.lower())[:45]  # authors, year, first words of the title
+                if key not in found or len(text) > len(found[key]):  # keep the fullest version (with the DOI)
+                    found[key] = text
+    return sorted(found.values(), key=str.lower)
+
+
+def write_references(srcdir):
+    out = Path(srcdir) / "_generated"
+    out.mkdir(exist_ok=True)
     for name in MODULES:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            module = importlib.import_module(f"apatools.{name}")
-        for _, doc in docstrings(module):
-            for section in REFERENCE_SECTION.findall("\n" + doc):
-                for paragraph in re.split(r"\n\s*\n", section.strip()):
-                    text = " ".join(paragraph.split())
-                    if len(text) < 25:
-                        continue
-                    key = re.sub(r"[^a-z0-9]", "", text.lower())[
-                        :45
-                    ]  # authors, year, first words of the title
-                    entry = found.setdefault(key, [text, set()])
-                    entry[1].add(name)
-                    if len(text) > len(
-                        entry[0]
-                    ):  # keep the fullest version (with the DOI)
-                        entry[0] = text
-    return found
-
-
-def write_literature(srcdir):
-    found = collect_references()
-    entries = sorted(found.values(), key=lambda e: e[0].lower())
-    lines = [
-        "# Literature",
-        "",
-        "All references cited in the docstrings of the functions, collected at build time (so the list cannot drift from",
-        "the code), with the modules whose methods rely on them. Software (and what to cite when you use an engine) is",
-        "on the [software page](software.md).",
-        "",
-    ]
-    for text, modules in entries:
-        modules = ", ".join(f"`{m}`" for m in sorted(modules))
-        lines += [f"- {text}  ", f"  *Used in:* {modules}", ""]
-    (Path(srcdir) / "literature.md").write_text("\n".join(lines), encoding="utf-8")
+        lines = [f"- {text}" for text in references_of(name)]
+        (out / f"references_{name}.md").write_text("\n\n".join(lines) + "\n", encoding="utf-8")
 
 
 # The references of the docstrings are written like APA text in Markdown style, *Journal, 45*(2): in reST the closing
@@ -148,7 +139,7 @@ def tidy_docstring(app, what, name, obj, options, lines):
 
 def builder_inited(app):
     write_api(app.srcdir)
-    write_literature(app.srcdir)
+    write_references(app.srcdir)
 
 
 def setup(app):

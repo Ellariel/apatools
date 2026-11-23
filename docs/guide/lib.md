@@ -106,3 +106,11 @@ pseudo-logarithm `sign(x)·log10(1 + |x|)`.
 *coefficientalpha* (skipped without R), and the delta-method intervals with simulations; `tests/test_lib.py` the Fleiss
 kappa with published reference values and the formula of `irr`, Krippendorff's alpha with the published example, the
 definition and invariances, and the correlation tests with their definitions.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_lib.md
+```

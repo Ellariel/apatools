@@ -105,3 +105,11 @@ regressor in *all* locations) and the **indirect** effect, the spillover (total 
 lattices), `tests/test_effects.py` with the dense matrix inverse, spreg's multipliers, finite differences of the effects
 (the gradients of the delta method) and the simulation (the standard errors), and the point estimates of the effects
 with `spatialreg::impacts`.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_slm.md
+```

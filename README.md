@@ -71,7 +71,7 @@ The documentation lives in [`docs/`](docs/) (Sphinx; build it with `pip install 
   R**;
 * the [validation overview](docs/validation.md): what was compared with what, and where apatools intentionally does not
   mirror R;
-* the [software](docs/software.md) page (what to cite for each engine) and the generated literature page;
+* the [software](docs/software.md) page (what to cite for each engine), and the literature at the end of each module page;
 * the API reference, generated from the docstrings, and the [changelog](CHANGELOG.md).
 
 ## License

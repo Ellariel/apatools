@@ -5,8 +5,8 @@
 ### Added
 - The documentation (`docs/`, Sphinx; the extra `docs`): a user-guide page per module that states the **design choices
   and caveats** of the module and **where it differs from R**, an overview of the validation against R, the software
-  page (what to cite for each engine), and an API reference and a literature page generated from the docstrings at
-  build time. The README is a short landing page now.
+  page (what to cite for each engine), and an API reference and the literature of every module (the references of the
+  docstrings, at the end of the module's page) generated at build time. The README is a short landing page now.
 - `slm_effects` and `plm_effects`: the direct, indirect (spillover) and total effects of the regressors of the spatial
   lag models (`slm`; `slm_fe` / `slm_re` of spreg and splm; with spreg also the Durbin model of `slx_lags`) after LeSage &
   Pace (2009), with standard errors, z values, p-values and confidence intervals from LeSage & Pace's simulation or
@@ -24,7 +24,7 @@
 
 ### Removed
 - `apatools.citation` and `cite()`: the literature behind every method and engine is collected in the
-  documentation (references page and the page of each module) instead.
+  documentation (the page of each module and the software page) instead.
 
 ### Changed
 - The R bridge lives in the subpackage `apatools.r`: `bridge` (finding and calling `Rscript`, shared by all R engines),

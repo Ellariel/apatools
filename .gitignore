@@ -142,4 +142,4 @@ dmypy.json
 
 # documentation pages generated from the code at build time (docs/_ext/apatools_docs.py)
 docs/api/
-docs/literature.md
+docs/_generated/

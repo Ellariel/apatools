@@ -161,3 +161,11 @@ R backend with linearmodels, spreg, OLS with dummies and two maximum-likelihood 
 lag model with all effects as explicit parameters, and the spatial error random-effects model of Baltagi, Song and
 Koh, 2003, which spreg cannot fit in some environments); `tests/test_plm.py` checks the period effects against OLS with
 dummies, linearmodels and the same numpy likelihoods; `tests/test_effects.py` the effects.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_plm.md
+```

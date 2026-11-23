@@ -79,3 +79,11 @@ They differ in:
 `tests/test_lavaan.py` fits the political-democracy model with both engines and compares the tables and fit measures,
 `tests/test_sem.py` covers the semopy engine and the diagrams. The delta-method standard errors of the standardized
 estimates of the semopy engine are compared with the ones lavaan itself reports.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_sem.md
+```

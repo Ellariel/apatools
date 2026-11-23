@@ -67,8 +67,8 @@ def vif(results, sort=False, decimal=2):
 
     References
     ----------
-    Belsley, D. A., Kuh, E., & Welsch, R. E. (1980). *Regression diagnostics:
-    Identifying influential data and sources of collinearity*. Wiley.
+    Belsley, D. A., Kuh, E., & Welsch, R. E. (1980). *Regression diagnostics: Identifying
+    influential data and sources of collinearity*. Wiley. https://doi.org/10.1002/0471725153
     """
     try:
         vif_df = DataFrame()
@@ -253,11 +253,15 @@ def pred_metrics(model, Y, X, **kwargs):
 
     References
     ----------
-    Allen, D. M. (1974). The relationship between variable selection and data augmentation
-    and a method for prediction. *Technometrics, 16*(1), 125-127.
+    Allen, D. M. (1974). The relationship between variable selection and data augmentation and a
+    method for prediction. *Technometrics, 16*(1), 125-127.
+    https://doi.org/10.1080/00401706.1974.10489157
 
-    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
-    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein,
+    S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F.,
+    & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial,
+    hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    https://doi.org/10.1111/ecog.02881
     """
     errors = {}
     fit_fails = []
@@ -343,6 +347,7 @@ def mlm_icc(results):
     ----------
     Nakagawa, S., & Schielzeth, H. (2010). Repeatability for Gaussian and non-Gaussian data: A
     practical guide for biologists. *Biological Reviews, 85*(4), 935-956.
+    https://doi.org/10.1111/j.1469-185x.2010.00141.x
     """
     var_random = _random_effects_variance(results)
     var_resid = results.scale  # Residual variance
@@ -384,12 +389,12 @@ def mlm_r_sq(results):
 
     References
     ----------
-    Nakagawa, S., & Schielzeth, H. (2013). A general and simple method for obtaining R²
-    from generalized linear mixed-effects models. *Methods in Ecology and Evolution, 4*(2),
-    133-142.
+    Nakagawa, S., & Schielzeth, H. (2013). A general and simple method for obtaining R² from
+    generalized linear mixed-effects models. *Methods in Ecology and Evolution, 4*(2), 133-142.
+    https://doi.org/10.1111/j.2041-210x.2012.00261.x
 
-    Johnson, P. C. D. (2014). Extension of Nakagawa & Schielzeth's R²GLMM to random slopes
-    models. *Methods in Ecology and Evolution, 5*(9), 944-946.
+    Johnson, P. C. D. (2014). Extension of Nakagawa & Schielzeth's R²GLMM to random slopes models.
+    *Methods in Ecology and Evolution, 5*(9), 944-946. https://doi.org/10.1111/2041-210X.12225
     """
     # Fixed effects variance
     var_fixed = np.var(np.dot(results.model.exog, results.fe_params.values))
@@ -453,6 +458,7 @@ def base_metrics(results):
     References
     ----------
     Rousseeuw, P. J., & Leroy, A. M. (1987). *Robust regression and outlier detection*. Wiley.
+    https://doi.org/10.1002/0471725382
     """
 
     outputs = {}
@@ -1585,9 +1591,10 @@ def lm_tests(
     Statistics, 17*(2), 624-642. https://doi.org/10.1214/aos/1176347130
 
     McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models* (2nd ed.). Chapman & Hall.
+    https://doi.org/10.1007/978-1-4899-3242-6
 
-    Nobre, J. S., & Singer, J. M. (2007). Residual analysis for linear mixed models. *Biometrical
-    Journal, 49*(6), 863-875. https://doi.org/10.1002/bimj.200610341
+    Santos Nobre, J., & da Motta Singer, J. (2007). Residual analysis for linear mixed models.
+    *Biometrical Journal, 49*(6), 863-875. https://doi.org/10.1002/bimj.200610341
 
     Pregibon, D. (1980). Goodness of link tests for generalized linear models. *Applied Statistics,
     29*(1), 15-23. https://doi.org/10.2307/2346405
@@ -1595,9 +1602,9 @@ def lm_tests(
     Pregibon, D. (1981). Logistic regression diagnostics. *The Annals of Statistics, 9*(4), 705-724.
     https://doi.org/10.1214/aos/1176345513
 
-    Ramsey, J. B. (1969). Tests for specification errors in classical linear least-squares regression
-    analysis. *Journal of the Royal Statistical Society: Series B, 31*(2), 350-371.
-    https://doi.org/10.1111/j.2517-6161.1969.tb00796.x
+    Ramsey, J. B. (1969). Tests for specification errors in classical linear least-squares
+    regression analysis. *Journal of the Royal Statistical Society Series B: Statistical
+    Methodology, 31*(2), 350-371. https://doi.org/10.1111/j.2517-6161.1969.tb00796.x
 
     Rousseeuw, P. J., & Leroy, A. M. (1987). *Robust Regression and Outlier Detection*. Wiley.
     https://doi.org/10.1002/0471725382

@@ -905,8 +905,11 @@ def pred_metrics(
 
     References
     ----------
-    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
-    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein,
+    S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F.,
+    & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial,
+    hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    https://doi.org/10.1111/ecog.02881
     """
     if group not in ("entity", "time"):
         raise ValueError("group must be 'entity' or 'time'.")
@@ -1153,17 +1156,20 @@ def plm(
     References
     ----------
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
 
-    Elhorst, J. P. (2003). Specification and estimation of spatial panel data models.
-    *International Regional Science Review, 26*(3), 244-268.
+    Elhorst, J. P. (2003). Specification and estimation of spatial panel data models. *International
+    Regional Science Review, 26*(3), 244-268. https://doi.org/10.1177/0160017603253791
 
     Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
-    Springer.
+    Springer. https://doi.org/10.1007/978-3-642-40340-8
 
-    Kapoor, M., Kelejian, H. H., & Prucha, I. R. (2007). Panel data models with spatially
-    correlated error components. *Journal of Econometrics, 140*(1), 97-130.
+    Kapoor, M., Kelejian, H. H., & Prucha, I. R. (2007). Panel data models with spatially correlated
+    error components. *Journal of Econometrics, 140*(1), 97-130.
+    https://doi.org/10.1016/j.jeconom.2006.09.004
 
-    Baltagi, B. H. *Econometric analysis of panel data*. Wiley.
+    Baltagi, B. H. (2021). *Econometric analysis of panel data* (6th ed.). Springer.
+    https://doi.org/10.1007/978-3-030-53953-5
 
     Examples
     --------
@@ -1417,8 +1423,10 @@ def plm_effects(
     ----------
     LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
     https://doi.org/10.1201/9781420064254
+    https://doi.org/10.1201/9781420064254
 
-    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*. Springer.
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
+    Springer. https://doi.org/10.1007/978-3-642-40340-8
     https://doi.org/10.1007/978-3-642-40340-8
 
     Examples
@@ -1531,8 +1539,8 @@ def hausman(r_fe, r_re):
 
     References
     ----------
-    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6),
-    1251-1271.
+    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6), 1251-1271.
+    https://doi.org/10.2307/1913827
     """
     t_fe, t_re = _param_table(r_fe), _param_table(r_re)
     common = [n for n in _slopes(t_fe.index) if n in t_re.index]
@@ -1585,8 +1593,8 @@ def mundlak(r_re):
 
     References
     ----------
-    Mundlak, Y. (1978). On the pooling of time series and cross section data.
-    *Econometrica, 46*(1), 69-85.
+    Mundlak, Y. (1978). On the pooling of time series and cross section data. *Econometrica, 46*(1),
+    69-85. https://doi.org/10.2307/1913646
     """
     panel, spec = getattr(r_re, "plm_panel", None), getattr(r_re, "plm_spec", None)
     if panel is None or spec is None:
@@ -1806,20 +1814,23 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
 
     References
     ----------
-    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6),
-    1251-1271.
+    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6), 1251-1271.
+    https://doi.org/10.2307/1913827
 
-    Mundlak, Y. (1978). On the pooling of time series and cross section data.
-    *Econometrica, 46*(1), 69-85.
+    Mundlak, Y. (1978). On the pooling of time series and cross section data. *Econometrica, 46*(1),
+    69-85. https://doi.org/10.2307/1913646
 
-    Baltagi, B. H., Song, S. H., & Koh, W. (2003). Testing panel data regression models with
-    spatial error correlation. *Journal of Econometrics, 117*(1), 123-150.
+    Baltagi, B. H., Song, S. H., & Koh, W. (2003). Testing panel data regression models with spatial
+    error correlation. *Journal of Econometrics, 117*(1), 123-150.
+    https://doi.org/10.1016/s0304-4076(03)00120-9
 
-    Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications
-    to model specification in econometrics. *Review of Economic Studies, 47*(1), 239-253.
+    Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications to
+    model specification in econometrics. *The Review of Economic Studies, 47*(1), 239-253.
+    https://doi.org/10.2307/2297111
 
-    Anselin, L., Le Gallo, J., & Jayet, H. (2008). Spatial panel econometrics. In L. Mátyás &
-    P. Sevestre (Eds.), *The econometrics of panel data* (pp. 625-660). Springer.
+    Anselin, L., Le Gallo, J., & Jayet, H. (2008). Spatial panel econometrics. In L. Mátyás & P.
+    Sevestre (Eds.), *The econometrics of panel data* (pp. 625-660). Springer.
+    https://doi.org/10.1007/978-3-540-75892-1_19
     """
     by_name, variants = {}, {}
     for r in results:

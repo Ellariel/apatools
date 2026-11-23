@@ -7,6 +7,11 @@ Conventions
 * ``method`` is ``"two-tailed"`` (default) or any other string for one-tailed.
 * ``z`` denotes a standard-normal deviate unless the name says "Fisher's z".
 * All conversions are approximate.
+
+References
+----------
+Cohen, J. (1988). *Statistical power analysis for the behavioral sciences* (2nd ed.). Lawrence Erlbaum
+Associates. (Reprinted 2013 by Routledge, https://doi.org/10.4324/9780203771587)
 """
 
 import numpy as np
@@ -42,8 +47,8 @@ def d_from_r(r, n_groups=2):
 
     References
     ----------
-    Borenstein, M., Hedges, L. V., Higgins, J. P. T., & Rothstein, H. R. (2009).
-    Introduction to Meta-Analysis, ch. 7. Wiley.
+    Borenstein, M., Hedges, L. V., Higgins, J. P. T., & Rothstein, H. R. (2009). Introduction to
+    Meta-Analysis, ch. 7. Wiley. https://doi.org/10.1002/9780470743386
 
     https://stats.stackexchange.com/questions/390549
     """
@@ -75,8 +80,8 @@ def r_from_d(d, n_groups=2):
 
     References
     ----------
-    Borenstein, M., Hedges, L. V., Higgins, J. P. T., & Rothstein, H. R. (2009).
-    Introduction to Meta-Analysis, ch. 7. Wiley.
+    Borenstein, M., Hedges, L. V., Higgins, J. P. T., & Rothstein, H. R. (2009). Introduction to
+    Meta-Analysis, ch. 7. Wiley. https://doi.org/10.1002/9780470743386
 
     https://easystats.github.io/effectsize/reference/d_to_r.html
     """
@@ -667,8 +672,8 @@ def p_from_ci(estimate, cil, cir, n=None, conf_level=0.95, method="two-tailed"):
 
     References
     ----------
-    Altman, D. G., & Bland, J. M. (2011). How to obtain the P value from a
-    confidence interval. BMJ, 343, d2304.
+    Altman, D. G., & Bland, J. M. (2011). How to obtain the P value from a confidence interval. BMJ,
+    343, d2304. https://doi.org/10.1136/bmj.d2304
 
     https://genometoolbox.blogspot.com/2013/11/how-to-estimate-p-value-from-confidence.html
     """
@@ -713,8 +718,8 @@ def ci_from_r(r, n, conf_level=0.95, method="two-tailed"):
 
     References
     ----------
-    Fisher, R. A. (1921). On the "probable error" of a coefficient of
-    correlation deduced from a small sample. Metron, 1, 3-32.
+    Fisher, R. A. (1921). On the "probable error" of a coefficient of correlation deduced from a
+    small sample. Metron.
 
     https://en.wikipedia.org/wiki/Fisher_transformation
     """
@@ -993,15 +998,15 @@ def unbiased_z(r, n):
 
     References
     ----------
-    Olkin, I., & Pratt, J. W. (1958). Unbiased estimation of certain
-    correlation coefficients. Annals of Mathematical Statistics, 29(1), 201-211.
+    Olkin, I., & Pratt, J. W. (1958). Unbiased estimation of certain correlation coefficients. The
+    Annals of Mathematical Statistics, 29(1), 201-211. https://doi.org/10.1214/aoms/1177706717
 
     Hedges, L. V., & Olkin, I. (1985). Statistical Methods for Meta-Analysis.
     Academic Press.
 
-    Nakagawa, S., & Cuthill, I. C. (2007). Effect size, confidence interval and
-    statistical significance: a practical guide for biologists. Biological
-    Reviews, 82(4), 591-605.
+    Nakagawa, S., & Cuthill, I. C. (2007). Effect size, confidence interval and statistical
+    significance: a practical guide for biologists. Biological Reviews, 82(4), 591-605.
+    https://doi.org/10.1111/j.1469-185x.2007.00027.x
     """
     r_u = r * (1 + (1 - r * r) / (2 * (n - 3)))
     return np.atanh(r_u)
@@ -1073,11 +1078,12 @@ def logit_from_cohen_d(d):
 
     References
     ----------
-    Hasselblad, V., & Hedges, L. V. (1995). Meta-analysis of screening and
-    diagnostic tests. Psychological Bulletin, 117(1), 167-178.
+    Hasselblad, V., & Hedges, L. V. (1995). Meta-analysis of screening and diagnostic tests.
+    Psychological Bulletin, 117(1), 167-178. https://doi.org/10.1037//0033-2909.117.1.167
 
-    Chinn, S. (2000). A simple method for converting an odds ratio to effect
-    size for use in meta-analysis. Statistics in Medicine, 19(22), 3127-3131.
+    Chinn, S. (2000). A simple method for converting an odds ratio to effect size for use in
+    meta-analysis. Statistics in Medicine, 19(22), 3127-3131.
+    https://doi.org/10.1002/1097-0258(20001130)19:22<3127::aid-sim784>3.0.co;2-m
     """
     return np.pi * d / np.sqrt(3)
 

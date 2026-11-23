@@ -45,3 +45,11 @@ are what you get.
 
 `tests/test_psm.py` runs the example of psmpy (the `mtcars` data) and checks that matching reduces the standardized
 differences and that a fixed seed reproduces the result. There is no comparison with R.
+
+## Literature
+
+The references cited in the docstrings of the functions of this module (they are collected from the docstrings when the
+documentation is built; the software that does the work is on the [software page](../software.md)).
+
+```{include} ../_generated/references_psm.md
+```

@@ -10,8 +10,8 @@ Two things set the documentation apart:
 * **Every module page says what the package decided for you.** Where a number depends on a convention (degrees of
   freedom, which variance is used, which test variant), the page says which one and where it differs from the
   benchmark in R. Read the *Design choices and caveats* section of a module before you cite its numbers.
-* **The literature is part of the documentation.** The [literature page](literature.md) lists every reference cited in
-  the docstrings, and the [software page](software.md) says what to cite for each engine.
+* **The literature is part of the documentation.** Every module page ends with the references cited in the docstrings
+  of its functions, and the [software page](software.md) says what to cite for each engine.
 
 ```{toctree}
 :maxdepth: 2
@@ -28,7 +28,6 @@ validation
 :caption: Reference
 
 api/index
-literature
 software
 changelog
 contributing

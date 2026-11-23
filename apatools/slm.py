@@ -133,6 +133,7 @@ def base_metrics(results):
     References
     ----------
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
     """
 
     outputs = {}
@@ -249,10 +250,14 @@ def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
 
     References
     ----------
-    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
-    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein,
+    S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F.,
+    & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial,
+    hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    https://doi.org/10.1111/ecog.02881
 
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
     """
     y = np.asarray(Y, dtype=float).reshape(len(Y), -1)
     x = np.asarray(X, dtype=float)
@@ -402,6 +407,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     References
     ----------
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
 
     Examples
     --------
@@ -766,7 +772,7 @@ def slm_tests(
     coefficient variation. *Econometrica, 47*(5), 1287-1294. https://doi.org/10.2307/1911963
 
     Burridge, P. (1980). On the Cliff-Ord test for spatial correlation. *Journal of the Royal
-    Statistical Society: Series B, 42*(1), 107-108.
+    Statistical Society Series B: Statistical Methodology, 42*(1), 107-108.
     https://doi.org/10.1111/j.2517-6161.1980.tb01108.x
 
     Cliff, A., & Ord, K. (1972). Testing for spatial autocorrelation among regression residuals.
@@ -1018,8 +1024,10 @@ def slm_effects(
     ----------
     LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
     https://doi.org/10.1201/9781420064254
+    https://doi.org/10.1201/9781420064254
 
-    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*. Springer.
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
+    Springer. https://doi.org/10.1007/978-3-642-40340-8
     https://doi.org/10.1007/978-3-642-40340-8
 
     Examples

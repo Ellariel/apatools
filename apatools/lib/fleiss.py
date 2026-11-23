@@ -44,11 +44,12 @@ def fleiss_kappa(df, return_per_item_agreement=False, method="two-tailed"):
     References
     ----------
     Fleiss, J. L. (1971). Measuring nominal scale agreement among many raters. Psychological
-    Bulletin, 76(5), 378-382.
-    Fleiss, J. L., Nee, J. C. M., & Landis, J. R. (1979). Large sample variance of kappa in the
-    case of different sets of raters. Psychological Bulletin, 86(5), 974-977.
-    Landis, J. R., & Koch, G. G. (1977). The measurement of observer agreement for categorical
-    data. Biometrics, 33(1), 159-174.
+    Bulletin, 76(5), 378-382. https://doi.org/10.1037/h0031619
+    Fleiss, J. L., Nee, J. C. M., & Landis, J. R. (1979). Large sample variance of kappa in the case
+    of different sets of raters. Psychological Bulletin, 86(5), 974-977.
+    https://doi.org/10.1037/0033-2909.86.5.974
+    Landis, J. R., & Koch, G. G. (1977). The measurement of observer agreement for categorical data.
+    Biometrics, 33(1), 159-174. https://doi.org/10.2307/2529310
     """
     n_raters = df.shape[1]
     complete = df.notna().all(axis=1).to_numpy()

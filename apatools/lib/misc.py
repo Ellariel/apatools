@@ -33,6 +33,7 @@ def bootstrap(*args, func=np.mean, conf_level=0.95, n_rep=1000, seed=13):
     References
     ----------
     Efron, B., & Tibshirani, R. J. (1993). An Introduction to the Bootstrap. Chapman & Hall.
+    https://doi.org/10.1007/978-1-4899-4541-9
     """
     rng = np.random.default_rng(seed)  # local generator: numpy's global random state is untouched
     data = np.asanyarray(args)
@@ -74,9 +75,9 @@ def gini(values, drop_zeros=False, tolerance=10**-6):
 
     References
     ----------
-    Gini, C. (1912). Variabilita e mutabilita. Bologna: Tipografia di Paolo Cuppini.
+    Gini, C. (1912). Variabilità e mutabilità. Bologna: Tipografia di Paolo Cuppini.
     Lorenz, M. O. (1905). Methods of measuring the concentration of wealth. Publications of the
-    American Statistical Association, 9(70), 209-219.
+    American Statistical Association, 9(70), 209-219. https://doi.org/10.1080/15225437.1905.10503443
     Sen, A. (1973). On Economic Inequality. Oxford: Clarendon Press.
     """
     # https://github.com/oliviaguest/gini
@@ -128,8 +129,8 @@ def gini_from_percentiles(values, percentiles, values_are_shares=False):
     References
     ----------
     Lorenz, M. O. (1905). Methods of measuring the concentration of wealth. Publications of the
-    American Statistical Association, 9(70), 209-219.
-    Gini, C. (1912). Variabilita e mutabilita. Bologna: Tipografia di Paolo Cuppini.
+    American Statistical Association, 9(70), 209-219. https://doi.org/10.1080/15225437.1905.10503443
+    Gini, C. (1912). Variabilità e mutabilità. Bologna: Tipografia di Paolo Cuppini.
     """
 
     x = np.array(list(percentiles)).astype("float64").flatten() / 100
@@ -237,6 +238,7 @@ def htmt_ratio(data, construct_a, construct_b, method="spearman"):
     Kline, R. B. (2011). Principles and Practice of Structural Equation Modeling (3rd ed.). Guilford.
     Gold, A. H., Malhotra, A., & Segars, A. H. (2001). Knowledge management: An organizational
     capabilities perspective. Journal of Management Information Systems, 18(1), 185-214.
+    https://doi.org/10.1080/07421222.2001.11045669
     """
     corr = (
         data[construct_a + construct_b]
