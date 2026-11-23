@@ -358,7 +358,7 @@ def test_slm_effects_formatting_and_options(cross_section):
     assert (
         table["estimate"].equals(table["estimate"].round(2))
         and "sig" in table
-        and table["p-value"].dtype == object
+        and pd.api.types.is_string_dtype(table["p-value"])
     )
     empty = slm_effects([], w)
     assert (
