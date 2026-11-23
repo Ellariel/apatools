@@ -67,6 +67,7 @@ from ._common import (
     round_columns,
     w_subset_rows,
 )
+from ._impacts import effects_table
 from .format import format_p, format_r
 from .r.splm import SplmFit, fit_splm
 
@@ -542,6 +543,14 @@ def _clean_names(names):
     return [str(n).strip() for n in names]
 
 
+def _rename_lag(r, names):
+    """spreg calls the lag coefficient ``W_<name of y>``; call it ``rho``, like the other backends."""
+    if not type(r).__name__.startswith("ML_Lag"):
+        return list(names)
+    name_y = r.name_y[0] if isinstance(r.name_y, (list, tuple)) else r.name_y
+    return ["rho" if n in ("W_dep_var", f"W_{name_y}") else n for n in names]
+
+
 def _param_table(r):
     """Coefficient table (coef, se, z/t, p-value, cil, cir) of a fitted result of any backend."""
     if _is_splm(r):
@@ -557,13 +566,7 @@ def _param_table(r):
     if _is_spreg(r):
         out = r.output.copy()
         out["var_names"] = _clean_names(out["var_names"])
-        if type(r).__name__.startswith("ML_Lag"):
-            # spreg names the lag coefficient "W_<name of y>"; call it rho
-            name_y = r.name_y[0] if isinstance(r.name_y, (list, tuple)) else r.name_y
-            out["var_names"] = [
-                "rho" if n in ("W_dep_var", f"W_{name_y}") else n
-                for n in out["var_names"]
-            ]
+        out["var_names"] = _rename_lag(r, out["var_names"])
         t = out.set_index("var_names").apply(to_numeric, errors="coerce")
         stat = (
             "t" if hasattr(r, "t_stat") else "z"
@@ -603,7 +606,7 @@ def _cov_frame(r):
         return r.cov
     if _is_spreg(r):
         vm = np.asarray(r.vm, dtype=float)
-        names = _clean_names(r.output["var_names"])[: vm.shape[0]]
+        names = _rename_lag(r, _clean_names(r.output["var_names"]))[: vm.shape[0]]
         return DataFrame(vm, index=names, columns=names)
     return r.cov
 
@@ -1342,6 +1345,133 @@ def plm_report(
         params.index = rename_intercept(params.index, intercept_name)
         output.append(params)
     return output
+
+
+def plm_effects(
+    results,
+    w=None,
+    inference="simulation",
+    n_draws=1000,
+    seed=13,
+    conf_level=0.95,
+    traces="auto",
+    n_probes=50,
+    format_pval=False,
+    add_stars=False,
+    decimal=None,
+):
+    """
+    Direct, indirect and total effects of the regressors of the spatial lag panel models fitted with :func:`plm`.
+
+    In a spatial lag model (``slm_fe``, ``slm_re``; every backend that fits them: spreg and splm; with spreg
+    also the Durbin model of ``slx_lags``) the coefficient of a regressor is not its effect: a change in one entity
+    also changes its neighbours through ``ρWy``, and their neighbours in turn. LeSage & Pace (2009) summarize the
+    effect matrix by three averages, which Elhorst (2014) uses for panels as well (the weights ``W`` of the entities
+    apply in every period): the **direct** effect (the change of an entity caused by a change of its own regressor,
+    including the feedback through its neighbours), the **total** effect (the change of an entity caused by a unit
+    change of the regressor in *all* entities) and the **indirect** effect, their difference (the spillover). The
+    averages are computed from the traces of the powers of ``W``, without inverting ``I - ρW``; for the Durbin model
+    the effect matrix is ``(I - ρW)⁻¹ (β_k I + θ_k W)``.
+
+    Parameters
+    ----------
+    results : list
+        Fitted models from :func:`plm`. Only the spatial lag models have these effects; the others are skipped
+        with a warning (the coefficients of the spatial error models already are the direct and total effects).
+    w : libpysal.weights.W, optional
+        The weights of the entities; by default those stored with the results (the panel's).
+    inference : {"simulation", "analytic"}, default "simulation"
+        How the standard errors, z values, p-values and confidence intervals are obtained. ``"simulation"``:
+        LeSage & Pace's simulation, ``n_draws`` draws of the coefficients and ``ρ`` from their estimated joint
+        normal distribution; the standard error is the standard deviation of the effects of the draws and the
+        confidence interval is made of their percentiles (so it can be asymmetric). ``"analytic"``: the delta method
+        with the gradient of the trace series (the interval is estimate ± z · se).
+    n_draws, seed, conf_level, traces, n_probes, format_pval, add_stars, decimal
+        As in :func:`apatools.slm.slm_effects`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per model, regressor and effect: the columns ``model`` (the model name; a repeated one gets the
+        suffix ``_2``, ...), ``variable``, ``effect`` (``"Direct"``, ``"Indirect"``, ``"Total"``), ``estimate``,
+        ``se``, ``z``, ``p-value``, ``cil``, ``cir`` and optionally ``sig``.
+
+    Notes
+    -----
+    The constant has no effect and is left out, as are the period effects of ``effects="time"`` / ``"twoway"``
+    (they are not regressors). The standard errors use the covariance matrix of the coefficients and ``ρ`` of the
+    backend: spreg's covers the coefficients and ``ρ`` jointly, that of splm treats ``ρ`` as uncorrelated with the
+    coefficients, so the standard errors of the indirect and total effects differ somewhat between the backends.
+    spreg's estimates of an entity-effects model are those of the within estimator.
+
+    The delta method (``inference="analytic"``) treats the effects as linear in the estimates. That holds when
+    ``ρ`` is estimated precisely; with few units and a large ``ρ`` the standard errors of the indirect and total
+    effects can be far too small (in a 64-unit example with ρ = 0.6 the analytic standard error of an indirect effect
+    was 0.44, against 1.48 by simulation with 100,000 draws and 1.43 in R's ``impacts``), so prefer the simulation
+    then. The direct effect is much less sensitive. The simulated standard errors of the indirect and total effects
+    are noisy in the same situation, because a few draws of ``ρ`` near its bound give huge effects: in that example
+    the standard error of the indirect effect was 1.03 with 5000 draws and 1.48 with 100,000 (R's own simulation
+    behaves the same way). Raise ``n_draws`` and check that the result is stable with another ``seed``.
+
+    References
+    ----------
+    LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
+    https://doi.org/10.1201/9781420064254
+
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*. Springer.
+    https://doi.org/10.1007/978-3-642-40340-8
+
+    Examples
+    --------
+    >>> results, metrics = plm(df, "y", ["x1", "x2"], w=w, entity="county", time="year", model="slm_fe")  # doctest: +SKIP
+    >>> plm_effects(results, inference="analytic", decimal=3)  # doctest: +SKIP
+    """
+    entries, seen = [], {}
+    for r in results:
+        name = _model_name(r)
+        table = _param_table(r)
+        if "rho" not in table.index:
+            reason = (
+                "the coefficients of a spatial error model already are the direct and total effects"
+                if "lambda" in table.index
+                else "it has no spatial lag parameter"
+            )
+            warnings.warn(
+                f"Model '{name}' has no direct and indirect effects ({reason}); skipped.",
+                UserWarning,
+            )
+            continue
+        if w is None:
+            w = getattr(getattr(r, "plm_panel", None), "w", None)
+        cov = _cov_frame(r)
+        names = [n for n in table.index if n in cov.index]
+        seen[name] = seen.get(name, 0) + 1
+        label = name if seen[name] == 1 else f"{name}_{seen[name]}"
+        entries.append(
+            (
+                label,
+                names,
+                table.loc[names, "coef"].to_numpy(),
+                cov.loc[names, names].to_numpy(),
+            )
+        )
+    if entries and w is None:
+        raise ValueError(
+            "The spatial weights `w` are needed (the results do not carry them)."
+        )
+    return effects_table(
+        entries,
+        w,
+        inference,
+        n_draws,
+        seed,
+        conf_level,
+        traces,
+        n_probes,
+        format_pval,
+        add_stars,
+        decimal,
+    )
 
 
 #################

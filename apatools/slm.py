@@ -27,6 +27,7 @@ from ._common import (
     round_columns,
     w_subset_rows,
 )
+from ._impacts import effects_table
 from .format import format_p, format_r
 
 
@@ -930,3 +931,137 @@ def slm_tests(
         res["statistic"] = res["statistic"].round(decimal)
     format_significance(res, add_stars, format_pval)
     return res
+
+
+def slm_effects(
+    results,
+    w,
+    inference="simulation",
+    n_draws=1000,
+    seed=13,
+    conf_level=0.95,
+    traces="auto",
+    n_probes=50,
+    format_pval=False,
+    add_stars=False,
+    decimal=None,
+):
+    """
+    Direct, indirect and total effects of the regressors of the spatial lag models fitted with :func:`slm`.
+
+    In the spatial lag model ``y = ρWy + Xβ + ε`` the coefficient ``β_k`` is not the effect of regressor ``k``: a
+    change in one location also changes its neighbours through ``ρWy``, and their neighbours in turn. LeSage & Pace
+    (2009) summarize the effect matrix ``(I - ρW)⁻¹ β_k`` by three averages: the **direct** effect (the diagonal:
+    the change of a location caused by a change of its own regressor, including the feedback through its
+    neighbours), the **total** effect (the row sums: the change of a location caused by a unit change of the
+    regressor in *all* locations) and the **indirect** effect, their difference (the spillover). The averages are
+    computed from the traces of the powers of ``W`` (a series in ``ρ``), without inverting ``I - ρW``.
+
+    Parameters
+    ----------
+    results : list
+        Fitted models as returned by :func:`slm`. Only the spatial lag models (``ML_Lag``) have these effects: for
+        OLS there are no spillovers, and in the spatial error model the coefficients already are the direct and
+        total effects. Other models are skipped with a warning.
+    w : libpysal.weights.W
+        The spatial weights the models were fitted with (the results do not keep them).
+    inference : {"simulation", "analytic"}, default "simulation"
+        How the standard errors, z values, p-values and confidence intervals are obtained. ``"simulation"``:
+        LeSage & Pace's simulation, ``n_draws`` draws of ``(β, ρ)`` from their estimated joint normal distribution;
+        the standard error is the standard deviation of the effects of the draws and the confidence interval is
+        made of their percentiles (so it can be asymmetric). ``"analytic"``: the delta method with the gradient of
+        the trace series (the interval is estimate ± z · se). The two agree when ``ρ`` is estimated precisely.
+    n_draws : int, default 1000
+        Number of draws of the simulation. The standard errors of the indirect and total effects need many more
+        when ``ρ`` is large and imprecise (see the notes).
+    seed : int, default 13
+        Seed of the generator of the draws (and of the random vectors of ``traces="mc"``).
+    conf_level : float, default 0.95
+        Confidence level of the intervals (not a significance level).
+    traces : {"auto", "exact", "mc"}, default "auto"
+        How the traces of the powers of ``W`` are computed: ``"exact"`` from the eigenvalues of the dense matrix
+        (cost ``n³``), ``"mc"`` with Hutchinson's estimator (``n_probes`` random vectors; for large ``n``),
+        ``"auto"`` exact for up to 2000 units.
+    n_probes : int, default 50
+        Number of random vectors of ``traces="mc"``.
+    format_pval : bool or callable, default False
+        ``True`` formats the p-values as APA strings (``".033"``, ``"<.001"``); a callable formats each p-value.
+    add_stars : bool or callable, default False
+        ``True`` adds a ``sig`` column with significance stars (computed from the numeric p-values).
+    decimal : int, optional
+        Round ``estimate``, ``se``, ``cil`` and ``cir`` to this many decimals (``None``: no rounding).
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per model, regressor and effect: the columns ``model`` (``"slm"``; a repeated model gets the suffix
+        ``_2``, ...), ``variable``, ``effect`` (``"Direct"``, ``"Indirect"``, ``"Total"``), ``estimate``, ``se``,
+        ``z``, ``p-value``, ``cil``, ``cir`` and optionally ``sig``. ``pivot`` it for a wide table.
+
+    Notes
+    -----
+    The constant has no effect and is left out. The standard errors use the covariance matrix of ``(β, ρ)`` that
+    spreg reports (the information matrix, including the covariance between the coefficients and ``ρ``). The
+    effects are *average* effects: they do not say how the effect differs between locations. The indirect effect
+    is usually much less precise than the direct one.
+
+    The delta method (``inference="analytic"``) treats the effects as linear in the estimates. That holds when
+    ``ρ`` is estimated precisely; with few units and a large ``ρ`` the standard errors of the indirect and total
+    effects can be far too small (in a 64-unit example with ρ = 0.6 the analytic standard error of an indirect effect
+    was 0.44, against 1.48 by simulation with 100,000 draws and 1.43 in R's ``impacts``), so prefer the simulation
+    then. The direct effect is much less sensitive. The simulated standard errors of the indirect and total effects
+    are noisy in the same situation, because a few draws of ``ρ`` near its bound give huge effects: in that example
+    the standard error of the indirect effect was 1.03 with 5000 draws and 1.48 with 100,000 (R's own simulation
+    behaves the same way). Raise ``n_draws`` and check that the result is stable with another ``seed``.
+
+    References
+    ----------
+    LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
+    https://doi.org/10.1201/9781420064254
+
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*. Springer.
+    https://doi.org/10.1007/978-3-642-40340-8
+
+    Examples
+    --------
+    >>> results, metrics = slm(df, "y", ["x1", "x2"], w, model=["ols", "slm"])  # doctest: +SKIP
+    >>> slm_effects(results, w, inference="analytic", decimal=3)  # doctest: +SKIP
+    """
+    entries, seen = [], {}
+    for r in results:
+        if type(r) is spr.ML_Lag:
+            names = [str(n).strip() for n in r.name_x]
+            names[-1] = "rho"  # spreg calls the lag coefficient W_<name of y>
+            seen["slm"] = seen.get("slm", 0) + 1
+            label = "slm" if seen["slm"] == 1 else f"slm_{seen['slm']}"
+            entries.append(
+                (
+                    label,
+                    names,
+                    np.asarray(r.betas, dtype=float).ravel(),
+                    np.asarray(r.vm, dtype=float),
+                )
+            )
+        elif type(r) is spr.ML_Error:
+            warnings.warn(
+                "The spatial error model has no spillover effects: its coefficients already are the direct and total effects; skipped.",
+                UserWarning,
+            )
+        else:
+            warnings.warn(
+                f"{type(r).__name__} has no spatial lag parameter, so it has no direct and indirect effects; skipped.",
+                UserWarning,
+            )
+    return effects_table(
+        entries,
+        w,
+        inference,
+        n_draws,
+        seed,
+        conf_level,
+        traces,
+        n_probes,
+        format_pval,
+        add_stars,
+        decimal,
+    )

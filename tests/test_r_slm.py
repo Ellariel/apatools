@@ -161,3 +161,48 @@ def test_lr_test_of_the_spatial_parameter_matches_loglik_difference(
     assert tests.loc[(model, f"LR test of {spatial}"), "statistic"] == pytest.approx(
         2 * (ll[name] - ll["ols"]), rel=1e-7
     )
+
+
+@pytest.fixture(scope="module")
+def impacts_reference(data):
+    """spatialreg::impacts of the spatial lag model: point estimates and standard errors of its simulation."""
+    df, _, matrix, *_ = data
+    script = """
+lw <- mat2listw(W, style = "W"); lag <- lagsarlm(y ~ x1 + x2, d, lw)
+set.seed(1); imp <- impacts(lag, listw = lw, R = 5000)
+s <- summary(imp, zstats = TRUE, short = TRUE)
+ref <- data.frame(variable = c("x1", "x2"), d = imp$res$direct, i = imp$res$indirect, t = imp$res$total,
+  se_d = s$semat[, "Direct"], se_i = s$semat[, "Indirect"], se_t = s$semat[, "Total"])
+"""
+    out = run_r(
+        script,
+        frames={"d": df},
+        matrices={"W": matrix},
+        outputs=["ref"],
+        packages=["spdep", "spatialreg"],
+    )
+    return out["ref"].set_index("variable")
+
+
+def test_effects_of_the_spatial_lag_model_match_spatialreg(data, impacts_reference):
+    from apatools.slm import slm_effects
+
+    _, w, _, results, _ = data
+    ref = impacts_reference
+    simulated = slm_effects(
+        results[1:2], w, inference="simulation", n_draws=5000
+    ).pivot(index="variable", columns="effect", values="se")
+    analytic = slm_effects(results[1:2], w, inference="analytic").pivot(
+        index="variable", columns="effect", values="estimate"
+    )
+    # the point estimates: the same numbers as R's (exact inverse of the weights)
+    for effect, column in (("Direct", "d"), ("Indirect", "i"), ("Total", "t")):
+        np.testing.assert_allclose(analytic[effect], ref[column], atol=1e-6)
+    # the standard errors of the simulation, which has noise (5000 draws each) and uses spreg's covariance matrix
+    for effect, column in (("Direct", "se_d"), ("Indirect", "se_i"), ("Total", "se_t")):
+        np.testing.assert_allclose(simulated[effect], ref[column], rtol=0.15)
+    # the delta method for the direct effect (the indirect and total effects are less linear in rho: see the docstring)
+    se = slm_effects(results[1:2], w, inference="analytic").pivot(
+        index="variable", columns="effect", values="se"
+    )
+    np.testing.assert_allclose(se["Direct"], ref["se_d"], rtol=0.12)

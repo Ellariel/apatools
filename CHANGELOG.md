@@ -3,6 +3,12 @@
 ## 0.3.0
 
 ### Added
+- `slm_effects` and `plm_effects`: the direct, indirect (spillover) and total effects of the regressors of the spatial
+  lag models (`slm`; `slm_fe` / `slm_re` of spreg and splm; with spreg also the Durbin model of `slx_lags`) after LeSage &
+  Pace (2009), with standard errors, z values, p-values and confidence intervals from LeSage & Pace's simulation or
+  the delta method (`inference="simulation"` / `"analytic"`). The averages are series in the traces of the powers of
+  `W` (exact from the eigenvalues, or Hutchinson's estimator for large `n`), no inverse is needed. The point
+  estimates equal the dense inverse, spreg's multipliers and R's `spatialreg::impacts` / `splm::impacts`.
 - `plm(backend="splm")`: the R packages *plm* (`pooled`, `fe`, `re`) and *splm* (`slm_fe`, `slm_re`, `sem_pooled`,
   `sem_fe`, `sem_re`; ML) as the engine of the panel models, the way lavaan is the engine of `sem`; *spdep* turns the
   weights into R's. The results (`SplmFit`) feed `plm_report`, `base_metrics`, `plm_tests`, `hausman` and `mundlak`

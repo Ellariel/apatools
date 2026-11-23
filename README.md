@@ -151,6 +151,22 @@ print(results_rep, metrics)
 #### Diagnostic tests: `slm_tests`
 `slm_tests(results, w)` collects the usual diagnostics of the fitted models in one table (columns `test`, `model`, `statistic`, `df`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions and the need for a spatial term, not the quality of the fit.
 
+#### Direct, indirect and total effects
+In the spatial lag model the coefficient of a regressor is not its effect: a change in one location spills over to its neighbours through `ρWy`. `slm_effects(results, w)` reports, for every regressor of the spatial lag models, the **direct** effect (on the location itself, including the feedback through the neighbours), the **total** effect (a unit change of the regressor in all locations) and the **indirect** effect, the spillover (total minus direct), as the averages of LeSage and Pace (2009), with standard errors, z values, p-values and confidence intervals:
+
+```python
+from apatools.slm import slm, slm_effects
+results, metrics = slm(df, "y", ["x1", "x2"], w=w, model=["ols", "slm"])
+effects = slm_effects(results, w, decimal=3, add_stars=True, format_pval=True)   # simulation, 1000 draws (default)
+effects = slm_effects(results, w, inference="analytic")                         # delta method
+# the first call returns (the second one the same columns, unformatted):
+#   model variable    effect  estimate     se      z p-value    cil    cir  sig
+#     slm       x1    Direct     0.814  0.130  6.282   <.001  0.565  1.064  ***
+#     slm       x1  Indirect     0.184  0.177  1.043    .297 -0.046  0.605
+#     slm       x1     Total     0.998  0.241  4.147   <.001  0.626  1.536  ***
+```
+`inference="simulation"` draws `n_draws` times from the estimated joint normal distribution of the coefficients and `ρ` (LeSage and Pace) and takes the standard deviation and the percentiles of the effects of the draws; `inference="analytic"` is the delta method with the gradient of the same series. Both use the traces of the powers of `W` (a series in `ρ`) instead of the inverse of `I - ρW`; `traces="mc"` estimates them with random vectors for large `n` (`"auto"`: exact up to 2000 units). With few units and a large `ρ` the delta method can understate the standard errors of the indirect and total effects badly: prefer the simulation then. Models other than the spatial lag model (OLS; in the spatial error model the coefficients already are the direct and total effects) are skipped with a warning. The point estimates equal R's `spatialreg::impacts` and spreg's multipliers; the standard errors agree with the simulation of `spatialreg` within the simulation noise.
+
 * **OLS**: Moran's I of the residuals, `LM-lag`, `LM-error`, their robust versions and `LM-SARMA` (Anselin et al., 1996), and Jarque-Bera (normality), Breusch-Pagan, Koenker-Bassett and White (heteroskedasticity). The spatial tests need `w`.
 * **SLM / SEM**: the z test and the likelihood-ratio test (against the OLS model among the results) of `rho` / `lambda`, Jarque-Bera of the residuals, and Moran's I of the residuals with a permutation p-value (`n_perm`, `seed`): a significant value means that spatial dependence is left in the model.
 
@@ -193,6 +209,9 @@ print(plm_tests(results))  # Hausman, Mundlak, F test of entity effects, spatial
 ```
 
 `plm_tests()` returns a tidy table: Hausman test (FE vs RE; undefined when `V_fe - V_re` is not positive definite, which is typical when the effects *are* correlated with the predictors), the regression-based Mundlak test (robust to that problem), the F test of entity effects, and, for pooled spreg or splm models with weights, the Baltagi-Song-Koh and Anselin LM tests for random effects and spatial dependence.
+
+#### Direct, indirect and total effects (`plm_effects`)
+`plm_effects(results)` does the same for the spatial lag panel models (`slm_fe`, `slm_re`) of every backend that fits them, spreg and splm, and, with spreg, for the Durbin model of `slx_lags` (effect matrix `(I - ρW)⁻¹(β_k I + θ_k W)`). The weights are those of the panel (or `w=`); the options are those of `slm_effects`. The covariance matrix of the backend is used: spreg's contains the covariance between the coefficients and `ρ`, splm's does not, so the standard errors of the indirect and total effects differ somewhat between the backends. The point estimates equal those of `splm::impacts`.
 
 #### The splm backend (R)
 `plm(df, ..., backend="splm")` fits the models with the R packages *plm* (Croissant & Millo, 2008; `pooled`, `fe`, `re`) and *splm* (Millo & Piras, 2012; the spatial ML models; *spdep* turns `w` into R's weights) and returns the same tables and metrics, so that `plm_report`, `base_metrics`, `plm_tests` and `mundlak` work unchanged; the results are `SplmFit` objects (the coefficient table, covariance matrix, residuals, R versions and warnings). Arguments of the R functions go in `<model>_model_<arg>` (e.g. `slm_fe_model_zero.policy=True`). Every model starts R (about 1-2 seconds per model for 36 entities and 6 periods; larger panels take longer, I have not timed them). Not available: the GMM models, `slx_lags` and the prediction metrics (`pred_metrics` is NaN with a warning).

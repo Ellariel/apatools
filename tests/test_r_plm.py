@@ -257,3 +257,59 @@ def test_spatial_fixed_effects_models_match_splm(
         ref.loc[spatial[1], "se"], rel=1e-2
     )
     np.testing.assert_allclose(_slopes(ours)["se"], _slopes(ref)["se"], rtol=1e-2)
+
+
+@pytest.fixture(scope="module")
+def impacts_reference(data):
+    """splm's impacts() of the spatial lag model with individual effects (point estimates, simulated errors)."""
+    _, _, frame, w = data
+    script = f"""
+d$id <- factor(d$id); d$t <- factor(d$t)
+pd <- pdata.frame(d, index = c("id", "t"))
+lw <- spdep::mat2listw(W, style = "W")
+g <- spml(y ~ x1 + x2, pd, listw = lw, model = "within", effect = "individual", lag = TRUE, spatial.error = "none")
+set.seed(1); imp <- impacts(g, listw = lw, time = {T}, R = 4000)
+s <- summary(imp, zstats = TRUE, short = TRUE)
+ref <- data.frame(variable = c("x1", "x2"), d = imp$res$direct, i = imp$res$indirect, t = imp$res$total,
+  se_d = s$semat[, "Direct"], se_i = s$semat[, "Indirect"], se_t = s$semat[, "Total"])
+"""
+    out = run_r(
+        script,
+        frames={"d": frame},
+        matrices={"W": w},
+        outputs=["ref"],
+        packages=["plm", "splm", "spdep"],
+    )
+    return out["ref"].set_index("variable")
+
+
+@pytest.mark.parametrize("backend", ["spreg", "splm"])
+def test_effects_of_the_spatial_lag_panel_model_match_splm(
+    data, impacts_reference, backend
+):
+    from apatools.plm import plm_effects
+
+    df, w, *_ = data
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        (r,), _ = fit(df, w, "slm_fe", backend=backend)
+        analytic = plm_effects([r], inference="analytic").pivot(
+            index="variable", columns="effect", values=["estimate", "se"]
+        )
+        simulated = plm_effects([r], inference="simulation", n_draws=4000).pivot(
+            index="variable", columns="effect", values="se"
+        )
+    ref = impacts_reference
+    for effect, column in (
+        ("Direct", "d"),
+        ("Indirect", "i"),
+        ("Total", "t"),
+    ):  # the same numbers as R's
+        np.testing.assert_allclose(
+            analytic["estimate"][effect],
+            ref[column],
+            atol=2e-3 if backend == "spreg" else 1e-6,
+        )
+    for effect, column in (("Direct", "se_d"), ("Indirect", "se_i"), ("Total", "se_t")):
+        np.testing.assert_allclose(simulated[effect], ref[column], rtol=0.2)
+    np.testing.assert_allclose(analytic["se"]["Direct"], ref["se_d"], rtol=0.12)
