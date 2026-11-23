@@ -32,11 +32,11 @@ def get_stars(p, p001="***", p01="**", p05="*", p10="⁺", p_=""):
     p : float or any
         The p-value. Non-numeric input (e.g. a string such as ``"< .001"`` or ``None``) is
         returned unchanged.
-    p001 : str, default "***"
+    p001 : str, default ``"***"``
         Marker for ``p < .001``.
-    p01 : str, default "**"
+    p01 : str, default ``"**"``
         Marker for ``.001 <= p < .01``.
-    p05 : str, default "*"
+    p05 : str, default ``"*"``
         Marker for ``.01 <= p < .05``.
     p10 : str, default "⁺"
         Marker for ``.05 <= p < .10`` (marginal significance, superscript plus

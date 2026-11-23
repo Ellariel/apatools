@@ -1,21 +1,14 @@
 """Bridge to R: lavaan fits models (``sem(engine="lavaan")``) and semPlot draws them
 (``sem_plot(engine="lavaan")``).
 
-R is started as a subprocess (``Rscript``) and exchanges data with Python through temporary CSV
-files, so no Python package beyond pandas is needed. Needs R with the R package ``lavaan`` (and
-``semPlot`` for the diagrams); ``Rscript`` is looked up in this order: the ``rscript`` argument, the
-environment variable ``APATOOLS_RSCRIPT``, the ``PATH``, ``R_HOME`` and the usual install locations.
-The messages of R are in English (``LANGUAGE=en``) whatever the system language; set the environment
-variable ``APATOOLS_R_LANGUAGE`` (e.g. ``de``) to get them translated.
+Needs R with the R package ``lavaan`` (and ``semPlot`` for the diagrams); see :mod:`apatools.r.bridge` for how R is
+found and called.
 
 Private: the public functions are :func:`apatools.sem.sem` and :func:`apatools.sem.sem_plot`.
 """
 
-import glob
 import json
 import os
-import shutil
-import subprocess
 import tempfile
 import warnings
 from dataclasses import dataclass, field
@@ -23,15 +16,13 @@ from pathlib import Path
 
 import numpy as np
 
-from ._deps import missing_dependency
+from .._deps import missing_dependency
+from .bridge import r_literal, r_require, run_r
 
 try:
     import pandas as pd
 except ImportError as e:  # pragma: no cover
     missing_dependency("sem", "sem", e)
-
-ENV_RSCRIPT = "APATOOLS_RSCRIPT"
-ENV_LANGUAGE = "APATOOLS_R_LANGUAGE"  # language of the messages of R; English by default
 
 # semopy's names of the estimators (``sem(method=...)``) and the lavaan estimators that correspond to them
 LAVAAN_ESTIMATORS = {
@@ -43,111 +34,6 @@ LAVAAN_ESTIMATORS = {
     "DWLS": "DWLS",
     "WLS": "WLS",
 }
-
-_MISSING_PACKAGE = "MISSING_R_PACKAGE:"
-
-
-def find_rscript(rscript=None):
-    """
-    Path of the ``Rscript`` executable.
-
-    Looks at ``rscript`` (a path or a command name), the environment variable ``APATOOLS_RSCRIPT``,
-    the ``PATH``, ``R_HOME`` and the usual install locations of Windows, macOS and Linux (the newest
-    R version on Windows). Raises ``RuntimeError`` with installation hints if R is not found.
-    """
-    candidates = []
-    for explicit in (rscript, os.environ.get(ENV_RSCRIPT)):
-        if explicit:
-            found = shutil.which(str(explicit))
-            if found:
-                return found
-            raise RuntimeError(
-                f"Rscript '{explicit}' was not found: check the path "
-                f"(argument 'rscript' or environment variable {ENV_RSCRIPT})."
-            )
-    found = shutil.which("Rscript")
-    if found:
-        return found
-    exe = "Rscript.exe" if os.name == "nt" else "Rscript"
-    if os.environ.get("R_HOME"):
-        candidates.append(os.path.join(os.environ["R_HOME"], "bin", exe))
-    candidates += sorted(glob.glob(r"C:\Program Files\R\R-*\bin\Rscript.exe"), reverse=True)
-    candidates += sorted(glob.glob(r"C:\Program Files\R\R-*\bin\x64\Rscript.exe"), reverse=True)
-    candidates += [
-        "/usr/local/bin/Rscript",
-        "/opt/homebrew/bin/Rscript",
-        "/Library/Frameworks/R.framework/Resources/bin/Rscript",
-        "/usr/bin/Rscript",
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    raise RuntimeError(
-        "R was not found (needed for engine='lavaan'). Install R from https://cran.r-project.org and the R "
-        "packages with install.packages(c('lavaan', 'semPlot')); if Rscript is not on the PATH, pass its "
-        f"location as 'rscript' or set the environment variable {ENV_RSCRIPT}."
-    )
-
-
-def r_literal(value):
-    """Python value as R code: None, bool, numbers, strings and (nested) lists / tuples of them."""
-    if value is None:
-        return "NULL"
-    if isinstance(value, (bool, np.bool_)):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, (int, np.integer)):
-        return f"{int(value)}L"
-    if isinstance(value, (float, np.floating)):
-        if np.isnan(value):
-            return "NA_real_"
-        if np.isinf(value):
-            return "Inf" if value > 0 else "-Inf"
-        return repr(float(value))
-    if isinstance(value, str):
-        return json.dumps(value)  # JSON string escapes are valid R escapes
-    if isinstance(value, (list, tuple, np.ndarray)):
-        items = [r_literal(v) for v in value]
-        scalars = all(not isinstance(v, (list, tuple, dict, np.ndarray)) for v in value)
-        return ("c(" if scalars else "list(") + ", ".join(items) + ")"
-    if isinstance(value, dict):
-        return "list(" + ", ".join(f"{json.dumps(str(k))} = {r_literal(v)}" for k, v in value.items()) + ")"
-    raise TypeError(f"Cannot pass a value of type {type(value).__name__} to R.")
-
-
-def run_r(script, workdir, rscript=None, timeout=None):
-    """Run an R script (text) in ``workdir`` with Rscript; returns the stderr text (warnings and messages)."""
-    exe = find_rscript(rscript)
-    path = Path(workdir) / "script.R"
-    path.write_text(script, encoding="utf-8")
-    try:
-        done = subprocess.run(
-            [exe, str(path)],
-            check=False,  # a failure is reported below, with the stderr of R
-            cwd=str(workdir),
-            env={**os.environ, "LANGUAGE": os.environ.get(ENV_LANGUAGE, "en")},  # English, whatever the system
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError(f"R did not finish within {timeout} seconds.") from e
-    if done.returncode != 0:
-        err = done.stderr or ""
-        for line in err.splitlines():
-            if _MISSING_PACKAGE in line:
-                package = line.split(_MISSING_PACKAGE, 1)[1].strip().strip("'\"")
-                raise ImportError(
-                    f"The R package '{package}' is not installed: run install.packages('{package}') in R."
-                )
-        raise RuntimeError("R failed:\n" + "\n".join(err.strip().splitlines()[-15:]))
-    return done.stderr or ""
-
-
-_REQUIRE = (
-    'if (!requireNamespace("%s", quietly = TRUE)) stop("' + _MISSING_PACKAGE + '%s", call. = FALSE)\n'
-)
 
 _FIT_SCRIPT = """\
 {require}
@@ -234,16 +120,21 @@ def fit_lavaan(
         extra["bootstrap"] = int(bootstrap)
     with tempfile.TemporaryDirectory(prefix="apatools_lavaan_") as tmp:
         frame = data.copy()
-        for column in frame.columns:  # R reads True / False as logical, but integers are safer
+        for (
+            column
+        ) in frame.columns:  # R reads True / False as logical, but integers are safer
             if frame[column].dtype == bool:
                 frame[column] = frame[column].astype(int)
         frame.to_csv(Path(tmp) / "data.csv", index=False, na_rep="NA", encoding="utf-8")
         script = _FIT_SCRIPT.format(
-            require=_REQUIRE % ("lavaan", "lavaan"),
+            require=r_require("lavaan"),
             dir=r_literal(Path(tmp).as_posix()),
             model=r_literal(str(formula)),
             estimator=r_literal(estimator),
-            extra="\n".join(f"extra[[{json.dumps(str(k))}]] <- {r_literal(v)}" for k, v in extra.items()),
+            extra="\n".join(
+                f"extra[[{json.dumps(str(k))}]] <- {r_literal(v)}"
+                for k, v in extra.items()
+            ),
             seed=f"set.seed({int(seed)})" if seed is not None else "",
         )
         run_r(script, tmp, rscript=rscript, timeout=timeout)
@@ -251,12 +142,17 @@ def fit_lavaan(
         measures = _csv(Path(tmp) / "fit.csv")
         info = _csv(Path(tmp) / "info.csv").iloc[0]
         latent = sorted(_csv(Path(tmp) / "latent.csv")["name"].dropna().astype(str))
-        messages = [" ".join(str(t).split()) for t in _csv(Path(tmp) / "warnings.csv")["text"].dropna()]
+        messages = [
+            " ".join(str(t).split())
+            for t in _csv(Path(tmp) / "warnings.csv")["text"].dropna()
+        ]
     for text in messages:
         warnings.warn(f"lavaan: {text}", UserWarning, stacklevel=3)
     stats, metrics = convert_lavaan(pe, ss, measures, int(info["nobs"]), latent)
     fit = LavaanFit(
-        parameters=pe.merge(ss, on=["lhs", "op", "rhs"], how="left", suffixes=("", "_std")),
+        parameters=pe.merge(
+            ss, on=["lhs", "op", "rhs"], how="left", suffixes=("", "_std")
+        ),
         fit_measures=measures.set_index("name")["value"],
         version=str(info["version"]),
         converged=bool(info["converged"]),
@@ -299,12 +195,21 @@ def convert_lavaan(pe, ss, measures, nobs, latent):
     p-value (NaN), as in the semopy output.
     """
     if "group" in pe and pe["group"].nunique() > 1:
-        raise NotImplementedError("Models with several groups are not supported by the lavaan engine.")
+        raise NotImplementedError(
+            "Models with several groups are not supported by the lavaan engine."
+        )
     keys = ["lhs", "op", "rhs"]
-    table = pe.merge(ss[keys + ["est.std", "se", "z", "pvalue"]], on=keys, how="left", suffixes=("", "_std"))
+    table = pe.merge(
+        ss[keys + ["est.std", "se", "z", "pvalue"]],
+        on=keys,
+        how="left",
+        suffixes=("", "_std"),
+    )
     table = table[table["op"].isin(["=~", "~", "~~", "~1"])].reset_index(drop=True)
     if len(table) != len(pe[pe["op"].isin(["=~", "~", "~~", "~1"])]):
-        raise RuntimeError("The parameter tables of lavaan could not be matched (duplicated parameters).")
+        raise RuntimeError(
+            "The parameter tables of lavaan could not be matched (duplicated parameters)."
+        )
     op, lhs, rhs = table["op"], table["lhs"], table["rhs"]
     loading, intercept = op == "=~", op == "~1"
     stats = pd.DataFrame(
@@ -322,7 +227,9 @@ def convert_lavaan(pe, ss, measures, nobs, latent):
             "p_std": table["pvalue_std"],
         }
     )
-    fixed = stats["std_err"].fillna(0) == 0  # lavaan reports se = 0 for fixed parameters
+    fixed = (
+        stats["std_err"].fillna(0) == 0
+    )  # lavaan reports se = 0 for fixed parameters
     stats.loc[fixed, ["std_err", "z-value", "p-value"]] = np.nan
     stats = stats[_STATS_COLUMNS].astype({"estimate": float})
     stats.attrs["latent"] = list(latent)
@@ -414,10 +321,16 @@ def semplot(
     tree (2: from left to right), ``width`` / ``height`` are in inches (by default from the number of
     variables) and ``fontsize`` scales the edge labels.
     """
-    suffix = os.path.splitext(str(save_to_file))[1].lstrip(".").lower() if save_to_file else ""
+    suffix = (
+        os.path.splitext(str(save_to_file))[1].lstrip(".").lower()
+        if save_to_file
+        else ""
+    )
     kind = suffix or str(format_fig).lower()
     if kind not in _DEVICES:
-        raise ValueError(f"Unsupported figure format '{kind}', use one of {sorted(_DEVICES)}.")
+        raise ValueError(
+            f"Unsupported figure format '{kind}', use one of {sorted(_DEVICES)}."
+        )
     device, uses_res, ext = _DEVICES[kind]
     n = max(len(order), 1)
     width = width if width is not None else max(7.0, 1.0 + 0.7 * n)
@@ -426,21 +339,23 @@ def semplot(
     if layout not in layouts:
         raise ValueError(f"Unknown layout '{layout}', use one of {layouts}.")
     with tempfile.TemporaryDirectory(prefix="apatools_semplot_") as tmp:
-        rows = [(r, "->", l, lab) for r, l, lab in edges] + [(r, "<->", l, lab) for r, l, lab in covs]
+        rows = [(r, "->", rhs, lab) for r, rhs, lab in edges] + [
+            (r, "<->", rhs, lab) for r, rhs, lab in covs
+        ]
         pd.DataFrame(rows, columns=["lhs", "edge", "rhs", "label"]).to_csv(
             Path(tmp) / "edges.csv", index=False, encoding="utf-8"
         )
-        pd.DataFrame({"name": list(order), "manifest": [n not in latent for n in order]}).to_csv(
-            Path(tmp) / "vars.csv", index=False, encoding="utf-8"
-        )
+        pd.DataFrame(
+            {"name": list(order), "manifest": [n not in latent for n in order]}
+        ).to_csv(Path(tmp) / "vars.csv", index=False, encoding="utf-8")
         script = _PLOT_SCRIPT.format(
-            require=_REQUIRE % ("semPlot", "semPlot"),
+            require=r_require("semPlot"),
             dir=r_literal(Path(tmp).as_posix()),
             outfile=r_literal(f"figure.{ext}"),
             device=device,
             width=r_literal(float(width)),
             height=r_literal(float(height)),
-            res=f", units = \"in\", res = {int(dpi)}" if uses_res else "",
+            res=f', units = "in", res = {int(dpi)}' if uses_res else "",
             layout=r_literal(layout),
             rotation=int(rotation),
             label_cex=r_literal(float(fontsize)),

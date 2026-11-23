@@ -14,20 +14,20 @@ import apatools
 # public module -> third-party packages it needs (installed by the extra of the same name)
 REQUIRES = {
     "calc": [],
-    "citation": [],
     "format": [],
-    "lm": ["pandas", "statsmodels", "lxml"],
+    "lm": ["pandas", "statsmodels"],
     "lib": ["pandas", "statsmodels"],
     "slm": ["pandas", "statsmodels", "spreg", "libpysal"],
     "plm": ["pandas", "spreg", "libpysal", "patsy"],
     "sem": ["pandas", "semopy"],
     "psm": ["pandas", "psmpy"],
+    "r": [],  # the package of the R bridge: its modules need pandas (and R) only when an R engine is used
 }
 CORE = [name for name, packages in REQUIRES.items() if not packages]
 
 # every third-party package that is not part of the core
 HEAVY = [
-    "pandas", "statsmodels", "patsy", "lxml", "spreg", "libpysal", "semopy", "psmpy",
+    "pandas", "statsmodels", "patsy", "spreg", "libpysal", "semopy", "psmpy",
     "sklearn", "linearmodels", "graphviz", "krippendorff", "matplotlib", "seaborn",
 ]  # fmt: skip
 
@@ -38,7 +38,7 @@ def installed(*packages):
 
 def run_python(code):
     """Run code in a fresh interpreter; returns the finished process."""
-    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    return subprocess.run([sys.executable, "-c", code], check=False, capture_output=True, text=True)
 
 
 def blocking(*packages):
@@ -70,12 +70,11 @@ def test_modules_import(name):
 
 
 def test_core_works_without_any_optional_package():
-    """calc, format and citation must run with pandas, statsmodels, spreg, ... all missing."""
+    """calc and format must run with pandas, statsmodels, spreg, ... all missing."""
     code = (
         blocking(*HEAVY)
         + "from apatools.calc import r_from_z, p_from_r;"
         + "from apatools.format import format_p, format_r, get_stars;"
-        + "from apatools.citation import cite;"
         + "import numpy as np;"
         + "assert abs(r_from_z(1.0) - np.tanh(1.0)) < 1e-12;"
         + "assert format_p(0.0004) == 'p < .001' and format_r(-0.5) == 'r = -.50';"

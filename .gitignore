@@ -139,3 +139,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# documentation pages generated from the code at build time (docs/_ext/apatools_docs.py)
+docs/api/
+docs/_generated/

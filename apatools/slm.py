@@ -16,6 +16,7 @@ try:
     from spreg import diagnostics_sp as spr_sp
     from statsmodels.api import add_constant
     from statsmodels.formula.formulatools import handle_formula_data
+    from statsmodels.stats.diagnostic import het_breuschpagan
 except ImportError as e:  # pragma: no cover
     missing_dependency("slm", "slm", e)
 
@@ -26,6 +27,7 @@ from ._common import (
     round_columns,
     w_subset_rows,
 )
+from ._impacts import effects_table
 from .format import format_p, format_r
 
 
@@ -125,12 +127,13 @@ def base_metrics(results):
         including ``rho``/``lambda``), ``df_resid`` (``n - k``), ``f_stat``, ``f_pvalue``,
         ``n_obs``, ``n_params`` (including the constant and ``rho``/``lambda``), ``mae`` (mean
         absolute residual ``y - predy``), ``mad`` (median absolute deviation of the residuals,
-        ``median(|e - median(e)|)``, not rescaled), ``aic``, ``bic`` (spreg's Schwarz criterion)
-        and ``llf`` (log-likelihood; spreg's ``logll``).
+        ``median(|e - median(e)|)``, not rescaled), ``aic``, ``bic`` (Schwarz criterion;
+        like spreg's, but counting ``lambda`` of the error model as a parameter) and ``llf`` (log-likelihood; spreg's ``logll``).
 
     References
     ----------
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
     """
 
     outputs = {}
@@ -140,8 +143,13 @@ def base_metrics(results):
     n_params = int(results.k)
     n_obs = int(results.n)
 
+    aic, bic = results.aic, results.schwarz
     if isinstance(results, spr.ML_Error):
         n_params += 1  # lambda counts
+        # spreg's criteria of the error model leave lambda out of k (those of the lag model count rho):
+        # count it, so that the criteria of the three models are comparable
+        aic += 2.0
+        bic += np.log(n_obs)
     df_model = n_params - 1  # predictors (+ rho / lambda), without the constant
     df_resid = n_obs - n_params  # n - k, as in spreg's OLS F-test
 
@@ -167,8 +175,8 @@ def base_metrics(results):
             "n_params": n_params,
             "mae": np.mean(np.abs(resid)),
             "mad": np.median(np.abs(resid - np.median(resid))),
-            "aic": results.aic,
-            "bic": results.schwarz,
+            "aic": aic,
+            "bic": bic,
             "llf": results.logll,
         }
     )
@@ -242,10 +250,14 @@ def pred_metrics(results, model, Y, X, w, exclude_neighbors=False, **kwargs):
 
     References
     ----------
-    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
-    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein,
+    S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F.,
+    & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial,
+    hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    https://doi.org/10.1111/ecog.02881
 
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
     """
     y = np.asarray(Y, dtype=float).reshape(len(Y), -1)
     x = np.asarray(X, dtype=float)
@@ -395,6 +407,7 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
     References
     ----------
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
 
     Examples
     --------
@@ -447,7 +460,9 @@ def slm(data, y=None, x=None, w=None, model="ols", formula=None, **kwargs):
             print(f"Formula: {y} ~ {'1 + ' if constant else ''}" + " + ".join(x))
 
         if constant:
-            X = add_constant(X)  # no effect: spreg adds the constant itself and does not duplicate it
+            X = add_constant(
+                X
+            )  # no effect: spreg adds the constant itself and does not duplicate it
     else:
         (Y, X), _, _ = handle_formula_data(data, X=None, formula=formula)
         if w is not None and len(Y) != len(data):
@@ -636,6 +651,16 @@ def slm_report(
     return output
 
 
+def _breusch_pagan(reg, robust):
+    """Breusch-Pagan (``robust=False``) or Koenker-Bassett (``robust=True``) test of an OLS fit of spreg."""
+    stat, p, _, _ = het_breuschpagan(
+        np.asarray(reg.u, dtype=float).ravel(),
+        np.asarray(reg.x, dtype=float),
+        robust=robust,
+    )
+    return {"bp": stat, "df": reg.x.shape[1] - 1, "pvalue": p}
+
+
 def _moran_permutation(e, w, n_perm, seed):
     """Moran's I of ``e`` and its two-sided permutation p-value (``n_perm`` random reorderings of ``e``)."""
     z = np.asarray(e, dtype=float).ravel()
@@ -648,12 +673,20 @@ def _moran_permutation(e, w, n_perm, seed):
 
     observed = moran(z)
     rng = np.random.default_rng(seed)
-    extreme = sum(abs(moran(rng.permutation(z))) >= abs(observed) for _ in range(n_perm))
+    extreme = sum(
+        abs(moran(rng.permutation(z))) >= abs(observed) for _ in range(n_perm)
+    )
     return observed, (extreme + 1) / (n_perm + 1)
 
 
 def slm_tests(
-    results, w=None, format_pval=False, add_stars=False, decimal=None, n_perm=999, seed=13
+    results,
+    w=None,
+    format_pval=False,
+    add_stars=False,
+    decimal=None,
+    n_perm=999,
+    seed=13,
 ):
     """
     Diagnostic tests of the models fitted with :func:`slm`, as a tidy DataFrame.
@@ -667,7 +700,7 @@ def slm_tests(
       dependence (``LM-error``), their robust versions (robust to the other alternative) and
       ``LM-SARMA`` for both together (Anselin et al., 1996; Burridge, 1980; Bera & Yoon, 1993),
       and the tests of normality (Jarque-Bera) and heteroskedasticity (Breusch-Pagan,
-      Koenker-Bassett, White) of the residuals. The spatial tests need ``w``. Null hypotheses: no
+      Koenker-Bassett with the regressors of the model as in R's ``bptest``, White) of the residuals. The spatial tests need ``w``. Null hypotheses: no
       spatial autocorrelation of the residuals / no spatial lag / no spatial error dependence /
       neither; normally distributed residuals; homoskedastic residuals.
     * **Spatial lag** (``"slm"``) and **spatial error** (``"sem"``) models: the z test of the
@@ -739,7 +772,7 @@ def slm_tests(
     coefficient variation. *Econometrica, 47*(5), 1287-1294. https://doi.org/10.2307/1911963
 
     Burridge, P. (1980). On the Cliff-Ord test for spatial correlation. *Journal of the Royal
-    Statistical Society: Series B, 42*(1), 107-108.
+    Statistical Society Series B: Statistical Methodology, 42*(1), 107-108.
     https://doi.org/10.1111/j.2517-6161.1980.tb01108.x
 
     Cliff, A., & Ord, K. (1972). Testing for spatial autocorrelation among regression residuals.
@@ -765,24 +798,43 @@ def slm_tests(
     def add(model, label, statistic, df, p, text):
         rows.append((label, model, statistic, df, p, f"{text}, {format_p(p)}"))
 
-    def classical(r, model, label, compute, key):  # a test of spreg.diagnostics: {key: statistic, df, pvalue}
+    def classical(
+        r, model, label, compute, key
+    ):  # a test of spreg.diagnostics: {key: statistic, df, pvalue}
         d = compute(r)
-        add(model, label, float(d[key]), d["df"], float(d["pvalue"]), f"{label}({d['df']}) = {d[key]:.2f}")
+        add(
+            model,
+            label,
+            float(d[key]),
+            d["df"],
+            float(d["pvalue"]),
+            f"{label}({d['df']}) = {d[key]:.2f}",
+        )
 
     def attempt(model, label, *args):
         try:
             classical(*args)
         except (ValueError, ZeroDivisionError, np.linalg.LinAlgError) as e:
-            warnings.warn(f"{label} could not be computed for '{model}': {e}", UserWarning, stacklevel=3)
+            warnings.warn(
+                f"{label} could not be computed for '{model}': {e}",
+                UserWarning,
+                stacklevel=3,
+            )
 
     kinds = {spr.OLS: "ols", spr.ML_Lag: "slm", spr.ML_Error: "sem"}
     supported = [r for r in results if type(r) in kinds]
     for r in results:
         if type(r) not in kinds:
-            warnings.warn(f"{type(r).__name__} is not supported by slm_tests and was skipped.", UserWarning)
+            warnings.warn(
+                f"{type(r).__name__} is not supported by slm_tests and was skipped.",
+                UserWarning,
+            )
     ols_fits = [r for r in supported if type(r) is spr.OLS]
     if w is None and supported:
-        warnings.warn("Without w only the tests that do not need spatial weights are computed.", UserWarning)
+        warnings.warn(
+            "Without w only the tests that do not need spatial weights are computed.",
+            UserWarning,
+        )
 
     seen = {}
     for r in supported:
@@ -792,7 +844,14 @@ def slm_tests(
         if kind == "ols":
             if w is not None:
                 mi = spr_sp.MoranRes(r, w, z=True)
-                add(model, "Moran's I (residuals)", float(mi.zI), np.nan, float(mi.p_norm), f"Moran's I = {mi.I:.3f}, z = {mi.zI:.2f}")
+                add(
+                    model,
+                    "Moran's I (residuals)",
+                    float(mi.zI),
+                    np.nan,
+                    float(mi.p_norm),
+                    f"Moran's I = {mi.I:.3f}, z = {mi.zI:.2f}",
+                )
                 lm = spr_sp.LMtests(r, w)
                 for label, (stat, p), df in (
                     ("LM-lag", lm.lml, 1),
@@ -801,11 +860,20 @@ def slm_tests(
                     ("Robust LM-error", lm.rlme, 1),
                     ("LM-SARMA", lm.sarma, 2),
                 ):
-                    add(model, label, float(stat), df, float(p), f"{label}({df}) = {stat:.2f}")
+                    add(
+                        model,
+                        label,
+                        float(stat),
+                        df,
+                        float(p),
+                        f"{label}({df}) = {stat:.2f}",
+                    )
             for label, compute, key in (
                 ("Jarque-Bera", spr_diag.jarque_bera, "jb"),
-                ("Breusch-Pagan", spr_diag.breusch_pagan, "bp"),
-                ("Koenker-Bassett", spr_diag.koenker_bassett, "kb"),
+                # the regressors of the model explain the variance, as in R's bptest and statsmodels (spreg's
+                # breusch_pagan / koenker_bassett use their squares by default)
+                ("Breusch-Pagan", lambda reg: _breusch_pagan(reg, robust=False), "bp"),
+                ("Koenker-Bassett", lambda reg: _breusch_pagan(reg, robust=True), "bp"),
                 ("White", spr_diag.white, "wh"),
             ):
                 attempt(model, label, r, model, label, compute, key)
@@ -813,25 +881,195 @@ def slm_tests(
 
         name, parameter = ("rho", r.rho) if kind == "slm" else ("lambda", r.lam)
         z, p = r.z_stat[-1]
-        add(model, f"z test of {name}", float(z), np.nan, float(p), f"{name} = {float(parameter):.3f}, z = {z:.2f}")
+        add(
+            model,
+            f"z test of {name}",
+            float(z),
+            np.nan,
+            float(p),
+            f"{name} = {float(parameter):.3f}, z = {z:.2f}",
+        )
         base = next((o for o in ols_fits if o.n == r.n), None)
         if base is not None:
             lr = max(2 * (float(r.logll) - float(base.logll)), 0.0)
-            add(model, f"LR test of {name}", lr, 1, float(chi2.sf(lr, 1)), f"LR test of {name}(1) = {lr:.2f}")
+            add(
+                model,
+                f"LR test of {name}",
+                lr,
+                1,
+                float(chi2.sf(lr, 1)),
+                f"LR test of {name}(1) = {lr:.2f}",
+            )
         residuals = np.asarray(r.u, dtype=float).ravel()
         if kind == "sem" and w is not None:
-            residuals = residuals - float(r.lam) * (w.sparse @ residuals)  # filtered: (I - lambda W) u
+            residuals = residuals - float(r.lam) * (
+                w.sparse @ residuals
+            )  # filtered: (I - lambda W) u
         jb = jarque_bera(residuals)
-        add(model, "Jarque-Bera", float(jb.statistic), 2, float(jb.pvalue), f"Jarque-Bera(2) = {jb.statistic:.2f}")
+        add(
+            model,
+            "Jarque-Bera",
+            float(jb.statistic),
+            2,
+            float(jb.pvalue),
+            f"Jarque-Bera(2) = {jb.statistic:.2f}",
+        )
         if w is not None and n_perm:
             moran, p_perm = _moran_permutation(residuals, w, n_perm, seed)
-            add(model, "Moran's I (residuals)", moran, np.nan, p_perm, f"Moran's I = {moran:.3f} ({n_perm} permutations)")
+            add(
+                model,
+                "Moran's I (residuals)",
+                moran,
+                np.nan,
+                p_perm,
+                f"Moran's I = {moran:.3f} ({n_perm} permutations)",
+            )
 
-    res = DataFrame(rows, columns=["test", "model", "statistic", "df", "p-value", "report"])
-    res["statistic"] = res["statistic"].astype(float)  # also for an empty table (object columns)
+    res = DataFrame(
+        rows, columns=["test", "model", "statistic", "df", "p-value", "report"]
+    )
+    res["statistic"] = res["statistic"].astype(
+        float
+    )  # also for an empty table (object columns)
     res["df"] = res["df"].astype(float)
     res["p-value"] = res["p-value"].astype(float)
     if decimal:
         res["statistic"] = res["statistic"].round(decimal)
     format_significance(res, add_stars, format_pval)
     return res
+
+
+def slm_effects(
+    results,
+    w,
+    inference="simulation",
+    n_draws=1000,
+    seed=13,
+    conf_level=0.95,
+    traces="auto",
+    n_probes=50,
+    format_pval=False,
+    add_stars=False,
+    decimal=None,
+):
+    """
+    Direct, indirect and total effects of the regressors of the spatial lag models fitted with :func:`slm`.
+
+    In the spatial lag model ``y = ρWy + Xβ + ε`` the coefficient ``β_k`` is not the effect of regressor ``k``: a
+    change in one location also changes its neighbours through ``ρWy``, and their neighbours in turn. LeSage & Pace
+    (2009) summarize the effect matrix ``(I - ρW)⁻¹ β_k`` by three averages: the **direct** effect (the diagonal:
+    the change of a location caused by a change of its own regressor, including the feedback through its
+    neighbours), the **total** effect (the row sums: the change of a location caused by a unit change of the
+    regressor in *all* locations) and the **indirect** effect, their difference (the spillover). The averages are
+    computed from the traces of the powers of ``W`` (a series in ``ρ``), without inverting ``I - ρW``.
+
+    Parameters
+    ----------
+    results : list
+        Fitted models as returned by :func:`slm`. Only the spatial lag models (``ML_Lag``) have these effects: for
+        OLS there are no spillovers, and in the spatial error model the coefficients already are the direct and
+        total effects. Other models are skipped with a warning.
+    w : libpysal.weights.W
+        The spatial weights the models were fitted with (the results do not keep them).
+    inference : {"simulation", "analytic"}, default "simulation"
+        How the standard errors, z values, p-values and confidence intervals are obtained. ``"simulation"``:
+        LeSage & Pace's simulation, ``n_draws`` draws of ``(β, ρ)`` from their estimated joint normal distribution;
+        the standard error is the standard deviation of the effects of the draws and the confidence interval is
+        made of their percentiles (so it can be asymmetric). ``"analytic"``: the delta method with the gradient of
+        the trace series (the interval is estimate ± z · se). The two agree when ``ρ`` is estimated precisely.
+    n_draws : int, default 1000
+        Number of draws of the simulation. The standard errors of the indirect and total effects need many more
+        when ``ρ`` is large and imprecise (see the notes).
+    seed : int, default 13
+        Seed of the generator of the draws (and of the random vectors of ``traces="mc"``).
+    conf_level : float, default 0.95
+        Confidence level of the intervals (not a significance level).
+    traces : {"auto", "exact", "mc"}, default "auto"
+        How the traces of the powers of ``W`` are computed: ``"exact"`` from the eigenvalues of the dense matrix
+        (cost ``n³``), ``"mc"`` with Hutchinson's estimator (``n_probes`` random vectors; for large ``n``),
+        ``"auto"`` exact for up to 2000 units.
+    n_probes : int, default 50
+        Number of random vectors of ``traces="mc"``.
+    format_pval : bool or callable, default False
+        ``True`` formats the p-values as APA strings (``".033"``, ``"<.001"``); a callable formats each p-value.
+    add_stars : bool or callable, default False
+        ``True`` adds a ``sig`` column with significance stars (computed from the numeric p-values).
+    decimal : int, optional
+        Round ``estimate``, ``se``, ``cil`` and ``cir`` to this many decimals (``None``: no rounding).
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per model, regressor and effect: the columns ``model`` (``"slm"``; a repeated model gets the suffix
+        ``_2``, ...), ``variable``, ``effect`` (``"Direct"``, ``"Indirect"``, ``"Total"``), ``estimate``, ``se``,
+        ``z``, ``p-value``, ``cil``, ``cir`` and optionally ``sig``. ``pivot`` it for a wide table.
+
+    Notes
+    -----
+    The constant has no effect and is left out. The standard errors use the covariance matrix of ``(β, ρ)`` that
+    spreg reports (the information matrix, including the covariance between the coefficients and ``ρ``). The
+    effects are *average* effects: they do not say how the effect differs between locations. The indirect effect
+    is usually much less precise than the direct one.
+
+    The delta method (``inference="analytic"``) treats the effects as linear in the estimates. That holds when
+    ``ρ`` is estimated precisely; with few units and a large ``ρ`` the standard errors of the indirect and total
+    effects can be far too small (in a 64-unit example with ρ = 0.6 the analytic standard error of an indirect effect
+    was 0.44, against 1.48 by simulation with 100,000 draws and 1.43 in R's ``impacts``), so prefer the simulation
+    then. The direct effect is much less sensitive. The simulated standard errors of the indirect and total effects
+    are noisy in the same situation, because a few draws of ``ρ`` near its bound give huge effects: in that example
+    the standard error of the indirect effect was 1.03 with 5000 draws and 1.48 with 100,000 (R's own simulation
+    behaves the same way). Raise ``n_draws`` and check that the result is stable with another ``seed``.
+
+    References
+    ----------
+    LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
+    https://doi.org/10.1201/9781420064254
+    https://doi.org/10.1201/9781420064254
+
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
+    Springer. https://doi.org/10.1007/978-3-642-40340-8
+    https://doi.org/10.1007/978-3-642-40340-8
+
+    Examples
+    --------
+    >>> results, metrics = slm(df, "y", ["x1", "x2"], w, model=["ols", "slm"])  # doctest: +SKIP
+    >>> slm_effects(results, w, inference="analytic", decimal=3)  # doctest: +SKIP
+    """
+    entries, seen = [], {}
+    for r in results:
+        if type(r) is spr.ML_Lag:
+            names = [str(n).strip() for n in r.name_x]
+            names[-1] = "rho"  # spreg calls the lag coefficient W_<name of y>
+            seen["slm"] = seen.get("slm", 0) + 1
+            label = "slm" if seen["slm"] == 1 else f"slm_{seen['slm']}"
+            entries.append(
+                (
+                    label,
+                    names,
+                    np.asarray(r.betas, dtype=float).ravel(),
+                    np.asarray(r.vm, dtype=float),
+                )
+            )
+        elif type(r) is spr.ML_Error:
+            warnings.warn(
+                "The spatial error model has no spillover effects: its coefficients already are the direct and total effects; skipped.",
+                UserWarning,
+            )
+        else:
+            warnings.warn(
+                f"{type(r).__name__} has no spatial lag parameter, so it has no direct and indirect effects; skipped.",
+                UserWarning,
+            )
+    return effects_table(
+        entries,
+        w,
+        inference,
+        n_draws,
+        seed,
+        conf_level,
+        traces,
+        n_probes,
+        format_pval,
+        add_stars,
+        decimal,
+    )

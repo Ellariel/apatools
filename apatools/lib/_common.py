@@ -7,7 +7,8 @@ documented API.
 References
 ----------
 Efron, B., & Tibshirani, R. J. (1993). *An introduction to the bootstrap*. Chapman & Hall.
-(percentile bootstrap interval)
+https://doi.org/10.1007/978-1-4899-4541-9
+https://doi.org/10.1007/978-1-4899-4541-9 (percentile bootstrap interval)
 """
 
 import warnings
@@ -121,6 +122,7 @@ def percentile_bootstrap(x, statistic, iterations, conf_level, seed):
     References
     ----------
     Efron, B., & Tibshirani, R. J. (1993). *An introduction to the bootstrap*. Chapman & Hall.
+    https://doi.org/10.1007/978-1-4899-4541-9
     """
     rng = np.random.default_rng(seed)
     n = len(x)

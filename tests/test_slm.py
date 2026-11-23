@@ -1,8 +1,21 @@
+import warnings
+
+import libpysal
 import numpy as np
 import pandas as pd
-import libpysal
+import pytest
+import spreg
+from statsmodels.stats.diagnostic import het_breuschpagan
 
-from apatools.slm import slm, slm_report
+import apatools.slm as slm_module
+from apatools._common import w_subset_rows
+from apatools.slm import (
+    _moran_permutation,
+    pred_metrics,
+    slm,
+    slm_report,
+    slm_tests,
+)
 
 
 def s(x):
@@ -115,7 +128,7 @@ def test_slm():
 
     assert (
         results_rep[0].iloc[0]["model"]
-        == "R² = .35, R²adj = .31, F(3, 45) = 8.06, p < .001, AIC = 404.5, BIC = 410.1, LL = -199.2, MAE = 11.440, MAD = 8.518, N = 49"
+        == "R² = .35, R²adj = .31, F(3, 45) = 8.06, p < .001, AIC = 406.5, BIC = 414.0, LL = -199.2, MAE = 11.440, MAD = 8.518, N = 49"
     )
 
     assert (
@@ -176,7 +189,7 @@ def test_slm_kwargs_routing_and_df():
     )
 
     # formula path works without verbose output
-    r_f, m_f = slm(df, model="ols", formula="HOVAL ~ 1 + INC + CRIME", verbose=False)
+    _r_f, m_f = slm(df, model="ols", formula="HOVAL ~ 1 + INC + CRIME", verbose=False)
     assert m_f[0]["r_sq"] == pytest.approx(metrics[0]["r_sq"])
 
     # unknown model name
@@ -185,16 +198,6 @@ def test_slm_kwargs_routing_and_df():
     # neither formula nor x/y
     with pytest.raises(ValueError):
         slm(df, w=w, verbose=False)
-
-
-import warnings
-
-import pytest
-import spreg
-
-import apatools.slm as slm_module
-from apatools._common import w_subset_rows
-from apatools.slm import _moran_permutation, pred_metrics, slm_tests
 
 
 @pytest.fixture(scope="module")
@@ -238,7 +241,7 @@ def test_w_subset_rows_keeps_weights_and_transform():
 
 
 def test_pred_metrics_ols_equals_closed_form(columbus):
-    df, w = columbus
+    df, _w = columbus
     results, metrics = slm(
         df, "HOVAL", ["INC", "CRIME"], model="ols", verbose=False, pred_metrics=True
     )
@@ -437,8 +440,14 @@ def test_slm_na_rows_keep_weights_aligned(columbus):
 def test_slm_report_renames_only_the_intercept(columbus):
     df, w = columbus
     d = df.rename(columns={"INC": "const_income"})
-    results, metrics = slm(d, "HOVAL", ["const_income", "CRIME"], w, model="ols", verbose=False)
-    assert list(slm_report(results, metrics)[0].index) == ["Intercept", "const_income", "CRIME"]
+    results, metrics = slm(
+        d, "HOVAL", ["const_income", "CRIME"], w, model="ols", verbose=False
+    )
+    assert list(slm_report(results, metrics)[0].index) == [
+        "Intercept",
+        "const_income",
+        "CRIME",
+    ]
 
 
 if __name__ == "__main__":
@@ -449,20 +458,39 @@ if __name__ == "__main__":
 def test_slm_intercept_option_does_not_change_the_model(columbus):
     df, w = columbus
     fits = [
-        slm(df, "HOVAL", ["INC", "CRIME"], w, model="ols", intercept=flag, verbose=False)[0][0]
+        slm(
+            df, "HOVAL", ["INC", "CRIME"], w, model="ols", intercept=flag, verbose=False
+        )[0][0]
         for flag in (False, True)
     ]
-    assert fits[0].name_x == fits[1].name_x == ["CONSTANT", "INC", "CRIME"]  # no duplicated constant
-    assert fits[0].betas.ravel().tolist() == pytest.approx(fits[1].betas.ravel().tolist())
+    assert (
+        fits[0].name_x == fits[1].name_x == ["CONSTANT", "INC", "CRIME"]
+    )  # no duplicated constant
+    assert fits[0].betas.ravel().tolist() == pytest.approx(
+        fits[1].betas.ravel().tolist()
+    )
 
 
 def test_slm_formula_with_standardize(columbus):
     df, w = columbus
     with pytest.warns(UserWarning, match="z-transformation"):
-        results, _ = slm(df, formula="HOVAL ~ INC + CRIME", w=w, model="ols", standardize="z", verbose=False)
-    z = (df[["HOVAL", "INC", "CRIME"]] - df[["HOVAL", "INC", "CRIME"]].mean()) / df[["HOVAL", "INC", "CRIME"]].std(ddof=0)
-    expected = np.linalg.lstsq(np.column_stack([np.ones(len(z)), z[["INC", "CRIME"]]]), z["HOVAL"], rcond=None)[0]
-    assert results[0].betas.ravel().tolist() == pytest.approx(expected.tolist(), abs=1e-8)
+        results, _ = slm(
+            df,
+            formula="HOVAL ~ INC + CRIME",
+            w=w,
+            model="ols",
+            standardize="z",
+            verbose=False,
+        )
+    z = (df[["HOVAL", "INC", "CRIME"]] - df[["HOVAL", "INC", "CRIME"]].mean()) / df[
+        ["HOVAL", "INC", "CRIME"]
+    ].std(ddof=0)
+    expected = np.linalg.lstsq(
+        np.column_stack([np.ones(len(z)), z[["INC", "CRIME"]]]), z["HOVAL"], rcond=None
+    )[0]
+    assert results[0].betas.ravel().tolist() == pytest.approx(
+        expected.tolist(), abs=1e-8
+    )
 
 
 ###############
@@ -473,18 +501,32 @@ def test_slm_formula_with_standardize(columbus):
 @pytest.fixture(scope="module")
 def columbus_fits(columbus):
     df, w = columbus
-    results, _ = slm(df, "HOVAL", ["INC", "CRIME"], w, model=["ols", "slm", "sem"], verbose=False)
+    results, _ = slm(
+        df, "HOVAL", ["INC", "CRIME"], w, model=["ols", "slm", "sem"], verbose=False
+    )
     return df, w, results
 
 
 def test_slm_tests_ols_diagnostics_are_those_of_spreg(columbus_fits):
     df, w, results = columbus_fits
     tests = slm_tests(results, w)
-    assert list(tests.columns) == ["test", "model", "statistic", "df", "p-value", "report"]
+    assert list(tests.columns) == [
+        "test",
+        "model",
+        "statistic",
+        "df",
+        "p-value",
+        "report",
+    ]
     ols = tests[tests["model"] == "ols"].set_index("test")
     # the tests that spreg computes together with the OLS fit when asked for the spatial diagnostics
     ref = spreg.OLS(
-        df[["HOVAL"]].to_numpy(), df[["INC", "CRIME"]].to_numpy(), w=w, spat_diag=True, moran=True, white_test=True
+        df[["HOVAL"]].to_numpy(),
+        df[["INC", "CRIME"]].to_numpy(),
+        w=w,
+        spat_diag=True,
+        moran=True,
+        white_test=True,
     )
     expected = {
         "Moran's I (residuals)": (ref.moran_res[1], ref.moran_res[2], np.nan),
@@ -494,21 +536,36 @@ def test_slm_tests_ols_diagnostics_are_those_of_spreg(columbus_fits):
         "Robust LM-error": (*ref.rlm_error, 1),
         "LM-SARMA": (*ref.lm_sarma, 2),
         "Jarque-Bera": (ref.jarque_bera["jb"], ref.jarque_bera["pvalue"], 2),
-        "Breusch-Pagan": (ref.breusch_pagan["bp"], ref.breusch_pagan["pvalue"], 2),
-        "Koenker-Bassett": (ref.koenker_bassett["kb"], ref.koenker_bassett["pvalue"], 2),
+        # the regressors themselves explain the variance (R's bptest, statsmodels); spreg's default are their squares
+        "Breusch-Pagan": (*het_breuschpagan(ref.u.ravel(), ref.x, robust=False)[:2], 2),
+        "Koenker-Bassett": (
+            *het_breuschpagan(ref.u.ravel(), ref.x, robust=True)[:2],
+            2,
+        ),
         "White": (ref.white["wh"], ref.white["pvalue"], 5),
     }
     assert list(ols.index) == list(expected)
     for name, (stat, p, df_) in expected.items():
-        assert ols.loc[name, "statistic"] == pytest.approx(stat) and ols.loc[name, "p-value"] == pytest.approx(p), name
-        assert (np.isnan(ols.loc[name, "df"]) and np.isnan(df_)) or ols.loc[name, "df"] == df_, name
+        assert ols.loc[name, "statistic"] == pytest.approx(stat) and ols.loc[
+            name, "p-value"
+        ] == pytest.approx(p), name
+        assert (np.isnan(ols.loc[name, "df"]) and np.isnan(df_)) or ols.loc[
+            name, "df"
+        ] == df_, name
     # the report strings are APA-style
-    assert ols.loc["LM-error", "report"] == f"LM-error(1) = {ref.lm_error[0]:.2f}, p = .046"
+    assert (
+        ols.loc["LM-error", "report"]
+        == f"LM-error(1) = {ref.lm_error[0]:.2f}, p = .046"
+    )
     assert ols.loc["Jarque-Bera", "report"].endswith("p < .001")
-    assert ols.loc["Moran's I (residuals)", "report"].startswith("Moran's I = 0.207, z = 2.50, p = .012")
+    assert ols.loc["Moran's I (residuals)", "report"].startswith(
+        "Moran's I = 0.207, z = 2.50, p = .012"
+    )
 
 
-def test_slm_tests_likelihood_ratio_and_wald_tests_of_the_spatial_parameters(columbus_fits):
+def test_slm_tests_likelihood_ratio_and_wald_tests_of_the_spatial_parameters(
+    columbus_fits,
+):
     from scipy.stats import chi2, norm
 
     _, w, results = columbus_fits
@@ -516,43 +573,76 @@ def test_slm_tests_likelihood_ratio_and_wald_tests_of_the_spatial_parameters(col
     tests = slm_tests(results, w).set_index(["model", "test"])
     for model, fit, name in (("slm", lag, "rho"), ("sem", err, "lambda")):
         lr = 2 * (fit.logll - ols.logll)
-        assert tests.loc[(model, f"LR test of {name}"), "statistic"] == pytest.approx(lr)
-        assert tests.loc[(model, f"LR test of {name}"), "p-value"] == pytest.approx(chi2.sf(lr, 1))
+        assert tests.loc[(model, f"LR test of {name}"), "statistic"] == pytest.approx(
+            lr
+        )
+        assert tests.loc[(model, f"LR test of {name}"), "p-value"] == pytest.approx(
+            chi2.sf(lr, 1)
+        )
         assert tests.loc[(model, f"LR test of {name}"), "df"] == 1
         z = tests.loc[(model, f"z test of {name}"), "statistic"]
         assert z == pytest.approx(fit.z_stat[-1][0])
-        assert tests.loc[(model, f"z test of {name}"), "p-value"] == pytest.approx(2 * norm.sf(abs(z)))
-    assert tests.loc[("slm", "LR test of rho"), "report"] == "LR test of rho(1) = 1.86, p = .173"
+        assert tests.loc[(model, f"z test of {name}"), "p-value"] == pytest.approx(
+            2 * norm.sf(abs(z))
+        )
+    assert (
+        tests.loc[("slm", "LR test of rho"), "report"]
+        == "LR test of rho(1) = 1.86, p = .173"
+    )
     # the lag / error model are the ones that remove the spatial dependence of the residuals
     ols_moran = tests.loc[("ols", "Moran's I (residuals)"), "statistic"]
-    assert tests.loc[("sem", "Moran's I (residuals)"), "p-value"] > 0.5 > 0.05 > tests.loc[("ols", "Moran's I (residuals)"), "p-value"]
-    assert abs(tests.loc[("sem", "Moran's I (residuals)"), "statistic"]) < 0.05 and ols_moran > 2  # I of the OLS residuals is z
+    assert tests.loc[("sem", "Moran's I (residuals)"), "p-value"] > 0.5
+    assert tests.loc[("ols", "Moran's I (residuals)"), "p-value"] < 0.05
+    assert (
+        abs(tests.loc[("sem", "Moran's I (residuals)"), "statistic"]) < 0.05
+        and ols_moran > 2
+    )  # I of the OLS residuals is z
     # Jarque-Bera of the residuals of the ML models (df 2), from the residuals of the model
     from scipy.stats import jarque_bera
 
-    assert tests.loc[("slm", "Jarque-Bera"), "statistic"] == pytest.approx(jarque_bera(np.asarray(lag.u).ravel()).statistic)
+    assert tests.loc[("slm", "Jarque-Bera"), "statistic"] == pytest.approx(
+        jarque_bera(np.asarray(lag.u).ravel()).statistic
+    )
 
 
 def test_slm_tests_options_and_edge_cases(columbus_fits):
     _, w, results = columbus_fits
     raw = slm_tests(results, w)
-    pd.testing.assert_frame_equal(raw, slm_tests(results, w))  # reproducible (seeded permutations)
+    pd.testing.assert_frame_equal(
+        raw, slm_tests(results, w)
+    )  # reproducible (seeded permutations)
     assert not raw["p-value"].isna().any() and raw["statistic"].dtype == float
     # decimals, stars and formatted p-values as in plm_tests
     formatted = slm_tests(results, w, format_pval=True, add_stars=True, decimal=3)
     assert formatted["statistic"].tolist() == raw["statistic"].round(3).tolist()
-    assert formatted["p-value"].map(lambda v: isinstance(v, str)).all() and "<.001" in set(formatted["p-value"])
+    assert formatted["p-value"].map(
+        lambda v: isinstance(v, str)
+    ).all() and "<.001" in set(formatted["p-value"])
     assert formatted.loc[formatted["test"] == "Jarque-Bera", "sig"].iloc[0] != ""
     # another seed changes only the permutation p-values
     other = slm_tests(results, w, seed=1)
     different = (other["p-value"] != raw["p-value"]).to_numpy()
-    assert set(raw.loc[different, "test"]) == {"Moran's I (residuals)"} and (raw.loc[different, "model"] != "ols").all()
+    assert (
+        set(raw.loc[different, "test"]) == {"Moran's I (residuals)"}
+        and (raw.loc[different, "model"] != "ols").all()
+    )
     # no permutations: no Moran's I for the ML models
-    assert "Moran's I (residuals)" not in set(slm_tests(results, w, n_perm=0).query("model != 'ols'")["test"])
+    assert "Moran's I (residuals)" not in set(
+        slm_tests(results, w, n_perm=0).query("model != 'ols'")["test"]
+    )
     # without weights only the tests that need none, with a warning
     with pytest.warns(UserWarning, match="Without w"):
         nospatial = slm_tests(results)
-    assert set(nospatial["test"]) == {"Jarque-Bera", "Breusch-Pagan", "Koenker-Bassett", "White", "z test of rho", "LR test of rho", "z test of lambda", "LR test of lambda"}
+    assert set(nospatial["test"]) == {
+        "Jarque-Bera",
+        "Breusch-Pagan",
+        "Koenker-Bassett",
+        "White",
+        "z test of rho",
+        "LR test of rho",
+        "z test of lambda",
+        "LR test of lambda",
+    }
     # no OLS fit among the results: no likelihood-ratio tests
     assert not any(t.startswith("LR") for t in slm_tests(results[1:], w)["test"])
     # a repeated model gets a suffix; unsupported models are skipped with a warning
@@ -561,7 +651,9 @@ def test_slm_tests_options_and_edge_cases(columbus_fits):
     with pytest.warns(UserWarning, match="not supported"):
         assert set(slm_tests([results[0], "not a model"], w)["model"]) == {"ols"}
     empty = slm_tests([], w, format_pval=True, add_stars=True, decimal=2)
-    assert empty.empty and list(empty.columns)[:2] == ["test", "model"] and "sig" in empty
+    assert (
+        empty.empty and list(empty.columns)[:2] == ["test", "model"] and "sig" in empty
+    )
 
 
 def test_moran_permutation_p_values_are_calibrated(columbus):
@@ -569,7 +661,9 @@ def test_moran_permutation_p_values_are_calibrated(columbus):
     rng = np.random.default_rng(0)
     n = w.n
     # independent values: not significant in most cases; the observed I is the usual statistic
-    p_values = [_moran_permutation(rng.normal(size=n), w, 199, seed=b)[1] for b in range(60)]
+    p_values = [
+        _moran_permutation(rng.normal(size=n), w, 199, seed=b)[1] for b in range(60)
+    ]
     assert np.mean(np.array(p_values) < 0.05) < 0.15 and 0.3 < np.mean(p_values) < 0.7
     # values smoothed over the neighbours: strongly positive and significant
     smooth = rng.normal(size=n)
@@ -579,8 +673,12 @@ def test_moran_permutation_p_values_are_calibrated(columbus):
     assert moran > 0.5 and p < 0.01
     # the statistic is Moran's I of the centred values
     centred = smooth - smooth.mean()
-    assert moran == pytest.approx((n / w.s0) * (centred @ (w.sparse @ centred)) / (centred @ centred))
-    assert _moran_permutation(smooth, w, 99, seed=3) == _moran_permutation(smooth, w, 99, seed=3)
+    assert moran == pytest.approx(
+        (n / w.s0) * (centred @ (w.sparse @ centred)) / (centred @ centred)
+    )
+    assert _moran_permutation(smooth, w, 99, seed=3) == _moran_permutation(
+        smooth, w, 99, seed=3
+    )
 
 
 def test_slm_tests_find_the_spatial_dependence_of_simulated_data():
@@ -591,16 +689,38 @@ def test_slm_tests_find_the_spatial_dependence_of_simulated_data():
     x = rng.normal(size=n)
     noise = rng.normal(size=n)
     inverse = np.linalg.inv(np.eye(n) - 0.6 * w.full()[0])
-    lag_data = pd.DataFrame({"x": x, "y": inverse @ (1.0 + 0.5 * x + noise)})  # spatial lag process
-    err_data = pd.DataFrame({"x": x, "y": 1.0 + 0.5 * x + inverse @ noise})  # spatial error process
+    lag_data = pd.DataFrame(
+        {"x": x, "y": inverse @ (1.0 + 0.5 * x + noise)}
+    )  # spatial lag process
+    err_data = pd.DataFrame(
+        {"x": x, "y": 1.0 + 0.5 * x + inverse @ noise}
+    )  # spatial error process
     for data, process in ((lag_data, "slm"), (err_data, "sem")):
-        results, _ = slm(data, "y", ["x"], w, model=["ols", "slm", "sem"], verbose=False)
-        tests = slm_tests(results, w, n_perm=199).set_index(["model", "test"])["p-value"]
-        assert tests[("ols", "Moran's I (residuals)")] < 1e-4 and tests[("ols", "LM-lag")] < 1e-3 and tests[("ols", "LM-error")] < 1e-3
-        assert tests[(process, f"LR test of {'rho' if process == 'slm' else 'lambda'}")] < 1e-6
+        results, _ = slm(
+            data, "y", ["x"], w, model=["ols", "slm", "sem"], verbose=False
+        )
+        tests = slm_tests(results, w, n_perm=199).set_index(["model", "test"])[
+            "p-value"
+        ]
+        assert (
+            tests[("ols", "Moran's I (residuals)")] < 1e-4
+            and tests[("ols", "LM-lag")] < 1e-3
+            and tests[("ols", "LM-error")] < 1e-3
+        )
+        assert (
+            tests[(process, f"LR test of {'rho' if process == 'slm' else 'lambda'}")]
+            < 1e-6
+        )
         # the model of the true process leaves no spatial dependence in the residuals
         assert tests[(process, "Moran's I (residuals)")] > 0.01
     # the robust tests point to the true process (Anselin et al., 1996)
-    lag_tests = slm_tests(slm(lag_data, "y", ["x"], w, model="ols", verbose=False)[0], w).set_index("test")["p-value"]
-    err_tests = slm_tests(slm(err_data, "y", ["x"], w, model="ols", verbose=False)[0], w).set_index("test")["p-value"]
-    assert lag_tests["Robust LM-lag"] < lag_tests["Robust LM-error"] and err_tests["Robust LM-error"] < err_tests["Robust LM-lag"]
+    lag_tests = slm_tests(
+        slm(lag_data, "y", ["x"], w, model="ols", verbose=False)[0], w
+    ).set_index("test")["p-value"]
+    err_tests = slm_tests(
+        slm(err_data, "y", ["x"], w, model="ols", verbose=False)[0], w
+    ).set_index("test")["p-value"]
+    assert (
+        lag_tests["Robust LM-lag"] < lag_tests["Robust LM-error"]
+        and err_tests["Robust LM-error"] < err_tests["Robust LM-lag"]
+    )

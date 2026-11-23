@@ -16,11 +16,12 @@ Credit goes to the authors of above mentioned packages!
 References
 ----------
 Fisher, R. A. (1921). On the "probable error" of a coefficient of correlation deduced from a small
-sample. Metron, 1, 3-32.
+sample. Metron.
 Williams, E. J. (1959). The comparison of regression variables. Journal of the Royal Statistical
-Society B, 21(2), 396-399.
-Steiger, J. H. (1980). Tests for comparing elements of a correlation matrix. Psychological
-Bulletin, 87(2), 245-251.
+Society Series B: Statistical Methodology, 21(2), 396-399.
+https://doi.org/10.1111/j.2517-6161.1959.tb00346.x
+Steiger, J. H. (1980). Tests for comparing elements of a correlation matrix. Psychological Bulletin,
+87(2), 245-251. https://doi.org/10.1037/0033-2909.87.2.245
 Zou, G. Y. (2007). Toward using confidence intervals to compare correlations. Psychological
 Methods, 12(4), 399-413. https://doi.org/10.1037/1082-989X.12.4.399
 Hedges, L. V., & Olkin, I. (1985). Statistical Methods for Meta-Analysis. Academic Press.
@@ -65,6 +66,7 @@ def average_correlations(r, n, conf_level=0.95, method="two-tailed"):
     Hedges, L. V., & Olkin, I. (1985). Statistical Methods for Meta-Analysis. Academic Press.
     Borenstein, M., Hedges, L. V., Higgins, J. P. T., & Rothstein, H. R. (2009). Introduction to
     Meta-Analysis. Wiley (ch. 6: correlations on Fisher's z scale; ch. 11: fixed-effect model).
+    https://doi.org/10.1002/9780470743386
     """
     r = np.array(r, dtype=float)
     n = np.array(n, dtype=float)
@@ -120,7 +122,7 @@ def rz_ci(r, n, conf_level=0.95):
     References
     ----------
     Fisher, R. A. (1921). On the "probable error" of a coefficient of correlation deduced from a
-    small sample. Metron, 1, 3-32.
+    small sample. Metron.
     """
     zr_se = np.pow(1 / (n - 3), 0.5)
     moe = norm.ppf(1 - (1 - conf_level) / float(2)) * zr_se
@@ -151,9 +153,10 @@ def rho_rxy_rxz(rxy, rxz, ryz):
     References
     ----------
     Zou, G. Y. (2007). Toward using confidence intervals to compare correlations. Psychological
-    Methods, 12(4), 399-413.
+    Methods, 12(4), 399-413. https://doi.org/10.1037/1082-989x.12.4.399
     Dunn, O. J., & Clark, V. A. (1969). Correlation coefficients measured on the same individuals.
     Journal of the American Statistical Association, 64(325), 366-377.
+    https://doi.org/10.1080/01621459.1969.10500981
     """
     num = (ryz - 1 / 2.0 * rxy * rxz) * (
         1 - np.pow(rxy, 2) - np.pow(rxz, 2) - np.pow(ryz, 2)

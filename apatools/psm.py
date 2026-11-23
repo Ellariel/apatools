@@ -8,8 +8,8 @@ Requires the optional dependencies ``pandas`` and ``psmpy`` (``pip install "apat
 
 References
 ----------
-Rosenbaum, P. R., & Rubin, D. B. (1983). The central role of the propensity score in
-observational studies for causal effects. *Biometrika, 70*(1), 41-55.
+Rosenbaum, P. R., & Rubin, D. B. (1983). The central role of the propensity score in observational
+studies for causal effects. *Biometrika, 70*(1), 41-55. https://doi.org/10.1093/biomet/70.1.41
 
 Kline, A., & Luo, Y. (2022). PsmPy: A package for retrospective cohort matching in Python.
 *2022 44th Annual International Conference of the IEEE Engineering in Medicine & Biology
@@ -64,12 +64,12 @@ def psm_effect_size(model):
 
     References
     ----------
-    Cohen, J. (1988). *Statistical power analysis for the behavioral sciences* (2nd ed.).
-    Lawrence Erlbaum Associates.
+    Cohen, J. (1988). *Statistical power analysis for the behavioral sciences* (2nd ed.). Lawrence
+    Erlbaum Associates. (Reprinted 2013 by Routledge, https://doi.org/10.4324/9780203771587)
 
-    Austin, P. C. (2011). An introduction to propensity score methods for reducing the
-    effects of confounding in observational studies. *Multivariate Behavioral Research,
-    46*(3), 399-424.
+    Austin, P. C. (2011). An introduction to propensity score methods for reducing the effects of
+    confounding in observational studies. *Multivariate Behavioral Research, 46*(3), 399-424.
+    https://doi.org/10.1080/00273171.2011.568786
     """
     df_preds_after = model.df_matched[[model.treatment] + model.xvars]
     df_preds_b4 = model.data[[model.treatment] + model.xvars]
@@ -173,10 +173,11 @@ def psm(
     ----------
     Rosenbaum, P. R., & Rubin, D. B. (1983). The central role of the propensity score in
     observational studies for causal effects. *Biometrika, 70*(1), 41-55.
+    https://doi.org/10.1093/biomet/70.1.41
 
-    Austin, P. C. (2011). Optimal caliper widths for propensity-score matching when
-    estimating differences in means and differences in proportions in observational
-    studies. *Pharmaceutical Statistics, 10*(2), 150-161.
+    Austin, P. C. (2011). Optimal caliper widths for propensity-score matching when estimating
+    differences in means and differences in proportions in observational studies. *Pharmaceutical
+    Statistics, 10*(2), 150-161. https://doi.org/10.1002/pst.433
 
     Kline, A., & Luo, Y. (2022). PsmPy: A package for retrospective cohort matching in
     Python. *2022 44th Annual International Conference of the IEEE Engineering in

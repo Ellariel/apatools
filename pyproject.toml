@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apatools"
-version = "0.2.0"
+version = "0.3.0"
 description = "A toolbox for statistical and meta-analysis, and APA-compliant reporting of quantitative results."
 readme = "README.md"
 license = "MIT"
@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
-# The core (apatools.calc, apatools.format, apatools.citation) only needs numpy and scipy.
+# The core (apatools.calc, apatools.format) only needs numpy and scipy.
 # Everything else is installed through extras named after the module, e.g. apatools[lm].
 dependencies = [
     "numpy>=2.0.2",
@@ -40,7 +40,6 @@ dependencies = [
 lm = [
     "pandas>=2.2.3",
     "statsmodels>=0.14.4",
-    "lxml>=5.3.0",        # pandas.read_html in lm_report
 ]
 # apatools.slm: spatial regression with spreg
 slm = [
@@ -79,9 +78,12 @@ graphviz = ["apatools[sem]", "graphviz>=0.20.3"]
 # SEM path diagrams without Graphviz: sem_plot(engine="networkx") with networkx and matplotlib
 networkx = ["apatools[sem]", "networkx>=3.2", "matplotlib>=3.8"]
 all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,networkx]"]
+# the documentation (sphinx-build docs docs/_build/html); it needs the other extras to import the modules
+docs = ["sphinx>=7.3", "furo", "myst-parser>=3", "sphinx-copybutton"]
 
 [project.urls]
 Homepage = "https://github.com/Ellariel/apatools"
+Documentation = "https://ellariel.github.io/apatools/"
 Repository = "https://github.com/Ellariel/apatools"
 Issues = "https://github.com/Ellariel/apatools/issues"
 Changelog = "https://github.com/Ellariel/apatools/blob/main/CHANGELOG.md"

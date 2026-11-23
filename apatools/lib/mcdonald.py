@@ -437,8 +437,8 @@ def mcdonald_omega(
     https://doi.org/10.1207/s15327906mbr3701_04
 
     Raykov, T., & Shrout, P. E. (2002). Reliability of scales with general structure: Point and
-    interval estimation using a structural equation modeling approach. Structural Equation
-    Modeling, 9(2), 195-212. https://doi.org/10.1207/S15328007SEM0902_3
+    interval estimation using a structural equation modeling approach. Structural Equation Modeling:
+    A Multidisciplinary Journal, 9(2), 195-212. https://doi.org/10.1207/S15328007SEM0902_3
 
     Kelley, K., & Pornprasertmanit, S. (2016). Confidence intervals for population reliability
     coefficients: Evaluation of methods, recommendations, and software for composite measures.

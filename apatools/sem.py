@@ -17,9 +17,9 @@ Igolkina, A. A., & Meshcheryakov, G. (2020). semopy: A Python package for struct
 equation modeling. *Structural Equation Modeling: A Multidisciplinary Journal, 27*(6),
 952-963. https://doi.org/10.1080/10705511.2019.1704289
 
-Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance
-structure analysis: Conventional criteria versus new alternatives. *Structural
-Equation Modeling, 6*(1), 1-55.
+Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance structure analysis:
+Conventional criteria versus new alternatives. *Structural Equation Modeling: A Multidisciplinary
+Journal, 6*(1), 1-55. https://doi.org/10.1080/10705519909540118
 """
 
 import os
@@ -207,26 +207,25 @@ def sem(
     structural equation modeling. *Structural Equation Modeling: A Multidisciplinary
     Journal, 27*(6), 952-963. https://doi.org/10.1080/10705511.2019.1704289
 
-    Bentler, P. M. (1990). Comparative fit indexes in structural models.
-    *Psychological Bulletin, 107*(2), 238-246.
+    Bentler, P. M. (1990). Comparative fit indexes in structural models. *Psychological Bulletin,
+    107*(2), 238-246. https://doi.org/10.1037/0033-2909.107.2.238
 
-    Tucker, L. R., & Lewis, C. (1973). A reliability coefficient for maximum
-    likelihood factor analysis. *Psychometrika, 38*(1), 1-10.
+    Tucker, L. R., & Lewis, C. (1973). A reliability coefficient for maximum likelihood factor
+    analysis. *Psychometrika, 38*(1), 1-10. https://doi.org/10.1007/bf02291170
 
     Steiger, J. H., & Lind, J. C. (1980, May). *Statistically based tests for the
     number of common factors* [Paper presentation]. Annual meeting of the
     Psychometric Society, Iowa City, IA.
 
-    Browne, M. W., & Cudeck, R. (1993). Alternative ways of assessing model fit. In
-    K. A. Bollen & J. S. Long (Eds.), *Testing structural equation models*
-    (pp. 136-162). Sage.
+    Browne, M. W., & Cudeck, R. (1993). Alternative ways of assessing model fit. In K. A. Bollen &
+    J. S. Long (Eds.), *Testing structural equation models*. Sage.
 
-    Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance
-    structure analysis: Conventional criteria versus new alternatives. *Structural
-    Equation Modeling, 6*(1), 1-55.
+    Hu, L., & Bentler, P. M. (1999). Cutoff criteria for fit indexes in covariance structure
+    analysis: Conventional criteria versus new alternatives. *Structural Equation Modeling: A
+    Multidisciplinary Journal, 6*(1), 1-55. https://doi.org/10.1080/10705519909540118
 
-    White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator and
-    a direct test for heteroskedasticity. *Econometrica, 48*(4), 817-838.
+    White, H. (1980). A heteroskedasticity-consistent covariance matrix estimator and a direct test
+    for heteroskedasticity. *Econometrica, 48*(4), 817-838. https://doi.org/10.2307/1912934
 
     Examples
     --------
@@ -236,7 +235,7 @@ def sem(
     if engine not in SEM_ENGINES:
         raise NotImplementedError(f"Engine '{engine}' is not implemented, use one of {SEM_ENGINES}.")
     if engine == "lavaan":
-        from ._lavaan import fit_lavaan, lavaan_estimator
+        from .r.lavaan import fit_lavaan, lavaan_estimator
 
         lavaan_args = dict(lavaan_args or {})
         estimator, implied = lavaan_estimator("ML" if method is None else method, lavaan_args)
@@ -450,7 +449,7 @@ def sem_plot(
     if engine == "semopy":
         fig = semopy_plot(stats, latshape="circle", dpi=dpi, **common, **kwargs)
     elif engine == "lavaan":
-        from ._lavaan import semplot
+        from .r.lavaan import semplot
 
         np.random.seed(seed)
         latent, _, edges, covs, order = _path_diagram(

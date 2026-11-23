@@ -6,8 +6,7 @@ import pytest
 import semopy
 from scipy.stats import norm
 
-from apatools.citation import cite
-from apatools.sem import sem, sem_report, semopy_plot, sem_plot
+from apatools.sem import sem, sem_plot, sem_report, semopy_plot
 
 
 def test_sem():
@@ -15,8 +14,6 @@ def test_sem():
     data = semopy.examples.political_democracy.get_data()
     formula = semopy.examples.political_democracy.get_model()
     assert len(data) == 75
-
-    print(cite("sem")[0])
 
     stats, metrics, model = sem(
         data,
@@ -61,7 +58,7 @@ def test_sem_plot(tmp_path):
     pytest.importorskip("graphviz")
     data = semopy.examples.political_democracy.get_data()
     formula = semopy.examples.political_democracy.get_model()
-    stats, metrics = sem(data, formula, bootstrap=0, seed=13)
+    stats, _metrics = sem(data, formula, bootstrap=0, seed=13)
 
     fig = semopy_plot(
         stats,
@@ -229,7 +226,7 @@ def test_sem_plot_networkx_layouts(mpl, democracy_stats, layout):
     fig = sem_plot(democracy_stats, engine="networkx", layout=layout)
     assert len(fig.axes[0].texts) > 20
     again = sem_plot(democracy_stats, engine="networkx", layout=layout)
-    positions = lambda f: [t.get_position() for t in f.axes[0].texts]  # noqa: E731
+    positions = lambda f: [t.get_position() for t in f.axes[0].texts]
     assert positions(fig) == positions(again)  # reproducible (the spring layout is seeded)
     with pytest.raises(ValueError, match="Unknown layout"):
         sem_plot(democracy_stats, engine="networkx", layout="nope")
@@ -241,7 +238,7 @@ def test_layered_positions_put_predictors_left_of_outcomes():
 
     arrows = [("a", "m"), ("b", "m"), ("m", "y1"), ("m", "y2"), ("a", "y3")]
     pos = _layered_positions(nx, ["a", "b", "m", "y1", "y2", "y3"], arrows)
-    assert all(pos[r][0] < pos[l][0] for r, l in arrows)
+    assert all(pos[r][0] < pos[lhs][0] for r, lhs in arrows)
     # layer = longest path from a variable without predictors
     assert pos["a"][0] == pos["b"][0] == 0 and pos["y1"][0] == pos["y2"][0] == 2 * pos["m"][0]
     assert pos["m"][0] == pos["y3"][0] > 0
@@ -255,8 +252,8 @@ def test_layered_positions_put_predictors_left_of_outcomes():
 
 
 def test_sem_plot_networkx_without_latent_metadata_and_with_feedback(mpl):
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     stats = pd.DataFrame(
         {
@@ -328,7 +325,7 @@ def test_standardized_standard_errors_match_theory_and_bootstrap():
     # one factor: the delta method agrees with the spread of the standardized loadings in bootstrap samples
     n = 300
     factor = rng.normal(size=n)
-    items = pd.DataFrame({f"i{k}": l * factor + rng.normal(size=n) for k, l in enumerate([1.0, 0.8, 0.7, 0.9], 1)})
+    items = pd.DataFrame({f"i{k}": lam * factor + rng.normal(size=n) for k, lam in enumerate([1.0, 0.8, 0.7, 0.9], 1)})
     formula = "f =~ i1 + i2 + i3 + i4"
     fit = sem(items, formula, bootstrap=0, se_robust=False)[0]
     loadings = fit[(fit["rval"] == "f") & (fit["op"] == "~")].reset_index(drop=True)

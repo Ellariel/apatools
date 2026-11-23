@@ -1,8 +1,45 @@
 import numpy as np
 import pytest
-from scipy.stats import spearmanr
 
-from apatools.calc import *
+from apatools.calc import (
+    OR_from_logit,
+    ci_from_p,
+    ci_from_r,
+    cohen_d_from_logit,
+    cohen_d_from_p,
+    cohen_d_from_r,
+    cohen_d_from_t,
+    cohen_d_from_z,
+    d_from_f,
+    d_from_p,
+    d_from_r,
+    d_from_t,
+    d_from_z,
+    logit_from_cohen_d,
+    logit_from_OR,
+    logit_from_probit,
+    p_from_ci,
+    p_from_d,
+    p_from_f,
+    p_from_r,
+    p_from_t,
+    p_from_z,
+    r_from_d,
+    r_from_f,
+    r_from_p,
+    r_from_t,
+    r_from_z,
+    t_from_b,
+    t_from_d,
+    t_from_p,
+    t_from_r,
+    t_from_z,
+    unbiased_z,
+    z_from_d,
+    z_from_p,
+    z_from_r,
+    z_from_t,
+)
 
 
 def s(x):

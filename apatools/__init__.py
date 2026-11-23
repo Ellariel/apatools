@@ -7,7 +7,7 @@ matching) and ``format`` (APA formatting). Import the modules you need, e.g.
 ``from apatools.lm import lm, lm_report``.
 
 The package ``__init__`` imports none of them, so ``import apatools`` is cheap and works with
-the core install (numpy and scipy only, enough for ``calc``, ``format`` and ``citation``). The
+the core install (numpy and scipy only, enough for ``calc`` and ``format``). The
 other modules need optional packages that are installed through extras named after the module,
 for example ``pip install "apatools[lm]"``, ``"apatools[sem]"`` or ``"apatools[all]"``; if a
 package is missing, importing the module raises an ``ImportError`` naming the extra.

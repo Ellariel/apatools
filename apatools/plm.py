@@ -6,23 +6,26 @@ Panel regressions in the same format as :mod:`apatools.lm` and :mod:`apatools.sl
 * ``backend="linearmodels"`` (optional dependency, ``pip install linearmodels``): non-spatial
   pooled / FE / RE models with *linearmodels*, which adds e.g. clustered standard errors
   and two-way fixed effects.
+* ``backend="splm"`` (needs R with the packages plm, splm and spdep, see :mod:`apatools.r.bridge`): the
+  non-spatial models with R's *plm*, the spatial ML models with R's *splm*, including period effects of the
+  spatial lag model. Every model starts R (a few seconds).
 
 Models
 ------
-===============  =========================================================  =========
-name             model                                                      backends
-===============  =========================================================  =========
-``pooled``       pooled OLS                                                 both
-``fe``           fixed effects (within estimator)                           both
-``re``           random effects                                             both
-``slm_fe``       spatial lag, fixed effects (ML)                            spreg
-``slm_re``       spatial lag, random effects (ML)                           spreg
-``sem_pooled``   spatial error, pooled (ML)                                 spreg
-``sem_fe``       spatial error, fixed effects (ML)                          spreg
-``sem_re``       spatial error, random effects (ML)                         spreg
-``sem_pooled_gm``  spatial error, pooled (GMM)                              spreg
-``sem_re_gm``    spatial error, random effects (GMM, Kapoor-Kelejian-Prucha)  spreg
-===============  =========================================================  =========
+================  =========================================================  ==================
+name              model                                                      backends
+================  =========================================================  ==================
+``pooled``        pooled OLS                                                 all
+``fe``            fixed effects (within estimator)                           all
+``re``            random effects                                             all
+``slm_fe``        spatial lag, fixed effects (ML)                            spreg, splm
+``slm_re``        spatial lag, random effects (ML)                           spreg, splm
+``sem_pooled``    spatial error, pooled (ML)                                 spreg, splm
+``sem_fe``        spatial error, fixed effects (ML)                          spreg, splm
+``sem_re``        spatial error, random effects (ML)                         spreg, splm
+``sem_pooled_gm``  spatial error, pooled (GMM)                               spreg
+``sem_re_gm``     spatial error, random effects (GMM, Kapoor-Kelejian-Prucha)  spreg
+================  =========================================================  ==================
 
 Note that ``sem_re`` (spreg's ``ML_ErrorRE``, version 1.9.0) raised a ``TypeError`` (complex numbers) with
 the older numpy/scipy versions we tested (numpy 2.0-2.2, scipy 1.13-1.15) and worked with recent ones
@@ -64,7 +67,9 @@ from ._common import (
     round_columns,
     w_subset_rows,
 )
+from ._impacts import effects_table
 from .format import format_p, format_r
+from .r.splm import SplmFit, fit_splm
 
 # https://pysal.org/spreg/index.html
 # https://bashtage.github.io/linearmodels/
@@ -379,8 +384,47 @@ def _model_kwargs(kwargs, name, stage="model"):
     return {k[len(prefix) :]: v for k, v in kwargs.items() if k.startswith(prefix)}
 
 
+def _effects_kwargs(effects, backend, kwargs):
+    """Translate ``effects`` ("entity", "time", "twoway") into the linearmodels arguments of the FE model."""
+    if effects not in ("entity", "time", "twoway"):
+        raise ValueError("effects must be 'entity', 'time' or 'twoway'.")
+    if effects == "entity":
+        return
+    if backend in (
+        "spreg",
+        "splm",
+    ):  # spreg: period dummies, see _time_dummies; splm: the argument of R
+        kwargs["effects"] = effects
+        return
+    kwargs.setdefault("fe_model_entity_effects", effects == "twoway")
+    kwargs.setdefault("fe_model_time_effects", True)
+
+
+def _time_dummies(panel):
+    """Period dummies (all but the first period) as a DataFrame in the row order of the panel."""
+    names = [f"time[{t}]" for t in panel.times[1:]]
+    values = (panel.tim[:, None] == np.arange(1, panel.T)[None, :]).astype(float)
+    return DataFrame(values, index=panel.x.index, columns=names)
+
+
 def _fit_spreg(name, panel, kwargs):
-    cls_name, _, spatial = SPREG_MODELS[name]
+    cls_name, kind, spatial = SPREG_MODELS[name]
+    effects = kwargs.get("effects", "entity") if kind == "fe" else "entity"
+    x = panel.x
+    if effects != "entity":
+        # Period effects of spreg's FE models: period dummies as extra regressors (the entity effects
+        # are removed by spreg), which is the model with entity + period effects for any weights.
+        # Without entity effects the pooled model with the dummies is the period-effects model.
+        if kwargs.get("slx_lags", 0):
+            raise NotImplementedError("slx_lags is not available with period effects.")
+        if effects == "time":
+            if name == "slm_fe":
+                raise NotImplementedError(
+                    "effects='time' is not available for slm_fe (spreg has no pooled spatial lag model); "
+                    "use effects='twoway'."
+                )
+            cls_name = {"fe": "PooledOLS", "sem_fe": "ML_ErrorPooled"}[name]
+        x = concat([x, _time_dummies(panel)], axis=1)
     cls = getattr(spr, cls_name)
     w = panel.w
     if spatial and w is None:
@@ -397,7 +441,11 @@ def _fit_spreg(name, panel, kwargs):
         if "spat_diag" in params:  # diagnostics are meaningless without weights
             model_kwargs.setdefault("spat_diag", False)
     with contextlib.redirect_stdout(io.StringIO()):  # spreg prints the model title
-        return cls(panel.y.to_frame(), panel.x, w, **model_kwargs)
+        r = cls(panel.y.to_frame(), x, w, **model_kwargs)
+    r.plm_model = name
+    r.plm_effects = effects
+    r.plm_time = list(x.columns[panel.x.shape[1] :])  # names of the period dummies
+    return r
 
 
 def _fit_linearmodels(name, panel, kwargs):
@@ -441,16 +489,46 @@ def _fit_one(name, panel, backend, kwargs):
         return _fit_spreg(name, panel, kwargs)
     if backend == "linearmodels":
         return _fit_linearmodels(name, panel, kwargs)
-    raise ValueError("backend must be 'spreg' or 'linearmodels'.")
+    if backend == "splm":
+        return _fit_splm(name, panel, kwargs)
+    raise ValueError("backend must be 'spreg', 'linearmodels' or 'splm'.")
+
+
+def _fit_splm(name, panel, kwargs):
+    if kwargs.get("slx_lags", 0):
+        raise NotImplementedError("slx_lags needs backend='spreg'.")
+    return fit_splm(
+        name,
+        panel,
+        effects=kwargs.get("effects", "entity"),
+        args=_model_kwargs(kwargs, name),
+        rscript=kwargs.get("rscript"),
+        timeout=kwargs.get("r_timeout"),
+    )
 
 
 def _is_spreg(r):
     return type(r).__module__.startswith("spreg")
 
 
+def _is_splm(r):
+    return isinstance(r, SplmFit)
+
+
+def _backend_of(r):
+    """``"spreg"``, ``"splm"`` or ``"linearmodels"``: the backend that fitted the result."""
+    return "spreg" if _is_spreg(r) else "splm" if _is_splm(r) else "linearmodels"
+
+
 def _model_name(r):
-    """Model name (key of :data:`SPREG_MODELS`) of a fitted result of either backend."""
+    """Model name (key of :data:`SPREG_MODELS`) of a fitted result of any backend."""
+    if _is_splm(r):
+        return r.model
     if _is_spreg(r):
+        if getattr(
+            r, "plm_model", None
+        ):  # period-effects models are fitted with pooled classes
+            return r.plm_model
         for name, (cls_name, _, _) in SPREG_MODELS.items():
             if type(r).__name__ == cls_name:
                 return name
@@ -465,18 +543,30 @@ def _clean_names(names):
     return [str(n).strip() for n in names]
 
 
+def _rename_lag(r, names):
+    """spreg calls the lag coefficient ``W_<name of y>``; call it ``rho``, like the other backends."""
+    if not type(r).__name__.startswith("ML_Lag"):
+        return list(names)
+    name_y = r.name_y[0] if isinstance(r.name_y, (list, tuple)) else r.name_y
+    return ["rho" if n in ("W_dep_var", f"W_{name_y}") else n for n in names]
+
+
 def _param_table(r):
-    """Coefficient table (coef, se, z/t, p-value, cil, cir) of a fitted result of either backend."""
+    """Coefficient table (coef, se, z/t, p-value, cil, cir) of a fitted result of any backend."""
+    if _is_splm(r):
+        table = r.table.rename(columns={"stat": r.stat_name}).copy()
+        critical = (
+            scipy.stats.t.ppf(0.975, r.df_resid)
+            if np.isfinite(r.df_resid)
+            else scipy.stats.norm.ppf(0.975)
+        )
+        table["cil"] = table["coef"] - critical * table["se"]
+        table["cir"] = table["coef"] + critical * table["se"]
+        return table[["coef", "se", r.stat_name, "p-value", "cil", "cir"]]
     if _is_spreg(r):
         out = r.output.copy()
         out["var_names"] = _clean_names(out["var_names"])
-        if type(r).__name__.startswith("ML_Lag"):
-            # spreg names the lag coefficient "W_<name of y>"; call it rho
-            name_y = r.name_y[0] if isinstance(r.name_y, (list, tuple)) else r.name_y
-            out["var_names"] = [
-                "rho" if n in ("W_dep_var", f"W_{name_y}") else n
-                for n in out["var_names"]
-            ]
+        out["var_names"] = _rename_lag(r, out["var_names"])
         t = out.set_index("var_names").apply(to_numeric, errors="coerce")
         stat = (
             "t" if hasattr(r, "t_stat") else "z"
@@ -493,6 +583,9 @@ def _param_table(r):
         zc = scipy.stats.norm.ppf(0.975)  # 95% CI, normal approximation
         t["cil"] = t["coef"] - zc * t["se"]
         t["cir"] = t["coef"] + zc * t["se"]
+        t = t.drop(
+            index=getattr(r, "plm_time", [])
+        )  # the period effects are not reported
         return t[["coef", "se", stat, "p-value", "cil", "cir"]]
     ci = r.conf_int()
     return DataFrame(
@@ -509,9 +602,11 @@ def _param_table(r):
 
 def _cov_frame(r):
     """Covariance matrix of the coefficients as a DataFrame indexed by coefficient names."""
+    if _is_splm(r):
+        return r.cov
     if _is_spreg(r):
         vm = np.asarray(r.vm, dtype=float)
-        names = _clean_names(r.output["var_names"])[: vm.shape[0]]
+        names = _rename_lag(r, _clean_names(r.output["var_names"]))[: vm.shape[0]]
         return DataFrame(vm, index=names, columns=names)
     return r.cov
 
@@ -575,14 +670,32 @@ def base_metrics(r, panel=None):
     Notes
     -----
     The F test of an FE model compares the within R² with ``df_model = k`` and
-    ``df_resid = N·T - N - k``. The linearmodels F statistic follows the covariance type of
-    the fit (robust version if the covariance is not ``"Unadjusted"``).
+    ``df_resid = N·T - N - k``. With period effects (``effects="time"`` or ``"twoway"`` of :func:`plm`, both
+    backends) R² is the within R² after removing all effects and ``df_resid = N·T - A - k`` with ``A`` the
+    number of effects estimated away (``N + T - 1`` for two-way, ``T`` for time effects with the constant). The
+    linearmodels F statistic follows the covariance type of the fit (robust version if the covariance is not
+    ``"Unadjusted"``).
     """
     name = _model_name(r)
     table = _param_table(r)
     slopes = _slopes(table.index)
     k = len(slopes)
-    outputs = {"model": name, "backend": "spreg" if _is_spreg(r) else "linearmodels"}
+    outputs = {"model": name, "backend": _backend_of(r)}
+
+    if _is_splm(
+        r
+    ):  # the fit statistics were computed with the R fit (see apatools.r.splm)
+        resid = np.asarray(r.resid, dtype=float)
+        outputs.update(r.metrics)
+        outputs.update(
+            n_obs=r.n_obs,
+            n_entities=r.n_entities,
+            n_periods=r.n_periods,
+            n_params=k,
+            mae=float(np.mean(np.abs(resid))),
+            mad=float(np.median(np.abs(resid - np.median(resid)))),
+        )
+        return outputs
 
     if _is_spreg(r):
         _, effects, spatial = SPREG_MODELS[name]
@@ -590,6 +703,7 @@ def base_metrics(r, panel=None):
         n_per = int(r.t)
         n_ent = n_obs // n_per
         resid = np.asarray(r.u, dtype=float).ravel()
+        time_effects = getattr(r, "plm_effects", "entity") != "entity"
         if effects == "pooled" and spatial is None:
             r_sq, r_type = float(r.r2), "ols"
             outputs["r_sq_adj"] = float(r.ar2)
@@ -600,16 +714,17 @@ def base_metrics(r, panel=None):
                 df_model=len(table) - 1,
                 df_resid=n_obs - len(table),
             )
-        else:
+        elif not (time_effects and spatial is None):
             r_sq = float(r.pr2)
             r_type = "within" if (effects == "fe" and spatial is None) else "pseudo"
         if effects == "fe" and spatial is None:
             resid, y_within = _within_resid(
                 r
             )  # spreg's own u / pr2 leave out the fixed effects
-            r_sq = 1 - np.sum(resid**2) / np.sum(y_within**2)
-            df_resid = n_obs - n_ent - k
-            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - n_ent) / df_resid
+            r_sq, r_type = 1 - np.sum(resid**2) / np.sum(y_within**2), "within"
+            absorbed = _absorbed(r, n_ent, n_per)
+            df_resid = n_obs - absorbed - k
+            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - absorbed) / df_resid
             f_stat = (r_sq / k) / ((1 - r_sq) / df_resid)
             outputs.update(
                 f_stat=f_stat,
@@ -627,8 +742,12 @@ def base_metrics(r, panel=None):
         resid = np.asarray(r.resids, dtype=float).ravel()
         has_const = any(c in table.index for c in INTERCEPT_NAMES)
         if name == "fe":
-            r_sq, r_type = float(r.rsquared_within), "within"
-            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - n_ent) / r.df_resid
+            # R² after removing *all* effects (entity only: the within R²; with time effects: two-way within R²)
+            r_sq, r_type = float(r.rsquared), "within"
+            absorbed = (
+                n_obs - int(r.df_resid) - k
+            )  # entity (and time) effects estimated away
+            outputs["r_sq_adj"] = 1 - (1 - r_sq) * (n_obs - absorbed) / r.df_resid
         elif name == "re":
             r_sq, r_type = float(r.rsquared_overall), "overall"
         else:
@@ -659,18 +778,36 @@ def base_metrics(r, panel=None):
     return outputs
 
 
+def _absorbed(r, n_ent, n_per):
+    """Number of estimated effects (entity, period, constant) of a non-spatial spreg FE-type result."""
+    effects = getattr(r, "plm_effects", "entity")
+    if effects == "entity":
+        return n_ent
+    if effects == "twoway":
+        return n_ent + n_per - 1
+    return n_per  # period dummies and the constant
+
+
 def _within_resid(r):
     """
-    Within residuals and within-demeaned y of a non-spatial spreg ``PanelFE`` result.
+    Residuals and y without the effects of a non-spatial spreg fixed-effects result.
 
     spreg's ``PanelFE.u`` is ``y - x·β`` *without* the fixed effects, so the residuals of the
-    within model are ``u`` minus its entity means.
+    within model are ``u`` minus its entity means. With period effects (period dummies among the
+    regressors) y is also demeaned by period; without entity effects (pooled model with period
+    dummies) ``u`` already is the residual.
     """
     n_per = int(r.t)
     n_ent = int(r.n) // n_per
+    effects = getattr(r, "plm_effects", "entity")
     u = np.asarray(r.u, dtype=float).reshape(n_per, n_ent)
     y = np.asarray(r.y, dtype=float).reshape(n_per, n_ent)
-    return (u - u.mean(axis=0)).ravel(), (y - y.mean(axis=0)).ravel()
+    if effects == "time":
+        return u.ravel(), (y - y.mean(axis=1, keepdims=True)).ravel()
+    y = y - y.mean(axis=0)  # entity means
+    if effects == "twoway":
+        y = y - y.mean(axis=1, keepdims=True)  # period means of the entity-demeaned y
+    return (u - u.mean(axis=0)).ravel(), y.ravel()
 
 
 def _coefs(r):
@@ -768,8 +905,11 @@ def pred_metrics(
 
     References
     ----------
-    Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal,
-    spatial, hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein,
+    S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F.,
+    & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial,
+    hierarchical, or phylogenetic structure. *Ecography, 40*(8), 913-929.
+    https://doi.org/10.1111/ecog.02881
     """
     if group not in ("entity", "time"):
         raise ValueError("group must be 'entity' or 'time'.")
@@ -779,6 +919,15 @@ def pred_metrics(
         )
     if kwargs.get("slx_lags", 0):
         raise NotImplementedError("pred_metrics is not implemented for slx_lags > 0.")
+    if backend == "splm":
+        warnings.warn(
+            "pred_* metrics are not available with backend='splm' (every refit would start R); they are NaN.",
+            UserWarning,
+        )
+        return [
+            dict.fromkeys(("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad"), np.nan)
+            for _ in results
+        ]
     names = [_model_name(r) for r in results]
     y = panel.y.to_numpy()
     wy = np.zeros_like(y)
@@ -788,9 +937,19 @@ def pred_metrics(
         wy = np.asarray(panel.w.sparse @ y.reshape(panel.T, panel.N).T).T.ravel()
     nan_out = {k: np.nan for k in ("pred_loo_r_sq", "pred_loo_mae", "pred_loo_mad")}
 
-    skip = set()
+    skip = {
+        i
+        for i, r in enumerate(results)
+        if getattr(r, "plm_effects", "entity") != "entity"
+    }
+    if skip:
+        warnings.warn(
+            "pred_* metrics are not available for models with period effects (the effect of a held-out "
+            "period cannot be estimated); they are NaN.",
+            UserWarning,
+        )
     if group == "entity":
-        skip = {
+        skip |= {
             i
             for i, n in enumerate(names)
             if n in SPREG_MODELS and SPREG_MODELS[n][1] == "fe"
@@ -905,18 +1064,51 @@ def plm(
         sem_re_gm`` (see the module docstring); linearmodels supports ``pooled, fe, re``.
     formula : str, optional
         patsy formula; overrides ``y``/``x``.
-    backend : {"spreg", "linearmodels"}
+    backend : {"spreg", "linearmodels", "splm"}
         Estimation package. ``"linearmodels"`` is an optional dependency and allows e.g.
-        ``fe_fit_cov_type="clustered"``, ``fe_fit_cluster_entity=True`` or
-        ``fe_model_time_effects=True`` (two-way fixed effects).
+        ``fe_fit_cov_type="clustered"`` or ``fe_fit_cluster_entity=True``, and time or two-way
+        fixed effects (``effects``). ``"splm"`` uses R (packages plm, splm, spdep) through ``Rscript``; the
+        results are :class:`apatools.r.splm.SplmFit` objects instead of spreg or linearmodels results.
     **kwargs
         Function options (below) and arguments for the backend named
         ``<model>_model_<argument>`` (passed to the model class, e.g.
-        ``slm_fe_model_method="LU"``) or ``<model>_fit_<argument>`` (passed to
+        ``slm_fe_model_method="LU"``; with ``"splm"`` to ``plm::plm`` / ``splm::spml``, e.g.
+        ``slm_fe_model_zero.policy=True``) or ``<model>_fit_<argument>`` (passed to
         ``.fit()``, linearmodels only), where ``<model>`` is one of the names above.
 
     Other Parameters
     ----------------
+    effects : {"entity", "time", "twoway"}, default "entity"
+        Effects of the fixed-effects models (``fe``, ``slm_fe``, ``sem_fe``): entity (the usual
+        within model), time (period) or both (two-way fixed effects); the other models ignore
+        it. Where each is available:
+
+        ================  ====================  ====================  ====================
+        model             spreg                 linearmodels          splm (R)
+        ================  ====================  ====================  ====================
+        ``fe``            entity, time, twoway  entity, time, twoway  entity, time, twoway
+        ``slm_fe``        entity, twoway        not available         entity, time, twoway
+        ``sem_fe``        entity, time, twoway  not available         entity, time, twoway
+        all other models  ignored               ignored               ignored
+        ================  ====================  ====================  ====================
+
+        linearmodels: sets its arguments ``entity_effects`` and
+        ``time_effects`` (``fe_model_entity_effects`` / ``fe_model_time_effects`` still work and
+        take precedence). splm: sets the argument ``effect`` of R's ``plm`` / ``spml``
+        (``fe_model_effect`` takes precedence). spreg has no such option, so the period effects are period dummies
+        added to the regressors (``time[<period>]`` in ``r.summary``; hidden by
+        :func:`plm_report`), valid for any spatial weights; ``"time"`` is then the pooled model
+        with the dummies (``fe`` and ``sem_fe``; there is no pooled spatial lag model, so not
+        ``slm_fe``), and ``slx_lags`` is not available. :func:`plm_tests` compares models
+        with period effects by F / likelihood-ratio tests (no Hausman test), and they have no
+        ``pred_*`` metrics. The standard errors
+        of spreg's entity-effects models use ``N·T - N`` degrees of freedom (see
+        :func:`base_metrics`), so with ``"twoway"`` they are slightly too small. The standard errors
+        of ``rho`` / ``lambda`` come from spreg's analytic information matrix and understate the
+        sampling spread somewhat in small panels (the within ML estimator is biased towards zero).
+    rscript : str, optional
+        ``backend="splm"``: path of ``Rscript`` (default: the environment variable ``APATOOLS_RSCRIPT``, the
+        ``PATH`` and the usual install locations). ``r_timeout`` limits the time of every R run (seconds).
     verbose : bool, default True
         Print the panel dimensions and the model summaries.
     dropna : bool, default True
@@ -940,7 +1132,7 @@ def plm(
     Returns
     -------
     results : list
-        One fitted model per entry of ``model`` (spreg or linearmodels objects). Each has the
+        One fitted model per entry of ``model`` (spreg or linearmodels objects, or ``SplmFit`` for R). Each has the
         attributes ``plm_panel`` (the :class:`PanelData` used) and ``plm_spec`` (backend and
         fitting options), which :func:`mundlak` and :func:`plm_tests` need.
     metrics : list of dict
@@ -953,25 +1145,31 @@ def plm(
         For an unknown ``backend`` or spatial model without ``w`` (and the errors of
         :func:`make_panel`).
     NotImplementedError
-        For an unknown model name, or a spatial model / ``slx_lags`` with
-        ``backend="linearmodels"``.
+        For an unknown model name, a spatial model / ``slx_lags`` with
+        ``backend="linearmodels"``, ``slx_lags`` or a GMM model with ``backend="splm"``.
     ImportError
-        If ``backend="linearmodels"`` and linearmodels is not installed.
+        If ``backend="linearmodels"`` and linearmodels is not installed, or an R package is missing with
+        ``backend="splm"``.
+    RuntimeError
+        If R is not found or fails (``backend="splm"``).
 
     References
     ----------
     Anselin, L. (1988). *Spatial econometrics: Methods and models*. Kluwer Academic.
+    https://doi.org/10.1007/978-94-015-7799-1
 
-    Elhorst, J. P. (2003). Specification and estimation of spatial panel data models.
-    *International Regional Science Review, 26*(3), 244-268.
+    Elhorst, J. P. (2003). Specification and estimation of spatial panel data models. *International
+    Regional Science Review, 26*(3), 244-268. https://doi.org/10.1177/0160017603253791
 
     Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
-    Springer.
+    Springer. https://doi.org/10.1007/978-3-642-40340-8
 
-    Kapoor, M., Kelejian, H. H., & Prucha, I. R. (2007). Panel data models with spatially
-    correlated error components. *Journal of Econometrics, 140*(1), 97-130.
+    Kapoor, M., Kelejian, H. H., & Prucha, I. R. (2007). Panel data models with spatially correlated
+    error components. *Journal of Econometrics, 140*(1), 97-130.
+    https://doi.org/10.1016/j.jeconom.2006.09.004
 
-    Baltagi, B. H. *Econometric analysis of panel data*. Wiley.
+    Baltagi, B. H. (2021). *Econometric analysis of panel data* (6th ed.). Springer.
+    https://doi.org/10.1007/978-3-030-53953-5
 
     Examples
     --------
@@ -988,6 +1186,7 @@ def plm(
     add_pred_metrics = kwargs.pop("pred_metrics", False)
     pred_group = kwargs.pop("pred_group", "entity")
     pred_exclude_neighbors = kwargs.pop("pred_exclude_neighbors", False)
+    _effects_kwargs(kwargs.pop("effects", "entity"), backend, kwargs)
     panel = make_panel(
         data,
         y,
@@ -1154,6 +1353,135 @@ def plm_report(
     return output
 
 
+def plm_effects(
+    results,
+    w=None,
+    inference="simulation",
+    n_draws=1000,
+    seed=13,
+    conf_level=0.95,
+    traces="auto",
+    n_probes=50,
+    format_pval=False,
+    add_stars=False,
+    decimal=None,
+):
+    """
+    Direct, indirect and total effects of the regressors of the spatial lag panel models fitted with :func:`plm`.
+
+    In a spatial lag model (``slm_fe``, ``slm_re``; every backend that fits them: spreg and splm; with spreg
+    also the Durbin model of ``slx_lags``) the coefficient of a regressor is not its effect: a change in one entity
+    also changes its neighbours through ``ρWy``, and their neighbours in turn. LeSage & Pace (2009) summarize the
+    effect matrix by three averages, which Elhorst (2014) uses for panels as well (the weights ``W`` of the entities
+    apply in every period): the **direct** effect (the change of an entity caused by a change of its own regressor,
+    including the feedback through its neighbours), the **total** effect (the change of an entity caused by a unit
+    change of the regressor in *all* entities) and the **indirect** effect, their difference (the spillover). The
+    averages are computed from the traces of the powers of ``W``, without inverting ``I - ρW``; for the Durbin model
+    the effect matrix is ``(I - ρW)⁻¹ (β_k I + θ_k W)``.
+
+    Parameters
+    ----------
+    results : list
+        Fitted models from :func:`plm`. Only the spatial lag models have these effects; the others are skipped
+        with a warning (the coefficients of the spatial error models already are the direct and total effects).
+    w : libpysal.weights.W, optional
+        The weights of the entities; by default those stored with the results (the panel's).
+    inference : {"simulation", "analytic"}, default "simulation"
+        How the standard errors, z values, p-values and confidence intervals are obtained. ``"simulation"``:
+        LeSage & Pace's simulation, ``n_draws`` draws of the coefficients and ``ρ`` from their estimated joint
+        normal distribution; the standard error is the standard deviation of the effects of the draws and the
+        confidence interval is made of their percentiles (so it can be asymmetric). ``"analytic"``: the delta method
+        with the gradient of the trace series (the interval is estimate ± z · se).
+    n_draws, seed, conf_level, traces, n_probes, format_pval, add_stars, decimal
+        As in :func:`apatools.slm.slm_effects`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per model, regressor and effect: the columns ``model`` (the model name; a repeated one gets the
+        suffix ``_2``, ...), ``variable``, ``effect`` (``"Direct"``, ``"Indirect"``, ``"Total"``), ``estimate``,
+        ``se``, ``z``, ``p-value``, ``cil``, ``cir`` and optionally ``sig``.
+
+    Notes
+    -----
+    The constant has no effect and is left out, as are the period effects of ``effects="time"`` / ``"twoway"``
+    (they are not regressors). The standard errors use the covariance matrix of the coefficients and ``ρ`` of the
+    backend: spreg's covers the coefficients and ``ρ`` jointly, that of splm treats ``ρ`` as uncorrelated with the
+    coefficients, so the standard errors of the indirect and total effects differ somewhat between the backends.
+    spreg's estimates of an entity-effects model are those of the within estimator.
+
+    The delta method (``inference="analytic"``) treats the effects as linear in the estimates. That holds when
+    ``ρ`` is estimated precisely; with few units and a large ``ρ`` the standard errors of the indirect and total
+    effects can be far too small (in a 64-unit example with ρ = 0.6 the analytic standard error of an indirect effect
+    was 0.44, against 1.48 by simulation with 100,000 draws and 1.43 in R's ``impacts``), so prefer the simulation
+    then. The direct effect is much less sensitive. The simulated standard errors of the indirect and total effects
+    are noisy in the same situation, because a few draws of ``ρ`` near its bound give huge effects: in that example
+    the standard error of the indirect effect was 1.03 with 5000 draws and 1.48 with 100,000 (R's own simulation
+    behaves the same way). Raise ``n_draws`` and check that the result is stable with another ``seed``.
+
+    References
+    ----------
+    LeSage, J., & Pace, R. K. (2009). *Introduction to spatial econometrics*. CRC Press.
+    https://doi.org/10.1201/9781420064254
+    https://doi.org/10.1201/9781420064254
+
+    Elhorst, J. P. (2014). *Spatial econometrics: From cross-sectional data to spatial panels*.
+    Springer. https://doi.org/10.1007/978-3-642-40340-8
+    https://doi.org/10.1007/978-3-642-40340-8
+
+    Examples
+    --------
+    >>> results, metrics = plm(df, "y", ["x1", "x2"], w=w, entity="county", time="year", model="slm_fe")  # doctest: +SKIP
+    >>> plm_effects(results, inference="analytic", decimal=3)  # doctest: +SKIP
+    """
+    entries, seen = [], {}
+    for r in results:
+        name = _model_name(r)
+        table = _param_table(r)
+        if "rho" not in table.index:
+            reason = (
+                "the coefficients of a spatial error model already are the direct and total effects"
+                if "lambda" in table.index
+                else "it has no spatial lag parameter"
+            )
+            warnings.warn(
+                f"Model '{name}' has no direct and indirect effects ({reason}); skipped.",
+                UserWarning,
+            )
+            continue
+        if w is None:
+            w = getattr(getattr(r, "plm_panel", None), "w", None)
+        cov = _cov_frame(r)
+        names = [n for n in table.index if n in cov.index]
+        seen[name] = seen.get(name, 0) + 1
+        label = name if seen[name] == 1 else f"{name}_{seen[name]}"
+        entries.append(
+            (
+                label,
+                names,
+                table.loc[names, "coef"].to_numpy(),
+                cov.loc[names, names].to_numpy(),
+            )
+        )
+    if entries and w is None:
+        raise ValueError(
+            "The spatial weights `w` are needed (the results do not carry them)."
+        )
+    return effects_table(
+        entries,
+        w,
+        inference,
+        n_draws,
+        seed,
+        conf_level,
+        traces,
+        n_probes,
+        format_pval,
+        add_stars,
+        decimal,
+    )
+
+
 #################
 #     tests     #
 #################
@@ -1211,8 +1539,8 @@ def hausman(r_fe, r_re):
 
     References
     ----------
-    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6),
-    1251-1271.
+    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6), 1251-1271.
+    https://doi.org/10.2307/1913827
     """
     t_fe, t_re = _param_table(r_fe), _param_table(r_re)
     common = [n for n in _slopes(t_fe.index) if n in t_re.index]
@@ -1265,8 +1593,8 @@ def mundlak(r_re):
 
     References
     ----------
-    Mundlak, Y. (1978). On the pooling of time series and cross section data.
-    *Econometrica, 46*(1), 69-85.
+    Mundlak, Y. (1978). On the pooling of time series and cross section data. *Econometrica, 46*(1),
+    69-85. https://doi.org/10.2307/1913646
     """
     panel, spec = getattr(r_re, "plm_panel", None), getattr(r_re, "plm_spec", None)
     if panel is None or spec is None:
@@ -1291,6 +1619,136 @@ def mundlak(r_re):
     return stat, len(names), float(scipy.stats.chi2.sf(stat, len(names)))
 
 
+_BACKENDS = ("spreg", "linearmodels", "splm")
+
+
+def _loglik(r):
+    """Log-likelihood of a spatial ML result (spreg or splm)."""
+    return float(r.metrics["llf"]) if _is_splm(r) else float(np.ravel(r.logll)[0])
+
+
+def _pooled_arrays(r):
+    """Design matrix (with the constant), y, residuals and coefficients of a pooled OLS result (spreg or splm)."""
+    if _is_splm(r):
+        columns = [
+            c for c in r.table.index if c not in _NON_SLOPE or c in INTERCEPT_NAMES
+        ]
+        return (
+            r.design,
+            np.asarray(r.y, float),
+            np.asarray(r.resid, float),
+            r.table.loc[columns, "coef"].to_numpy(),
+        )
+    return (
+        np.asarray(r.x, dtype=float),
+        np.asarray(r.y, dtype=float).ravel(),
+        np.asarray(r.u, dtype=float).ravel(),
+        np.asarray(r.betas, dtype=float).ravel(),
+    )
+
+
+def _bsk_lm_tests(e, w):
+    """
+    Baltagi, Song & Koh (2003) LM tests on the residuals ``e`` of the pooled OLS of a balanced panel (stacked
+    in period blocks): the marginal test of random effects (LM1, Honda's one-sided normal form), the marginal
+    test of spatial error dependence (LM2, the one-sided form of Anselin's LM error test) and their joint test
+    (LMJ). The statistics agree with ``spreg.diagnostics_panel.BSK_tests`` and with R's ``plm::plmtest`` /
+    ``splm::slmtest``. Returns ``[(label, statistic, df or None, p-value)]``.
+    """
+    n_ent = w.n
+    n_per = len(e) // n_ent
+    n = len(e)
+    sigma2 = e @ e / n
+    per_entity = e.reshape(n_per, n_ent).sum(axis=0)
+    lm1 = np.sqrt(n / (2 * (n_per - 1))) * (per_entity @ per_entity / (e @ e) - 1)
+    trace = (w.sparse.T @ w.sparse + w.sparse @ w.sparse).diagonal().sum() * n_per
+    big_w = sps.kron(sps.identity(n_per), w.sparse, format="csr")
+    lm2 = (e @ (big_w @ e) / sigma2) / np.sqrt(trace)
+    joint = (
+        lm1**2 + lm2**2
+    )  # the information matrix is block-diagonal because the trace of W is zero
+    return [
+        ("LM Marginal RE (LM1)", float(lm1), None, float(scipy.stats.norm.sf(lm1))),
+        (
+            "LM Marginal Spatial (LM2)",
+            float(lm2),
+            None,
+            float(scipy.stats.norm.sf(lm2)),
+        ),
+        ("LM Joint (LMJ)", float(joint), 2, float(scipy.stats.chi2.sf(joint, 2))),
+    ]
+
+
+def _anselin_lm_tests(r_pooled, w):
+    """
+    Anselin's LM tests for a spatial lag / error in the pooled OLS of a balanced panel (stacked data, weights
+    ``I_T ⊗ W``): the statistics of Anselin (1988) with the ML variance ``e'e / (N·T)`` and the trace term
+    ``T·tr(W'W + W²)`` (Anselin, Le Gallo & Jayet, 2008). spreg's ``diagnostics_panel.panel_LMlag`` divides
+    by ``tr(W'W + W²)²`` instead and its panel tests use ``e'e / (N·T - k)``; they differ from the
+    textbook statistics (and from R's ``splm::slmtest``), so they are not used.
+
+    Returns ``{label: (statistic, p-value)}`` for ``LM lag``, ``LM error`` and the robust versions.
+    """
+    x, y, e, betas = _pooled_arrays(r_pooled)
+    n = len(y)
+    big_w = sps.kron(sps.identity(n // w.n), w.sparse, format="csr")
+    sigma2 = e @ e / n
+    wy, we = big_w @ y, big_w @ e
+    wxb = big_w @ (x @ betas)
+    projected = wxb - x @ np.linalg.lstsq(x, wxb, rcond=None)[0]  # M (W X b)
+    trace = (w.sparse.T @ w.sparse + w.sparse @ w.sparse).diagonal().sum() * (n // w.n)
+    denominator = (
+        projected @ projected / sigma2 + trace
+    )  # information of the lag parameter
+    error, lag = e @ we / sigma2, e @ wy / sigma2  # e'We / s2 and e'Wy / s2
+    out = {
+        "LM lag": lag**2 / denominator,
+        "LM error": error**2 / trace,
+        "Robust LM lag": (lag - error) ** 2 / (denominator - trace),
+        "Robust LM error": (error - trace / denominator * lag) ** 2
+        / (trace * (1 - trace / denominator)),
+    }
+    return {
+        label: (float(stat), float(scipy.stats.chi2.sf(stat, 1)))
+        for label, stat in out.items()
+    }
+
+
+def _effects_of(r):
+    """Effects of a fitted result: ``"entity"``, ``"time"`` or ``"twoway"`` (``"other"``: none, linearmodels)."""
+    if _is_splm(r):
+        return r.effects
+    if _is_spreg(r):
+        return getattr(r, "plm_effects", "entity")
+    model = r.model
+    if type(model).__name__ != "PanelOLS":
+        return "entity"  # pooled / random effects: not an effects variant
+    flags = (bool(model.entity_effects), bool(model.time_effects))
+    return {(True, False): "entity", (False, True): "time", (True, True): "twoway"}.get(
+        flags, "other"
+    )
+
+
+def _ssr_df(r):
+    """Residual sum of squares and residual degrees of freedom of a non-spatial pooled / FE result."""
+    if _is_splm(r):
+        return r.ssr, r.df_resid
+    if not _is_spreg(r):
+        return float(r.resid_ss), float(r.df_resid)
+    n, t = int(r.n), int(r.t)
+    k = len(_slopes(_param_table(r).index))
+    if _model_name(r) == "pooled":
+        return float(np.sum(np.square(r.u))), n - k - 1
+    return float(np.sum(np.square(_within_resid(r)[0]))), n - _absorbed(
+        r, n // t, t
+    ) - k
+
+
+def _label(r):
+    effects = _effects_of(r)
+    return _model_name(r) if effects == "entity" else f"{_model_name(r)} ({effects})"
+
+
 def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None):
     """
     Specification tests for the models fitted with :func:`plm`, as a tidy DataFrame.
@@ -1304,6 +1762,19 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
       are uncorrelated with the predictors (random effects are consistent).
     * **F test of entity effects** (``fe`` vs ``pooled``, non-spatial, same backend). Null: no
       entity effects.
+    * Models with period effects (``effects="time"`` / ``"twoway"``; Hausman and Mundlak need random-effects
+      models with period effects, which are not available): **F tests** of period effects
+      (``twoway`` vs ``fe``, ``time`` vs ``pooled``), of entity effects given period effects (``twoway`` vs
+      ``time``) and of both (``twoway`` vs ``pooled``), for the non-spatial models of the same backend that
+      are among ``results``; **likelihood-ratio test** of period effects (``slm_fe`` / ``sem_fe`` with
+      ``twoway`` vs without, ``T - 1`` degrees of freedom). The Baltagi-Song-Koh and Anselin LM tests
+      are available for the pooled model only. The likelihood-ratio statistic is multiplied by the residual
+      degrees of freedom over ``N·T`` (the within likelihood counts ``N·T`` observations; unscaled it rejects
+      12-16 % of the time at the 5 % level in simulations with ``N`` = 36-100 and ``T`` = 6, scaled 6-7 %). Note: the F test of time effects against ``pooled`` is conservative when the data have
+      strong entity effects, because they inflate the pooled residuals (in simulations with ``N`` = 36, ``T`` = 6:
+      0 % rejections of true nulls at the 5 % level and 87 % power for time effects with an SD of half the
+      error SD, against 7 % and 97 % for ``twoway`` vs ``fe``); with entity effects in the data prefer that
+      entity-conditional test.
     * **Baltagi-Song-Koh LM tests** (spreg, from ``pooled``; need weights): marginal random
       effects (LM1), marginal spatial error (LM2) and their joint test (LMJ), and the
       Anselin LM tests for a spatial lag / error (and their robust versions).
@@ -1337,28 +1808,36 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     The ``model`` column holds the compared models (``"fe vs re"``) or the model name. ``df``
     is None for the LM tests with one degree of freedom reported as ``LM``; ``df_denom`` is
     set only for the F test. The Baltagi-Song-Koh and Anselin LM tests need spreg and
-    ``w``, and are computed from the pooled spreg model (``spreg.diagnostics_panel``).
+    ``w``. The Baltagi-Song-Koh tests come from spreg (``spreg.diagnostics_panel``); the Anselin tests are
+    computed here for the stacked pooled model (spreg's panel versions differ from the textbook statistics).
+    Both agree with R (``plmtest``, ``splm::slmtest``).
 
     References
     ----------
-    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6),
-    1251-1271.
+    Hausman, J. A. (1978). Specification tests in econometrics. *Econometrica, 46*(6), 1251-1271.
+    https://doi.org/10.2307/1913827
 
-    Mundlak, Y. (1978). On the pooling of time series and cross section data.
-    *Econometrica, 46*(1), 69-85.
+    Mundlak, Y. (1978). On the pooling of time series and cross section data. *Econometrica, 46*(1),
+    69-85. https://doi.org/10.2307/1913646
 
-    Baltagi, B. H., Song, S. H., & Koh, W. (2003). Testing panel data regression models with
-    spatial error correlation. *Journal of Econometrics, 117*(1), 123-150.
+    Baltagi, B. H., Song, S. H., & Koh, W. (2003). Testing panel data regression models with spatial
+    error correlation. *Journal of Econometrics, 117*(1), 123-150.
+    https://doi.org/10.1016/s0304-4076(03)00120-9
 
-    Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications
-    to model specification in econometrics. *Review of Economic Studies, 47*(1), 239-253.
+    Breusch, T. S., & Pagan, A. R. (1980). The Lagrange multiplier test and its applications to
+    model specification in econometrics. *The Review of Economic Studies, 47*(1), 239-253.
+    https://doi.org/10.2307/2297111
 
-    Anselin, L., Le Gallo, J., & Jayet, H. (2008). Spatial panel econometrics. In L. Mátyás &
-    P. Sevestre (Eds.), *The econometrics of panel data* (pp. 625-660). Springer.
+    Anselin, L., Le Gallo, J., & Jayet, H. (2008). Spatial panel econometrics. In L. Mátyás & P.
+    Sevestre (Eds.), *The econometrics of panel data* (pp. 625-660). Springer.
+    https://doi.org/10.1007/978-3-540-75892-1_19
     """
-    by_name = {}
+    by_name, variants = {}, {}
     for r in results:
-        by_name.setdefault((_model_name(r), _is_spreg(r)), r)
+        variants.setdefault((_model_name(r), _backend_of(r), _effects_of(r)), r)
+        if _effects_of(r) != "entity":
+            continue  # models with period effects are not comparable with the RE / pooled models
+        by_name.setdefault((_model_name(r), _backend_of(r)), r)
     panel = next(
         (getattr(r, "plm_panel", None) for r in results if hasattr(r, "plm_panel")),
         None,
@@ -1371,7 +1850,7 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
         ("sem_fe", "sem_re"),
         ("sem_fe", "sem_re_gm"),
     ):
-        for sp in (True, False):
+        for sp in _BACKENDS:
             if (fe_name, sp) in by_name and (re_name, sp) in by_name:
                 h, df, p = hausman(by_name[(fe_name, sp)], by_name[(re_name, sp)])
                 if np.isfinite(h):
@@ -1402,10 +1881,15 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
                 continue
             rows.append(_row("Mundlak (correlated effects)", name, stat, df, p, "χ²"))
 
-    for sp in (True, False):
+    for sp in _BACKENDS:
         if ("fe", sp) in by_name and ("pooled", sp) in by_name:
             r_fe, r_p = by_name[("fe", sp)], by_name[("pooled", sp)]
-            if sp:
+            if sp == "splm":
+                (ssr_fe, df2), (ssr_p, df_p) = _ssr_df(r_fe), _ssr_df(r_p)
+                df1 = round(df_p - df2)
+                f = ((ssr_p - ssr_fe) / df1) / (ssr_fe / df2)
+                p, df2 = float(scipy.stats.f.sf(f, df1, df2)), round(df2)
+            elif sp == "spreg":
                 n_obs = int(r_fe.n)
                 n_ent = n_obs // int(r_fe.t)
                 k = len(_slopes(_param_table(r_fe).index))
@@ -1428,33 +1912,80 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
                 _row("F test of entity effects", "fe vs pooled", f, df1, p, "F", df2)
             )
 
-    r_p = by_name.get(("pooled", True))
+    for sp in _BACKENDS:  # F tests of nested non-spatial models
+        pooled, fe, fe_time, fe_two = (
+            variants.get(("pooled", sp, "entity")),
+            variants.get(("fe", sp, "entity")),
+            variants.get(("fe", sp, "time")),
+            variants.get(("fe", sp, "twoway")),
+        )
+        for label, full, restricted in (
+            ("F test of time effects", fe_two, fe),
+            ("F test of time effects", fe_time, pooled),
+            ("F test of entity effects (with time effects)", fe_two, fe_time),
+            ("F test of entity and time effects", fe_two, pooled),
+        ):
+            if full is None or restricted is None:
+                continue
+            ssr_u, df_u = _ssr_df(full)
+            ssr_r, df_r = _ssr_df(restricted)
+            df1 = round(df_r - df_u)
+            if df1 <= 0:
+                continue
+            f = ((ssr_r - ssr_u) / df1) / (ssr_u / df_u)
+            rows.append(
+                _row(
+                    label,
+                    f"{_label(full)} vs {_label(restricted)}",
+                    f,
+                    df1,
+                    float(scipy.stats.f.sf(f, df1, df_u)),
+                    "F",
+                    round(df_u),
+                )
+            )
+    for name, sp in (
+        (n, b) for n in ("slm_fe", "sem_fe") for b in ("spreg", "splm")
+    ):  # LR test of period effects
+        full, restricted = (
+            variants.get((name, sp, "twoway")),
+            variants.get((name, sp, "entity")),
+        )
+        if full is None or restricted is None:
+            continue
+        n_obs, n_per = (
+            (full.n_obs, full.n_periods) if sp == "splm" else (int(full.n), int(full.t))
+        )
+        k = (
+            len(_slopes(_param_table(full).index)) + 1
+        )  # slopes and the spatial parameter
+        # The within likelihood counts N·T observations although the effects use up N + T - 1 of
+        # them: the plain LR statistic is too large (12-16 % rejections at the 5 % level in simulations).
+        # It is multiplied by the residual degrees of freedom over N·T (about 6-7 % rejections).
+        scale = (n_obs - n_obs // n_per - (n_per - 1) - k) / n_obs
+        lr = scale * 2 * (_loglik(full) - _loglik(restricted))
+        df = n_per - 1
+        rows.append(
+            _row(
+                "LR test of time effects",
+                f"{_label(full)} vs {_label(restricted)}",
+                lr,
+                df,
+                float(scipy.stats.chi2.sf(lr, df)),
+                "χ²",
+            )
+        )
+
+    r_p = by_name.get(("pooled", "spreg")) or by_name.get(("pooled", "splm"))
     if r_p is not None:
         w = w if w is not None else (panel.w if panel is not None else None)
         if w is not None:
-            from spreg import diagnostics_panel as dp
-
-            bsk = dp.BSK_tests(r_p, w, which=["LM1", "LM2", "LMJ"])
-            for _, b in bsk.iterrows():
-                lab = "χ²" if int(b["df"]) > 1 else "LM"
-                rows.append(
-                    _row(
-                        b["Test"],
-                        "pooled",
-                        b["Statistic"],
-                        int(b["df"]) if lab == "χ²" else None,
-                        b["p-value"],
-                        lab,
-                    )
-                )
-            y, xx = r_p.y, r_p.x[:, 1:]  # without the constant
-            for label, fn in (
-                ("LM lag", dp.panel_LMlag),
-                ("LM error", dp.panel_LMerror),
-                ("Robust LM lag", dp.panel_rLMlag),
-                ("Robust LM error", dp.panel_rLMerror),
-            ):
-                stat, p = fn(y, xx, w)
+            _, _, residuals, _ = _pooled_arrays(r_p)
+            for label, stat, df, p in _bsk_lm_tests(residuals, w):
+                rows.append(_row(label, "pooled", stat, df, p, "χ²" if df else "LM"))
+            anselin = _anselin_lm_tests(r_p, w)
+            for label in ("LM lag", "LM error", "Robust LM lag", "Robust LM error"):
+                stat, p = anselin[label]
                 rows.append(_row(label, "pooled", stat, 1, p, "χ²"))
 
     res = DataFrame(
@@ -1466,6 +1997,8 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
     res["p-value"] = res["p-value"].astype(float)
     if decimal:
         res["statistic"] = res["statistic"].round(decimal)
-    format_significance(res, add_stars, format_pval)  # stars come from the numeric p-values
+    format_significance(
+        res, add_stars, format_pval
+    )  # stars come from the numeric p-values
 
     return res

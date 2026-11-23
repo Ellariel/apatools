@@ -1,22 +1,20 @@
-import itertools
 import inspect
+import itertools
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 from scipy.stats import norm, spearmanr
-from statsmodels.stats.inter_rater import fleiss_kappa as sm_fleiss_kappa
 from statsmodels.multivariate.factor import Factor
-from statsmodels.tools.numdiff import approx_fprime, approx_hess
 from statsmodels.stats.inter_rater import aggregate_raters
+from statsmodels.stats.inter_rater import fleiss_kappa as sm_fleiss_kappa
+from statsmodels.tools.numdiff import approx_fprime, approx_hess
 
 import apatools.lib as lib_package
 import apatools.lib.cronbach as cronbach_module
 import apatools.lib.mcdonald as mcdonald_module
 from apatools.calc import ci_from_r, p_from_r
-from apatools.lib.cronbach import _alpha_from_covariance, _alpha_standard_error
-from apatools.lib.mcdonald import _omega_delta_se, _omega_from_theta, _one_factor_ml
 from apatools.lib import (
     average_correlations,
     bootstrap,
@@ -34,6 +32,8 @@ from apatools.lib import (
     rz_ci,
     z_transform,
 )
+from apatools.lib.cronbach import _alpha_from_covariance, _alpha_standard_error
+from apatools.lib.mcdonald import _omega_delta_se, _omega_from_theta, _one_factor_ml
 
 
 def s(x):
@@ -420,7 +420,7 @@ def test_krippendorffs_alpha_input_types_and_per_item_agreement():
     base = alpha_only(frame)
     assert alpha_only(KRIPPENDORFF_EXAMPLE.T) == pytest.approx(base)
     assert alpha_only(KRIPPENDORFF_EXAMPLE.T.tolist()) == pytest.approx(base)
-    alpha, z, p, per_item = krippendorffs_alpha(frame, return_per_item_agreement=True)
+    alpha, _z, _p, per_item = krippendorffs_alpha(frame, return_per_item_agreement=True)
     assert alpha == pytest.approx(base) and list(per_item.index) == list(frame.index)
     assert per_item.name == "per_item_agreement"
     # share of the ratings that equal the most frequent one, worked out by hand from the example
@@ -725,15 +725,15 @@ def test_htmt_ratio():
 
 
 def one_factor_corr(loadings):
-    l = np.asarray(loadings, float)
-    r = np.outer(l, l)
+    lam = np.asarray(loadings, float)
+    r = np.outer(lam, lam)
     np.fill_diagonal(r, 1)
     return r
 
 
 def true_omega(loadings):
-    l = np.asarray(loadings, float)
-    return l.sum() ** 2 / (l.sum() ** 2 + (1 - l**2).sum())
+    lam = np.asarray(loadings, float)
+    return lam.sum() ** 2 / (lam.sum() ** 2 + (1 - lam**2).sum())
 
 
 def exact_items(corr, n=600, seed=0):
@@ -744,9 +744,9 @@ def exact_items(corr, n=600, seed=0):
 
 def simulated_items(loadings, n, seed=1):
     rng = np.random.default_rng(seed)
-    l = np.asarray(loadings, float)
-    x = rng.normal(size=(n, 1)) * l + rng.normal(size=(n, len(l))) * np.sqrt(1 - l**2)
-    return pd.DataFrame(x, columns=[f"i{j + 1}" for j in range(len(l))])
+    lam = np.asarray(loadings, float)
+    x = rng.normal(size=(n, 1)) * lam + rng.normal(size=(n, len(lam))) * np.sqrt(1 - lam**2)
+    return pd.DataFrame(x, columns=[f"i{j + 1}" for j in range(len(lam))])
 
 
 def cronbach_alpha(df):
@@ -778,17 +778,17 @@ def test_omega_equals_the_population_value_for_a_one_factor_structure(loadings):
 def test_omega_with_three_items_uses_the_exact_solution():
     # a just-identified one-factor model: l1^2 = r12 * r13 / r23, ...
     r = np.array([[1, 0.42, 0.35], [0.42, 1, 0.30], [0.35, 0.30, 1]])
-    l = np.sqrt(
+    lam = np.sqrt(
         [
             r[0, 1] * r[0, 2] / r[1, 2],
             r[0, 1] * r[1, 2] / r[0, 2],
             r[0, 2] * r[1, 2] / r[0, 1],
         ]
     )
-    assert omega_only(exact_items(r)) == pytest.approx(true_omega(l), abs=1e-6)
+    assert omega_only(exact_items(r)) == pytest.approx(true_omega(lam), abs=1e-6)
     theta = _one_factor_ml(r)
-    assert theta[:3] == pytest.approx(l, abs=1e-5)
-    assert theta[3:] == pytest.approx(1 - l**2, abs=1e-5)
+    assert theta[:3] == pytest.approx(lam, abs=1e-5)
+    assert theta[3:] == pytest.approx(1 - lam**2, abs=1e-5)
 
 
 def test_omega_and_cronbachs_alpha():
@@ -804,11 +804,11 @@ def test_omega_agrees_with_an_independent_ml_factor_analysis():
     for seed in range(5):
         df = simulated_items([0.8, 0.7, 0.6, 0.5, 0.4], 2000, seed=seed)
         fit = Factor(df.to_numpy(), n_factor=1, method="ml").fit()
-        l, u = fit.loadings.ravel(), fit.uniqueness
+        lam, u = fit.loadings.ravel(), fit.uniqueness
         theta = _one_factor_ml(np.corrcoef(df.to_numpy(), rowvar=False))
-        assert theta[:5] == pytest.approx(l * np.sign(l.sum()), abs=1e-4)
+        assert theta[:5] == pytest.approx(lam * np.sign(lam.sum()), abs=1e-4)
         assert theta[5:] == pytest.approx(u, abs=1e-4)
-        assert omega_only(df) == pytest.approx(l.sum() ** 2 / (l.sum() ** 2 + u.sum()), abs=1e-5)
+        assert omega_only(df) == pytest.approx(lam.sum() ** 2 / (lam.sum() ** 2 + u.sum()), abs=1e-5)
 
 
 def test_omega_returns_the_estimate_with_its_interval():
@@ -904,7 +904,10 @@ def test_omega_in_heywood_cases():
 def test_omega_delta_interval_is_a_logit_interval():
     df = simulated_items([0.8, 0.7, 0.6, 0.5], 300, seed=4)
     omega, low, high = mcdonald_omega(df)
-    logit = lambda v: np.log(v / (1 - v))
+
+    def logit(v):
+        return np.log(v / (1 - v))
+
     # symmetric on the logit scale, with the half-width z * SE / (omega * (1 - omega))
     assert logit(high) - logit(omega) == pytest.approx(logit(omega) - logit(low), abs=1e-9)
     theta = _one_factor_ml(np.corrcoef(df.to_numpy(), rowvar=False))
@@ -1219,7 +1222,7 @@ def test_cronbachs_alpha_drops_incomplete_rows():
 def test_cronbachs_alpha_warns_when_it_is_negative():
     items = exact_items(np.array([[1.0, -0.5], [-0.5, 1.0]]))  # alpha = 2 * (1 - 2 / 1) = -2
     with pytest.warns(UserWarning, match="negative"):
-        alpha, low, high = cronbachs_alpha(items)
+        alpha, _low, _high = cronbachs_alpha(items)
     assert alpha == pytest.approx(-2.0, abs=1e-9)
     # two of four items reverse-keyed and not recoded: the covariances cancel and alpha is below zero
     df = normal_items(compound_symmetry(4, 0.5), 300, seed=6)

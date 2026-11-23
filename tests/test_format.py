@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from apatools.format import get_stars, format_p, format_r
+from apatools.format import format_p, format_r, get_stars
 
 
 @pytest.mark.parametrize(
@@ -107,7 +107,7 @@ def test_get_stars(p, expected):
 
 
 def test_get_stars_custom_symbols():
-    kw = dict(p001="a", p01="b", p05="c", p10="d", p_="e")
+    kw = {"p001": "a", "p01": "b", "p05": "c", "p10": "d", "p_": "e"}
     assert [get_stars(p, **kw) for p in (0.0001, 0.005, 0.03, 0.07, 0.5)] == list(
         "abcde"
     )
