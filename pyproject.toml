@@ -83,6 +83,7 @@ docs = ["sphinx>=7.3", "furo", "myst-parser>=3", "sphinx-copybutton"]
 
 [project.urls]
 Homepage = "https://github.com/Ellariel/apatools"
+Documentation = "https://ellariel.github.io/apatools/"
 Repository = "https://github.com/Ellariel/apatools"
 Issues = "https://github.com/Ellariel/apatools/issues"
 Changelog = "https://github.com/Ellariel/apatools/blob/main/CHANGELOG.md"

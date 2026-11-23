@@ -58,6 +58,7 @@ intersphinx_mapping = {
 }
 
 html_theme = "furo"
+html_baseurl = "https://ellariel.github.io/apatools/"  # GitHub Pages (.github/workflows/docs.yml); canonical links
 html_title = f"apatools {release}"
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True

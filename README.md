@@ -64,7 +64,8 @@ print(plm_effects(results))                                     # direct, indire
 
 ## Documentation
 
-The documentation lives in [`docs/`](docs/) (Sphinx; build it with `pip install -e ".[all,docs]"` and
+The documentation is at **[ellariel.github.io/apatools](https://ellariel.github.io/apatools/)** (GitHub Pages, built from
+the main branch). Its source is in [`docs/`](docs/) (Sphinx; build it locally with `pip install -e ".[all,docs]"` and
 `sphinx-build -W -b html docs docs/_build/html`):
 
 * a user-guide page per module, each with the **design choices and caveats** of the module and **where it differs from
