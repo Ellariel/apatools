@@ -1,6 +1,6 @@
 """Helper for the optional dependencies of the apatools modules (installed through extras).
 
-The core of apatools (``calc``, ``format``, ``citation``) needs only numpy and scipy. Modules
+The core of apatools (``calc``, ``format``) needs only numpy and scipy. Modules
 such as ``lm``, ``slm``, ``plm``, ``sem``, ``psm`` and ``lib`` import their packages (pandas,
 statsmodels, spreg, semopy, psmpy, ...) in a ``try`` block and call :func:`missing_dependency`
 when an import fails, so that the user is told which extra to install instead of seeing a bare

@@ -6,7 +6,6 @@ import pytest
 import semopy
 from scipy.stats import norm
 
-from apatools.citation import cite
 from apatools.sem import sem, sem_report, semopy_plot, sem_plot
 
 
@@ -15,8 +14,6 @@ def test_sem():
     data = semopy.examples.political_democracy.get_data()
     formula = semopy.examples.political_democracy.get_model()
     assert len(data) == 75
-
-    print(cite("sem")[0])
 
     stats, metrics, model = sem(
         data,

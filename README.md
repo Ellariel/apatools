@@ -1,361 +1,79 @@
-# A Toolbox for Statistical and Meta-Analysis, and APA-Compliant Reporting
+# apatools: a toolbox for statistical analysis and APA-compliant reporting
 
-## About
-This toolbox is a curated collection of utilities I frequently use for statistical analysis and nicely reporting research findings in accordance with APA standards. While some of the included libraries may be slightly outdated, they remain functional and reliable, making them go-to tools.
+Wrappers around established engines (statsmodels, spreg, linearmodels, semopy, psmpy and, optionally, the R packages
+lavaan, plm and splm) that return tidy tables with the statistics a manuscript needs, together with the specification
+tests, effect conversions and reliability coefficients that go with them. Where a number depends on a convention, the
+documentation says which one and how it differs from R.
 
 ## Install
+
 ```shell
-pip install apatools
+pip install apatools                # calc and format: numpy and scipy only
+pip install "apatools[lm,plm]"      # extras per module; "apatools[all]" installs everything
 ```
-Requires Python 3.10 or newer. The latest development version is available with `pip install git+https://github.com/ellariel/apatools.git`.
 
-The base installation is light: it contains `apatools.calc` and `apatools.format` and needs only *numpy* and *scipy*. Every other module has its own heavier dependencies and is installed through an extra of the same name:
+Python 3.10 or newer; the development version: `pip install git+https://github.com/ellariel/apatools.git`.
+Importing a module without its extra gives an `ImportError` that names the extra to install.
 
-| install | module | brings in |
+| extra | module | brings in |
 |---|---|---|
-| `pip install apatools` | `calc`, `format` | numpy, scipy |
-| `pip install "apatools[lm]"` | `lm` | pandas, statsmodels |
-| `pip install "apatools[slm]"` | `slm` | pandas, statsmodels, spreg, libpysal |
-| `pip install "apatools[plm]"` | `plm` | pandas, spreg, libpysal, patsy |
-| `pip install "apatools[sem]"` | `sem` | pandas, semopy |
-| `pip install "apatools[psm]"` | `psm` | pandas, psmpy |
-| `pip install "apatools[lib]"` | `lib` | pandas, scipy, statsmodels |
-| `pip install "apatools[linearmodels]"` | `plm` with the *linearmodels* backend | the `plm` extra and linearmodels |
-| `pip install "apatools[graphviz]"` | `sem_plot` path diagrams, `engine="semopy"` | the `sem` extra and the Python package *graphviz*; the [Graphviz executables](https://graphviz.org/download/) must also be installed and on the `PATH` |
-| `pip install "apatools[networkx]"` | `sem_plot` path diagrams, `engine="networkx"` | the `sem` extra, *networkx* and *matplotlib*; no external program needed |
-| `pip install "apatools[all]"` | everything | all of the above |
+| (none) | `calc`, `format` | numpy, scipy |
+| `lm` | `lm` | pandas, statsmodels |
+| `slm` | `slm` | pandas, statsmodels, spreg, libpysal |
+| `plm` | `plm` | pandas, spreg, libpysal, patsy |
+| `sem` | `sem` | pandas, semopy |
+| `psm` | `psm` | pandas, psmpy |
+| `lib` | `lib` | pandas, scipy, statsmodels |
+| `linearmodels` | `plm` with the linearmodels backend | the `plm` extra and linearmodels |
+| `graphviz` / `networkx` | `sem_plot` diagrams with Graphviz / with networkx and matplotlib | the `sem` extra and the drawing packages |
+| `docs` | building the documentation | sphinx, furo, myst-parser |
 
-*R engines*: `sem(engine="lavaan")`, `sem_plot(engine="lavaan")` and `plm(backend="splm")` use [R](https://cran.r-project.org) through `Rscript` (no Python package is needed besides the extra of the module): install R and, in R, `install.packages(c("lavaan", "semPlot"))` for `sem` and `install.packages(c("plm", "splm", "spdep"))` for `plm`. `Rscript` is found on the `PATH`, in the usual install locations, through the environment variable `APATOOLS_RSCRIPT` or the argument `rscript`.
+Three engines run in R (`sem(engine="lavaan")`, `sem_plot(engine="lavaan")`, `plm(backend="splm")`): install R and,
+in R, `install.packages(c("lavaan", "semPlot", "plm", "splm", "spdep"))`. `Rscript` is found on the `PATH`, in the usual
+install locations, through the environment variable `APATOOLS_RSCRIPT` or the argument `rscript`.
 
-Extras can be combined, e.g. `pip install "apatools[lm,plm]"`. Importing a module without its extra gives an `ImportError` that names the extra to install.
-
-## Content and examples
-* ***apatools.calc*** - *a basic module for statistical conversions and confidence intervals*
-* ***apatools.format*** - *simple APA-compliant formatting functions for numerical results*
-* ***apatools.lm*** (extra `lm`) - *a module offering wrapper functions for statsmodels, streamlining the fitting of OLS, RLM, and GLM models, as well as generating detailed tables*
-* ***apatools.slm*** (extra `slm`) - *a module offering wrapper functions for spreg, streamlining the fitting of OLS, spatial lag (SLM) and spatial error (SEM) models, as well as generating detailed tables*
-* ***apatools.plm*** (extra `plm`) - *a module offering wrapper functions for panel regressions (pooled, fixed and random effects, with optional spatial lag/error terms) with spreg or, optionally, linearmodels, as well as generating detailed tables and specification tests*
-* ***apatools.sem*** (extra `sem`) - *a module for performing structural equation modeling, complete with result reporting and path diagram visualization*
-* ***apatools.psm*** (extra `psm`) - *a module for performing propensity score matching, complete with effect sizes reporting*
-* ***apatools.lib*** (extra `lib`) - *assorted helpers: bootstrap confidence intervals, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), scale reliability (Cronbach's alpha and McDonald's omega, each with an analytic or bootstrap confidence interval), pooling and comparing correlations, HTMT ratio, Gini coefficient*
-
-### *apatools.calc*
-
-This module provides essential conversion functions alongside tools for confidence intervals and related statistics. It includes a comprehensive set of approximate conversion functions for bidirectional transformations between t-, z-, and F-statistics, as well as conversions involving Cohen's r, Cohen's d, and p-values.
-
-#### Conversion examples
-```python
-from apatools.calc import cohen_r_from_z, cohen_d_from_z
-# calculation Cohen's r and d from z-score:
-# there is also a shorten aliases r_from_z and d_from_z
-z = -1.472
-r = cohen_r_from_z(z) # r = -0.9
-d = cohen_d_from_z(z) # d = -4.1
-```
+## A first look
 
 ```python
-from apatools.calc import p_from_r
-# calculation p-value for Cohen's r  or correlation coefficient:
-r = -0.79
-n = 100
-p = p_from_r(r, n) # p = 0.0
+from apatools.lm import lm, lm_report, lm_tests
+from apatools.plm import plm, plm_report, plm_tests, plm_effects
+
+results, metrics = lm(data, "y", ["x1", "x2"], model=["ols", "rlm"])
+print(lm_report(results, metrics))                              # APA table: b, SE, t, p, stars, CI, fit line
+print(lm_tests(results, format_pval=True, decimal=3))           # diagnostics that suit each kind of model
+
+results, metrics = plm(panel, "y", ["x1", "x2"], w=w, entity="county", time="year",
+                       model=["pooled", "fe", "re", "slm_fe"], effects="twoway")
+print(plm_report(results, metrics))
+print(plm_tests(results))                                       # Hausman, Mundlak, F and LM tests
+print(plm_effects(results))                                     # direct, indirect and total effects
 ```
 
+## What is in it
 
-### *apatools.format*
-Simple APA-compliant functions for formatting numeric results, such as formatting R and r values, p-values, etc.
+| module | does |
+|---|---|
+| `apatools.calc` | conversions between r, d, t, z, F, p, odds ratios; confidence intervals |
+| `apatools.format` | APA formatting of p-values, correlations and stars |
+| `apatools.lm` | OLS, RLM, GLM, QuantReg, MixedLM (statsmodels): tables and diagnostic tests |
+| `apatools.slm` | OLS, spatial lag and error models (spreg): tables, spatial diagnostics, direct / indirect / total effects |
+| `apatools.plm` | pooled, FE, RE panel models, optionally spatial (spreg, linearmodels, R's plm / splm): tables, specification tests, effects |
+| `apatools.sem` | structural equation models (semopy, lavaan), reports, path diagrams (Graphviz, networkx, semPlot) |
+| `apatools.psm` | propensity score matching (psmpy) and covariate balance |
+| `apatools.lib` | bootstrap, Cronbach's alpha, McDonald's omega (robust, bifactor), Fleiss' kappa, Krippendorff's alpha, correlations, HTMT, Gini |
 
+## Documentation
 
-#### Formatting examples
-```python
-from apatools.format import get_stars, format_p, format_r
-# formatting numeric results
-r = format_r(0.999, keep_spaces=True, use_letter="r", no_equals=False) # r = 'r = 1.'
-r = format_r(0.011, keep_spaces=True, use_letter="R", no_equals=False) # r = 'R = .01'
-p = format_p(0.0004, use_letter="p", keep_spaces=True, no_equals=False) # p = 'p < .001'
-s = get_stars(0.04, p001="***", p01="**", p05="*", p10="⁺", p_="") # s = '*'
-```
+The documentation lives in [`docs/`](docs/) (Sphinx; build it with `pip install -e ".[all,docs]"` and
+`sphinx-build -W -b html docs docs/_build/html`):
 
-
-### *apatools.lm*
-Fitting of OLS, RLM, GLM, QuantReg and MixedLM models using *statsmodels*. Arguments for the model constructor and for `.fit()` are passed as `<model>_<stage>_<argument>`: the model prefix (`ols_`, `rlm_`, `glm_`, `qlm_`, `mlm_`) followed by `model_` (constructor) or `fit_` (the `.fit()` call), e.g. `ols_fit_cov_type`, `glm_model_family`, `rlm_model_M`.
-
-Specific parameters:
-* `qlm_fit_q` – adds a quantile for QuantReg, e.g. 0.5
-* `mlm_model_groups` – adds a grouping variable for MixedLM, e.g. `country`
-* `vif` - adds a VIF column to the metrics dictionary and reported table
-* `formula` - a formula string as in *statsmodels*
-* `pred_r_sq` - calculates [predicted R²](https://blog.minitab.com/en/adventures-in-statistics-2/multiple-regession-analysis-use-adjusted-r-squared-and-predicted-r-squared-to-include-the-correct-number-of-variables#:~:text=What%20Is%20the%20Predicted%20R,valid%20predictions%20for%20new%20observations.)
-
-```python
-from apatools.lm import lm, lm_report
-import statsmodels.api as sm
-results, metrics = lm(
-        data,
-        y, x,
-        model=["ols", "rlm", "glm"],
-        verbose=True,
-        vif=True,
-        pred_r_sq=True,
-        ols_fit_cov_type="HC1",
-        rlm_model_M=sm.robust.norms.RamsayE(),
-        glm_model_family=sm.families.Gaussian(),
-    )
-results_rep = lm_report(results, metrics)
-print(results_rep, metrics)
-```
-
-#### Diagnostic tests: `lm_tests`
-`lm_tests(results)` collects the diagnostics of the fitted models in one table (columns `test`, `model`, `statistic`, `df`, `df_denom`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions, the specification and the influence of single observations, not the quality of the fit. Every kind of model gets the diagnostics that are meaningful for it, because the classical OLS tests are not valid for the others; QuantReg models are skipped with a warning.
-
-* **OLS**: normality of the residuals (Jarque-Bera, omnibus, Shapiro-Wilk), homoskedasticity (Breusch-Pagan in Koenker's version, White), functional form (Ramsey's RESET, `reset_power`), autocorrelation (Breusch-Godfrey and Durbin-Watson; only with `lags`, for data ordered in time), the Bonferroni outlier test and the largest Cook's distance, and (without p-values) the largest VIF and the condition number.
-* **GLM**: dispersion (Pearson χ²/df), the Cameron-Trivedi overdispersion test (Poisson), Pearson and deviance goodness of fit (Poisson, grouped binomial), the Hosmer-Lemeshow test (binary), Pregibon's link test, Shapiro-Wilk of the randomized quantile residuals of Dunn and Smyth (normal under the fitted model for any of the Gaussian, Gamma, inverse Gaussian, Poisson, negative binomial and binary binomial families; `seed`), and leverage, studentized residuals, Cook's distance and the multicollinearity diagnostics.
-* **RLM**: descriptive diagnostics without p-values: the smallest robust weight, the ratio of the robust scale to the OLS residual SD, the largest RLM-OLS coefficient difference in OLS standard errors, the leverage of the design and the multicollinearity diagnostics. A Hausman-type test against OLS is not offered (in simulations it was unreliable). With `approximate=True` also Breusch-Pagan, White, RESET (a robust Wald test) and, with `lags`, Breusch-Godfrey on the robust residuals, labelled "approx.": their theory is for OLS, in simulations they rejected about 4-8% of correct models at the 5% level.
-* **MixedLM**: the ICC and the likelihood-ratio test of the random effect for models with one random effect (with the boundary-corrected p-value, a 50:50 mixture of χ²(0) and χ²(1)), Shapiro-Wilk tests of the predicted random effects and of the conditional residuals (labelled "approx.": both are confounded or shrunken), the Cook's distance of deleting whole groups (one refit per group, up to `max_refits` groups) and the multicollinearity diagnostics.
-
-```python
-from apatools.lm import lm_tests
-results, metrics = lm(data, y, x, model=["ols", "rlm", "mlm"], mlm_model_groups="group")
-print(lm_tests(results, format_pval=True, add_stars=True, decimal=3, lags=None, approximate=False))
-```
-
-
-### *apatools.slm*
-Fitting of OLS, SLM, and SEM spatial models using *spreg*. Arguments for the spreg model constructor are passed as `<model>_model_<argument>` with the model prefix `ols_`, `slm_` or `sem_`, e.g. `ols_model_spat_diag`.
-
-Specific parameters:
-* `w` - a spatial matrix, created with *libpysal*; its rows must correspond to the rows of `data` (rows dropped because of NAs are removed from `w` automatically)
-* `formula` - a formula string as in *statsmodels*
-* `pred_metrics` - adds leave-one-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`) to the metrics dictionary and the reported table. Every observation is held out in turn, the model and the weights are refitted without it, and the held-out value is predicted: `x·β` for OLS and SEM, and `ρ·(Wy)ᵢ + x·β` for SLM (observed neighbour values enter through the weights, so SLM is not strictly comparable with the other two). It needs one fit per observation and model; for large samples pass e.g. `slm_model_method="LU"`.
-* `pred_exclude_neighbors` - with `pred_metrics`: also remove the neighbours of the held-out observation from the training sample
-
-> **Caveat:** plain leave-one-out is *optimistic* for spatial data. The neighbours of the held-out observation stay in the training sample and are correlated with it, so `R²pred` overestimates how well the model predicts a new, unseen region. `pred_exclude_neighbors=True` gives a more honest (slightly pessimistic) estimate; it may create islands in the training weights, which is reported with a warning.
-
-
-```python
-from apatools.slm import slm, slm_report
-results, metrics = slm(
-        data,
-        y, x, w,
-        model=["ols", "slm", "sem"],
-        verbose=True,
-        ols_model_spat_diag=True,
-        ols_model_nonspat_diag=True,
-        pred_metrics=True,  # leave-one-out R²pred etc. (optimistic, see the caveat)
-        pred_exclude_neighbors=True,  # leave the neighbourhood out as well
-    )
-results_rep = slm_report(results, metrics)
-print(results_rep, metrics)
-```
-
-#### Diagnostic tests: `slm_tests`
-`slm_tests(results, w)` collects the usual diagnostics of the fitted models in one table (columns `test`, `model`, `statistic`, `df`, `p-value`, `report`; the options `format_pval`, `add_stars` and `decimal` work as in `plm_tests`, the default is raw numbers). They check assumptions and the need for a spatial term, not the quality of the fit.
-
-#### Direct, indirect and total effects
-In the spatial lag model the coefficient of a regressor is not its effect: a change in one location spills over to its neighbours through `ρWy`. `slm_effects(results, w)` reports, for every regressor of the spatial lag models, the **direct** effect (on the location itself, including the feedback through the neighbours), the **total** effect (a unit change of the regressor in all locations) and the **indirect** effect, the spillover (total minus direct), as the averages of LeSage and Pace (2009), with standard errors, z values, p-values and confidence intervals:
-
-```python
-from apatools.slm import slm, slm_effects
-results, metrics = slm(df, "y", ["x1", "x2"], w=w, model=["ols", "slm"])
-effects = slm_effects(results, w, decimal=3, add_stars=True, format_pval=True)   # simulation, 1000 draws (default)
-effects = slm_effects(results, w, inference="analytic")                         # delta method
-# the first call returns (the second one the same columns, unformatted):
-#   model variable    effect  estimate     se      z p-value    cil    cir  sig
-#     slm       x1    Direct     0.814  0.130  6.282   <.001  0.565  1.064  ***
-#     slm       x1  Indirect     0.184  0.177  1.043    .297 -0.046  0.605
-#     slm       x1     Total     0.998  0.241  4.147   <.001  0.626  1.536  ***
-```
-`inference="simulation"` draws `n_draws` times from the estimated joint normal distribution of the coefficients and `ρ` (LeSage and Pace) and takes the standard deviation and the percentiles of the effects of the draws; `inference="analytic"` is the delta method with the gradient of the same series. Both use the traces of the powers of `W` (a series in `ρ`) instead of the inverse of `I - ρW`; `traces="mc"` estimates them with random vectors for large `n` (`"auto"`: exact up to 2000 units). With few units and a large `ρ` the delta method can understate the standard errors of the indirect and total effects badly: prefer the simulation then. Models other than the spatial lag model (OLS; in the spatial error model the coefficients already are the direct and total effects) are skipped with a warning. The point estimates equal R's `spatialreg::impacts` and spreg's multipliers; the standard errors agree with the simulation of `spatialreg` within the simulation noise.
-
-* **OLS**: Moran's I of the residuals, `LM-lag`, `LM-error`, their robust versions and `LM-SARMA` (Anselin et al., 1996), and Jarque-Bera (normality), Breusch-Pagan, Koenker-Bassett and White (heteroskedasticity). The spatial tests need `w`.
-* **SLM / SEM**: the z test and the likelihood-ratio test (against the OLS model among the results) of `rho` / `lambda`, Jarque-Bera of the residuals, and Moran's I of the residuals with a permutation p-value (`n_perm`, `seed`): a significant value means that spatial dependence is left in the model.
-
-```python
-from apatools.slm import slm_tests
-print(slm_tests(results, w, format_pval=True, add_stars=True, decimal=3))
-```
-
-
-### *apatools.plm*
-Panel regressions (pooled, fixed effects, random effects, optionally with a spatial lag or spatial error) in the same format as `lm` and `slm`. Three backends: *spreg* (default; all models), the optional *linearmodels* (`pip install "apatools[linearmodels]"`; non-spatial models, adds e.g. clustered standard errors and two-way fixed effects) and the R packages *plm* and *splm* (`backend="splm"`, see below).
-
-Data are an ordinary *long* data frame with an entity and a time column (or an `(entity, time)` index). The module checks that the panel is balanced, aligns the entities with the rows of the spatial weights `w` (the entity values must be the ids `w.id_order`, otherwise pass `w_ids`) and brings the rows into the layout spreg needs, so the row order of your data does not matter.
-
-Models (`model=`): `pooled`, `fe`, `re` (all backends), `slm_fe`, `slm_re`, `sem_pooled`, `sem_fe`, `sem_re` (spreg and splm: spatial lag / spatial error with ML estimation) and `sem_pooled_gm`, `sem_re_gm` (spreg: GMM). `sem_re` (ML) failed with older numpy/scipy versions (numpy 2.0-2.2, scipy 1.13-1.15) in *spreg* 1.9.0, but worked with recent ones; `sem_re_gm` worked everywhere.
-
-Specific parameters:
-* `entity`, `time` - columns (or index levels) identifying entity and period; `balance="drop"` drops entities that are not observed in all periods instead of raising an error
-* `backend` - `"spreg"` (default), `"linearmodels"` or `"splm"` (R; also `rscript=` and `r_timeout=`)
-* `slx_lags` - number of spatial lags of the predictors (spreg; `slx_lags=1` gives a Durbin-type model)
-* `<model>_model_<arg>` / `<model>_fit_<arg>` - arguments for the model class / `.fit()`, e.g. `slm_fe_model_method="LU"`, or for linearmodels `fe_fit_cov_type="clustered"`, `fe_fit_cluster_entity=True`
-* `effects="entity"` (default), `"time"` or `"twoway"` - effects of the fixed-effects models (`fe`; with spreg also `slm_fe`, `sem_fe`; with splm all of them, also `"time"` for `slm_fe`). With spreg the period effects are period dummies (hidden in `plm_report`; `"time"` is not available for `slm_fe`); `plm_tests` adds F tests of the period effects (LR test for `slm_fe` / `sem_fe`) and `pred_metrics` skips such models
-* `pred_metrics` - adds leave-one-*group*-out prediction metrics (`R²pred`, `MAEpred`, `MADpred`). Leaving out single observations is not meaningful in panels, so whole entities (`pred_group="entity"`, predicts a new entity; not possible for fixed-effects models) or whole periods (`pred_group="time"`) are held out, the model and the weights are refitted, and the held-out rows are predicted (`x·β`, plus `ρ·Wy` for spatial lag and the estimated entity effect for fixed effects). With spatial data the neighbours of a held-out entity stay in the training sample, which is optimistic; `pred_exclude_neighbors=True` removes them as well (see the caveat for `slm`).
-
-```python
-from apatools.plm import plm, plm_report, plm_tests
-results, metrics = plm(
-        data,
-        "y", ["x1", "x2"],
-        w=w,
-        entity="county", time="year",
-        model=["pooled", "fe", "re", "slm_fe"],
-        verbose=True,
-        pred_metrics=True,
-        pred_group="time",
-    )
-results_rep = plm_report(results, metrics)
-print(results_rep, metrics)
-print(plm_tests(results))  # Hausman, Mundlak, F test of entity effects, spatial LM tests
-```
-
-`plm_tests()` returns a tidy table: Hausman test (FE vs RE; undefined when `V_fe - V_re` is not positive definite, which is typical when the effects *are* correlated with the predictors), the regression-based Mundlak test (robust to that problem), the F test of entity effects, and, for pooled spreg or splm models with weights, the Baltagi-Song-Koh and Anselin LM tests for random effects and spatial dependence.
-
-#### Direct, indirect and total effects (`plm_effects`)
-`plm_effects(results)` does the same for the spatial lag panel models (`slm_fe`, `slm_re`) of every backend that fits them, spreg and splm, and, with spreg, for the Durbin model of `slx_lags` (effect matrix `(I - ρW)⁻¹(β_k I + θ_k W)`). The weights are those of the panel (or `w=`); the options are those of `slm_effects`. The covariance matrix of the backend is used: spreg's contains the covariance between the coefficients and `ρ`, splm's does not, so the standard errors of the indirect and total effects differ somewhat between the backends. The point estimates equal those of `splm::impacts`.
-
-#### The splm backend (R)
-`plm(df, ..., backend="splm")` fits the models with the R packages *plm* (Croissant & Millo, 2008; `pooled`, `fe`, `re`) and *splm* (Millo & Piras, 2012; the spatial ML models; *spdep* turns `w` into R's weights) and returns the same tables and metrics, so that `plm_report`, `base_metrics`, `plm_tests` and `mundlak` work unchanged; the results are `SplmFit` objects (the coefficient table, covariance matrix, residuals, R versions and warnings). Arguments of the R functions go in `<model>_model_<arg>` (e.g. `slm_fe_model_zero.policy=True`). Every model starts R (about 1-2 seconds per model for 36 entities and 6 periods; larger panels take longer, I have not timed them). Not available: the GMM models, `slx_lags` and the prediction metrics (`pred_metrics` is NaN with a warning).
-
-*`r_timeout`*: seconds that every single R run (one per model, not the whole call) may take; when it is exceeded the R process is stopped and a `RuntimeError` ("R did not finish within ... seconds") is raised. The default is no limit. Leave it unset while you explore, since a slow fit is usually just a big panel (the spatial ML models are the slow ones, presumably because of the determinant of `I - rho W` / `I - lambda W`, which grows quickly with the number of entities). Set it for unattended runs, scripts and CI, where a hanging R process would block everything: choose a generous multiple of the time a typical fit takes (e.g. `r_timeout=300`), because the first run is slower (R starts and loads the packages) and a too short limit fails a fit that would have worked. After a timeout, fit the models one by one (the models fitted before the failing one are lost, as with any other error) or reduce the panel.
-
-The results agree with the other backends: coefficients of `fe` / `re` / `pooled` and the standard errors equal those of linearmodels, the Hausman test equals R's `phtest`, and the spatial models agree with spreg (the spatial parameter within 0.001, the slopes within 0.0002 and the standard errors within a few percent: splm's optimizer is less tight; the random-effects variance ratio `phi` is estimated differently). Conventions of R that were kept: the R² of the random-effects model is a pseudo R² (the squared correlation of y and x·β), and the AIC/BIC of the spatial models count the coefficients, the spatial parameter and, for random effects, `phi`, but not the error variance.
-
-Notes: R² is `R²within` for fixed effects, `R²overall` for random effects with linearmodels, `R²pseudo` (squared correlation of observed and predicted y) for spatial and spreg random-effects models and the plain R² for pooled OLS. spreg's `PanelFE` reports residuals and a pseudo R² that ignore the fixed effects and uses `N·T - N` instead of `N·T - N - k` degrees of freedom for the standard errors (slightly too small); the within R², the residual statistics and the F test use the correct values and agree with linearmodels. AIC/BIC from spreg do not count the fixed effects.
-
-
-### *apatools.sem*
-Structural equation modeling implemented with *semopy*. The module provides modeling function `sem()`, formatting `sem_report()` and plotting `sem_plot()` functions.
-
-```python
-from apatools.sem import sem, sem_report, sem_plot
-stats, metrics, model = sem(
-        data,
-        formula,
-        method="MLW",  # MLW ULS GLS FIML DWLS WLS
-        return_model=True,
-    )
-results_rep = sem_report(stats, metrics)
-print(results_rep)
-fig = sem_plot(
-        stats,
-        save_to_file="fig.png",
-        return_fig=True,
-    )
-```
-
-`stats` holds, besides semopy's columns, the standardized estimate `est_std` with its standard error `se_std`, z-value `z_std` and p-value `p_std` (delta method, like lavaan's `standardizedSolution()`). The first loading of each latent variable is fixed to 1 for identification, so it has no p-value in the raw solution (`p-value` is NaN, in lavaan as well), but its standardized loading is estimated and does have a `p_std`. `sem_plot` labels the arrows with the p-values that belong to the estimates it shows: `p_std` for the standardized (default) and `p-value` for the raw estimates (`std_ests=False`).
-
-`sem_plot` has two engines that draw the same diagram (circles for latent and boxes for observed variables, arrows labelled with the estimate and the p-value or stars, dashed arrows for covariances):
-
-* `engine="semopy"` (default) - the diagram of `semopy.semplot`, drawn by Graphviz (extra `graphviz`, needs the Graphviz executables); returns a `graphviz.Digraph`. The Graphviz layout program can be chosen with `layout="dot"` (default), `"neato"`, ...
-* `engine="networkx"` - drawn in Python with networkx and matplotlib (extra `networkx`, no external program); returns a matplotlib figure and honours `dpi`. `layout="layered"` (default; predictors left, outcomes right), `"spring"`, `"kamada_kawai"` or `"circular"`, plus `figsize` and `fontsize`.
-
-* `engine="lavaan"` - drawn by the R package *semPlot* (`semPlot::semPaths`) in an `Rscript` subprocess, from the table of either `sem` engine; returns an `RFigure` (shows in Jupyter, `.save(path)`; PNG, PDF, SVG, JPEG, TIFF, BMP). `layout="tree"` (default), `"tree2"`, `"circle"`, `"circle2"` or `"spring"`, plus `rotation`, `width`, `height` (inches) and `fontsize`.
-
-```python
-fig = sem_plot(stats, engine="networkx", save_to_file="fig.svg", layout="layered")
-```
-
-#### The lavaan engine of `sem()`
-`sem(data, formula, engine="lavaan")` fits the same model with the R package *lavaan* (Rosseel, 2012) and returns the same two tables, so that `sem_report` and `sem_plot` work unchanged (`return_model=True` gives a `LavaanFit` with lavaan's own tables, its version and warnings). `method` accepts the names of semopy (`"MLW"` and `"FIML"` become ML, the latter with `missing="fiml"`) and every lavaan estimator (`"MLR"`, `"WLSMV"`, ...); `se_robust=True` means `se="robust.huber.white"` for ML; `bootstrap=n` gives lavaan's bootstrap standard errors; any other argument of `lavaan::sem` goes into `lavaan_args`:
-
-```python
-stats, metrics = sem(data, formula, engine="lavaan", lavaan_args={"std.lv": True, "ordered": ["x1", "x2"]})
-fig = sem_plot(stats, engine="lavaan", save_to_file="fig.png", dpi=300)
-```
-
-On the political-democracy data the engines agree on the loadings and regressions (estimates within 0.02, standardized estimates within 0.002, standard errors of the standardized estimates within 0.002) and on chi-square, CFI, TLI, RMSEA and NFI. They differ in what they call GFI, AIC, BIC and the log-likelihood (lavaan reports the usual ML values) and in the standardized residual covariances (lavaan: the correlation of the residuals). The lavaan engine adds SRMR. Only single-group models are supported; thresholds and defined parameters (`:=`) are not part of the table. R messages are in English (`LANGUAGE=en`); set `APATOOLS_R_LANGUAGE` to change that.
-
-
-### *apatools.psm*
-Propensity score matching implemented with *psmpy*. The module provides modeling function `psm()` and `psm_effect_size()` to report differences.
-
-```python
-from apatools.psm import psm, psm_effect_size
-results, model = psm(
-        data,
-        treatment_variable='vs',
-        include_vars=['age', 'gender'],
-        balance=True,
-        replacement=True,
-        return_model=True,
-    )
-print(psm_effect_size(model))
-```
-
-
-### *apatools.lib*
-
-Assorted helpers (extra `lib`: `pip install "apatools[lib]"`): percentile bootstrap, inter-rater agreement (Fleiss' kappa, Krippendorff's alpha), Cronbach's alpha and McDonald's omega (analytic or bootstrap confidence intervals), pooling and comparing correlations, HTMT ratio and the Gini coefficient.
-
-#### Bootstrap examples
-```python
-import numpy as np
-from apatools.lib import bootstrap
-# bootstraping confidence intervals for a mean value:
-cil, m, cir = bootstrap([1, 2, 3, 4, 5, 6, 7, 8, 9],
-        func=np.mean,
-        n_rep=1000) # cil = 3.3, m = 5.0, cir = 6.7
-```
-
-```python
-from apatools.lib import bootstrap
-from scipy.stats import spearmanr
-# bootstraping value for Spearman's correlation:
-def func(*args):
-    return spearmanr(*args).statistic
-
-_, m, _ = bootstrap(
-    [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    [4, 5, 8, 4, 5, 6, 7, 8, 9],
-    func=func,
-    n_rep=1000) # m = 0.75
-```
-
-
-#### McDonald's omega: total, hierarchical and robust
-```python
-from apatools.lib import mcdonald_omega, mcdonald_omega_bifactor
-
-# omega of a unidimensional scale with its confidence interval (delta method; bootstrap_iter=... for a bootstrap interval)
-omega, lower, upper = mcdonald_omega(items)
-# robust to outlying respondents: Huber-type M-estimated covariance matrix, sandwich standard error (Zhang & Yuan, 2016)
-omega, lower, upper = mcdonald_omega(items, robust=True)          # varphi=0.1: a tenth of the cases is downweighted
-# reliability of the raw sum score (the definition of lavaan / semTools and of Zhang & Yuan) instead of the standardized items
-omega, lower, upper = mcdonald_omega(items, standardized=False)
-
-# a scale with subscales: bifactor model -> omega hierarchical, omega total, ECV and the subscale omegas, with intervals
-table = mcdonald_omega_bifactor(items, {"A": ["x1", "x2", "x3"], "B": ["x4", "x5", "x6"], "C": ["x7", "x8", "x9"]})
-#              estimate  lower  upper
-# omega_h         0.792  0.776  0.807   share of the total-score variance due to the general factor
-# omega_t         0.893  0.886  0.900   reliability of the total score (general + group factors)
-# ecv             0.719  0.693  0.744   share of the common variance due to the general factor
-# omega_s[A]      ...                   reliability of the subscale score
-# omega_hs[A]     ...                   its reliability after removing the general factor
-```
-`mcdonald_omega_bifactor` fits a confirmatory bifactor model (a general factor and one uncorrelated group factor per subscale; at least two groups of at least three items; items outside the groups load on the general factor only) and accepts the same `bootstrap_iter`, `robust`, `varphi` and `standardized` options. The point estimates and the standard errors were checked against lavaan (bifactor model, delta method) and, for the robust omega, against the R package *coefficientalpha* of Zhang and Yuan (estimates identical, standard errors within 0.3%). In simulations with 8% outlying respondents the ordinary omega fell from .82 to .57 while the robust omega stayed at .79; the robust interval is then still somewhat too narrow (coverage about 70%), so use `bootstrap_iter` when outliers are many. Bifactor solutions can be improper in small samples (a uniqueness at zero): the analytic interval is then not available and the bootstrap is the alternative.
-
-
-
-
-## Sources and references
-* [statsmodels](https://www.statsmodels.org/stable/) (BSD License)
-* [linearmodels](https://pypi.org/project/linearmodels/) (NCSA License)
-* [semopy](https://pypi.org/project/semopy/) (MIT License)
-* [spreg](https://pypi.org/project/spreg/) (BSD License)
-* [psmpy](https://pypi.org/project/psmpy/) (MIT License)
-* [scipy](https://pypi.org/project/scipy/) (BSD License)
-
-What to cite for the results of a module is given by `cite(module, engine=None)`, which returns the APA references of the software that did the work, without duplicates. Name the engines you used, for fitting and for drawing alike (a string or a list); the default is the first engine of the module:
-```python
-from apatools.citation import cite
-print("\n\n".join(cite("psm")))                                         # psmpy
-print("\n\n".join(cite("plm", engine="linearmodels")))                  # PySAL, linearmodels
-print("\n\n".join(cite("sem", engine=["lavaan", "semPlot"])))           # R, lavaan, semPlot
-print("\n\n".join(cite("sem", engine=["semopy", "networkx"])))          # semopy, NetworkX, matplotlib
-```
-Engines: `lm`: `statsmodels`; `slm`: `spreg`; `plm`: `spreg`, `linearmodels`, `splm`; `sem`: `semopy`, `lavaan`, `semPlot`, `networkx`, `graphviz`; `psm`: `psmpy`. `cite` needs no extra; the references (DOIs checked against Crossref) are collected in `apatools.citation.REFERENCES`. Check the year and version of the software you used.
+* a user-guide page per module, each with the **design choices and caveats** of the module and **where it differs from
+  R**;
+* the [validation overview](docs/validation.md): what was compared with what, and where apatools intentionally does not
+  mirror R;
+* the [software](docs/software.md) page (what to cite for each engine) and the generated literature page;
+* the API reference, generated from the docstrings, and the [changelog](CHANGELOG.md).
 
 ## License
-MIT, see [LICENSE](LICENSE).
 
+MIT, see [LICENSE](LICENSE).

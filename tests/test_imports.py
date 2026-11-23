@@ -14,7 +14,6 @@ import apatools
 # public module -> third-party packages it needs (installed by the extra of the same name)
 REQUIRES = {
     "calc": [],
-    "citation": [],
     "format": [],
     "lm": ["pandas", "statsmodels"],
     "lib": ["pandas", "statsmodels"],
@@ -71,12 +70,11 @@ def test_modules_import(name):
 
 
 def test_core_works_without_any_optional_package():
-    """calc, format and citation must run with pandas, statsmodels, spreg, ... all missing."""
+    """calc and format must run with pandas, statsmodels, spreg, ... all missing."""
     code = (
         blocking(*HEAVY)
         + "from apatools.calc import r_from_z, p_from_r;"
         + "from apatools.format import format_p, format_r, get_stars;"
-        + "from apatools.citation import cite;"
         + "import numpy as np;"
         + "assert abs(r_from_z(1.0) - np.tanh(1.0)) < 1e-12;"
         + "assert format_p(0.0004) == 'p < .001' and format_r(-0.5) == 'r = -.50';"

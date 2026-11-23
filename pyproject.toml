@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
-# The core (apatools.calc, apatools.format, apatools.citation) only needs numpy and scipy.
+# The core (apatools.calc, apatools.format) only needs numpy and scipy.
 # Everything else is installed through extras named after the module, e.g. apatools[lm].
 dependencies = [
     "numpy>=2.0.2",
@@ -78,6 +78,8 @@ graphviz = ["apatools[sem]", "graphviz>=0.20.3"]
 # SEM path diagrams without Graphviz: sem_plot(engine="networkx") with networkx and matplotlib
 networkx = ["apatools[sem]", "networkx>=3.2", "matplotlib>=3.8"]
 all = ["apatools[lm,slm,plm,sem,psm,lib,linearmodels,graphviz,networkx]"]
+# the documentation (sphinx-build docs docs/_build/html); it needs the other extras to import the modules
+docs = ["sphinx>=7.3", "furo", "myst-parser>=3", "sphinx-copybutton"]
 
 [project.urls]
 Homepage = "https://github.com/Ellariel/apatools"

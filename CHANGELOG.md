@@ -3,6 +3,10 @@
 ## 0.3.0
 
 ### Added
+- The documentation (`docs/`, Sphinx; the extra `docs`): a user-guide page per module that states the **design choices
+  and caveats** of the module and **where it differs from R**, an overview of the validation against R, the software
+  page (what to cite for each engine), and an API reference and a literature page generated from the docstrings at
+  build time. The README is a short landing page now.
 - `slm_effects` and `plm_effects`: the direct, indirect (spillover) and total effects of the regressors of the spatial
   lag models (`slm`; `slm_fe` / `slm_re` of spreg and splm; with spreg also the Durbin model of `slx_lags`) after LeSage &
   Pace (2009), with standard errors, z values, p-values and confidence intervals from LeSage & Pace's simulation or
@@ -14,9 +18,13 @@
   weights into R's. The results (`SplmFit`) feed `plm_report`, `base_metrics`, `plm_tests`, `hausman` and `mundlak`
   unchanged; `effects="time"` works for `slm_fe` as well. Arguments of the R functions go in `<model>_model_<arg>`,
   `rscript=` and `r_timeout=` control R. Not available with splm: the GMM models, `slx_lags` and `pred_metrics` (NaN
-  with a warning). `cite("plm", engine="splm")` gives R, plm, splm and spdep.
+  with a warning).
 - `plm_tests`: the Baltagi-Song-Koh LM tests are computed by apatools (they equal spreg's `BSK_tests`, R's `plmtest`
   and `slmtest`; the p-values of LM1 and LMJ no longer underflow to 0), so they also work for splm results.
+
+### Removed
+- `apatools.citation` and `cite()`: the literature behind every method and engine is collected in the
+  documentation (references page and the page of each module) instead.
 
 ### Changed
 - The R bridge lives in the subpackage `apatools.r`: `bridge` (finding and calling `Rscript`, shared by all R engines),
