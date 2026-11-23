@@ -6,7 +6,7 @@ import pytest
 import semopy
 from scipy.stats import norm
 
-from apatools.sem import sem, sem_report, semopy_plot, sem_plot
+from apatools.sem import sem, sem_plot, sem_report, semopy_plot
 
 
 def test_sem():
@@ -58,7 +58,7 @@ def test_sem_plot(tmp_path):
     pytest.importorskip("graphviz")
     data = semopy.examples.political_democracy.get_data()
     formula = semopy.examples.political_democracy.get_model()
-    stats, metrics = sem(data, formula, bootstrap=0, seed=13)
+    stats, _metrics = sem(data, formula, bootstrap=0, seed=13)
 
     fig = semopy_plot(
         stats,
@@ -226,7 +226,7 @@ def test_sem_plot_networkx_layouts(mpl, democracy_stats, layout):
     fig = sem_plot(democracy_stats, engine="networkx", layout=layout)
     assert len(fig.axes[0].texts) > 20
     again = sem_plot(democracy_stats, engine="networkx", layout=layout)
-    positions = lambda f: [t.get_position() for t in f.axes[0].texts]  # noqa: E731
+    positions = lambda f: [t.get_position() for t in f.axes[0].texts]
     assert positions(fig) == positions(again)  # reproducible (the spring layout is seeded)
     with pytest.raises(ValueError, match="Unknown layout"):
         sem_plot(democracy_stats, engine="networkx", layout="nope")
@@ -252,8 +252,8 @@ def test_layered_positions_put_predictors_left_of_outcomes():
 
 
 def test_sem_plot_networkx_without_latent_metadata_and_with_feedback(mpl):
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     stats = pd.DataFrame(
         {

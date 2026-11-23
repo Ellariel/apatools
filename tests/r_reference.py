@@ -27,7 +27,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from apatools.r.bridge import find_rscript, run_r as _run_script
+from apatools.r.bridge import find_rscript
+from apatools.r.bridge import run_r as _run_script
 
 _PROBED = {}  # R package -> installed (None: no R)
 _EXE = []

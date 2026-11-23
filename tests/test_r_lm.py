@@ -144,8 +144,8 @@ res <- rbind(one(fb, "binomial", binomial), one(fp, "poisson", poisson))
 @pytest.mark.parametrize(
     "name, kwargs",
     [
-        ("binomial", dict(y="b", glm_model_family=sm.families.Binomial())),
-        ("poisson", dict(y="cnt", glm_model_family=sm.families.Poisson())),
+        ("binomial", {"y": "b", "glm_model_family": sm.families.Binomial()}),
+        ("poisson", {"y": "cnt", "glm_model_family": sm.families.Poisson()}),
     ],
 )
 def test_glm_diagnostics_match_r(data, glm_reference, name, kwargs):

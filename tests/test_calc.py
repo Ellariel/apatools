@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from apatools.calc import (
+    OR_from_logit,
     ci_from_p,
     ci_from_r,
     cohen_d_from_logit,
@@ -17,7 +18,6 @@ from apatools.calc import (
     logit_from_cohen_d,
     logit_from_OR,
     logit_from_probit,
-    OR_from_logit,
     p_from_ci,
     p_from_d,
     p_from_f,

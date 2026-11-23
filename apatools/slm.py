@@ -15,8 +15,8 @@ try:
     from spreg import diagnostics as spr_diag
     from spreg import diagnostics_sp as spr_sp
     from statsmodels.api import add_constant
-    from statsmodels.stats.diagnostic import het_breuschpagan
     from statsmodels.formula.formulatools import handle_formula_data
+    from statsmodels.stats.diagnostic import het_breuschpagan
 except ImportError as e:  # pragma: no cover
     missing_dependency("slm", "slm", e)
 

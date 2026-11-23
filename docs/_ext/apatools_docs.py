@@ -83,7 +83,7 @@ def write_api(srcdir):
 
 
 REFERENCE_SECTION = re.compile(
-    r"\n\s*References\n\s*-{3,}\n(.*?)(?=\n\s*[A-Z][A-Za-z ]+\n\s*-{3,}\n|\Z)", re.S
+    r"\n\s*References\n\s*-{3,}\n(.*?)(?=\n\s*[A-Z][A-Za-z ]+\n\s*-{3,}\n|\Z)", re.DOTALL
 )
 
 

@@ -93,7 +93,7 @@ def test_huber_location_scatter_is_the_sample_estimate_without_downweighting_and
         np.cov(x, rowvar=False, bias=True)
     )
     # clean normal data: consistent for the covariance matrix (the constant kappa corrects the downweighting)
-    mu10, sigma10 = huber_location_scatter(x, varphi=0.1)
+    _mu10, sigma10 = huber_location_scatter(x, varphi=0.1)
     assert sigma10 == pytest.approx(sigma, abs=0.08)
     # with outliers the sample covariance matrix explodes, the M-estimate does not
     contaminated = x.copy()
@@ -291,7 +291,7 @@ def test_bifactor_coefficients_follow_their_definitions():
     loadings, theta = bifactor_loadings()
     values = true_coefficients(standardized=True)
     g = GENERAL
-    group_sum = lambda k: SPECIFIC[POSITIONS[k]].sum()  # noqa: E731
+    group_sum = lambda k: SPECIFIC[POSITIONS[k]].sum()
     total = g.sum() ** 2 + sum(group_sum(k) ** 2 for k in range(3)) + theta.sum()
     assert values[0] == pytest.approx(g.sum() ** 2 / total)  # omega_h
     assert values[1] == pytest.approx(

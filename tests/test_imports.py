@@ -38,7 +38,7 @@ def installed(*packages):
 
 def run_python(code):
     """Run code in a fresh interpreter; returns the finished process."""
-    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    return subprocess.run([sys.executable, "-c", code], check=False, capture_output=True, text=True)
 
 
 def blocking(*packages):

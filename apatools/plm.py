@@ -1886,9 +1886,9 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
             r_fe, r_p = by_name[("fe", sp)], by_name[("pooled", sp)]
             if sp == "splm":
                 (ssr_fe, df2), (ssr_p, df_p) = _ssr_df(r_fe), _ssr_df(r_p)
-                df1 = int(round(df_p - df2))
+                df1 = round(df_p - df2)
                 f = ((ssr_p - ssr_fe) / df1) / (ssr_fe / df2)
-                p, df2 = float(scipy.stats.f.sf(f, df1, df2)), int(round(df2))
+                p, df2 = float(scipy.stats.f.sf(f, df1, df2)), round(df2)
             elif sp == "spreg":
                 n_obs = int(r_fe.n)
                 n_ent = n_obs // int(r_fe.t)
@@ -1913,12 +1913,11 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
             )
 
     for sp in _BACKENDS:  # F tests of nested non-spatial models
-        get = lambda name, eff: variants.get((name, sp, eff))  # noqa: E731
         pooled, fe, fe_time, fe_two = (
-            get("pooled", "entity"),
-            get("fe", "entity"),
-            get("fe", "time"),
-            get("fe", "twoway"),
+            variants.get(("pooled", sp, "entity")),
+            variants.get(("fe", sp, "entity")),
+            variants.get(("fe", sp, "time")),
+            variants.get(("fe", sp, "twoway")),
         )
         for label, full, restricted in (
             ("F test of time effects", fe_two, fe),
@@ -1930,7 +1929,7 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
                 continue
             ssr_u, df_u = _ssr_df(full)
             ssr_r, df_r = _ssr_df(restricted)
-            df1 = int(round(df_r - df_u))
+            df1 = round(df_r - df_u)
             if df1 <= 0:
                 continue
             f = ((ssr_r - ssr_u) / df1) / (ssr_u / df_u)
@@ -1942,7 +1941,7 @@ def plm_tests(results, w=None, format_pval=False, add_stars=False, decimal=None)
                     df1,
                     float(scipy.stats.f.sf(f, df1, df_u)),
                     "F",
-                    int(round(df_u)),
+                    round(df_u),
                 )
             )
     for name, sp in (

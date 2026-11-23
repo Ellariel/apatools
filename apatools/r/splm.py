@@ -175,7 +175,7 @@ def fit_splm(name, panel, effects="entity", args=None, rscript=None, timeout=Non
                 f"extra[[{json.dumps(str(k))}]] <- {r_literal(v)}"
                 for k, v in (args or {}).items()
             ),
-            **{"function": "plm::plm" if function == "plm" else "splm::spml"},
+            function="plm::plm" if function == "plm" else "splm::spml",
         )
         run_r(script, tmp, rscript=rscript, timeout=timeout)
         terms, cov = _csv(tmp / "terms.csv"), _csv(tmp / "cov.csv")

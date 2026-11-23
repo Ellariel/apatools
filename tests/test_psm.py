@@ -50,7 +50,7 @@ def test_psm():
     test_data = mtcars()
     assert len(test_data) == 32
 
-    df, model = psm(
+    _df, model = psm(
         test_data,
         treatment_variable="vs",
         include_vars=["mpg", "cyl"],
@@ -65,7 +65,7 @@ def test_psm():
     effects = psm_effect_size(model)
     assert f"{effects.effect_size.sum():.3f}" == "4.499"
 
-    df, model = psm(
+    _df, model = psm(
         test_data,
         treatment_variable="vs",
         include_vars=[],
@@ -83,9 +83,9 @@ def test_psm():
 
 def test_psm_options():
     d = mtcars()
-    kw = dict(
-        treatment_variable="vs", index_variable="rownames", balance=False, seed=13
-    )
+    kw = {
+        "treatment_variable": "vs", "index_variable": "rownames", "balance": False, "seed": 13
+    }
 
     a = psm(d, include_vars=["mpg", "cyl"], **kw)
     # include_vars wins over exclude_vars
@@ -123,7 +123,7 @@ def test_psm_seed_controls_psmpy_sampling():
     d = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n)})
     d["treated"] = (rng.uniform(size=n) < 1 / (1 + np.exp(-(1.5 * d.x1 - 2.5)))).astype(int)
     assert 10 < d["treated"].sum() < n / 4  # a clear minority
-    kw = dict(treatment_variable="treated", include_vars=["x1", "x2"], balance=True)
+    kw = {"treatment_variable": "treated", "include_vars": ["x1", "x2"], "balance": True}
     first = psm(d, seed=1, **kw)
     pd.testing.assert_frame_equal(first, psm(d, seed=1, **kw))
     others = [psm(d, seed=s, **kw) for s in (2, 3, 4)]

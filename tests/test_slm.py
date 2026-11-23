@@ -189,7 +189,7 @@ def test_slm_kwargs_routing_and_df():
     )
 
     # formula path works without verbose output
-    r_f, m_f = slm(df, model="ols", formula="HOVAL ~ 1 + INC + CRIME", verbose=False)
+    _r_f, m_f = slm(df, model="ols", formula="HOVAL ~ 1 + INC + CRIME", verbose=False)
     assert m_f[0]["r_sq"] == pytest.approx(metrics[0]["r_sq"])
 
     # unknown model name
@@ -241,7 +241,7 @@ def test_w_subset_rows_keeps_weights_and_transform():
 
 
 def test_pred_metrics_ols_equals_closed_form(columbus):
-    df, w = columbus
+    df, _w = columbus
     results, metrics = slm(
         df, "HOVAL", ["INC", "CRIME"], model="ols", verbose=False, pred_metrics=True
     )
@@ -591,12 +591,8 @@ def test_slm_tests_likelihood_ratio_and_wald_tests_of_the_spatial_parameters(
     )
     # the lag / error model are the ones that remove the spatial dependence of the residuals
     ols_moran = tests.loc[("ols", "Moran's I (residuals)"), "statistic"]
-    assert (
-        tests.loc[("sem", "Moran's I (residuals)"), "p-value"]
-        > 0.5
-        > 0.05
-        > tests.loc[("ols", "Moran's I (residuals)"), "p-value"]
-    )
+    assert tests.loc[("sem", "Moran's I (residuals)"), "p-value"] > 0.5
+    assert tests.loc[("ols", "Moran's I (residuals)"), "p-value"] < 0.05
     assert (
         abs(tests.loc[("sem", "Moran's I (residuals)"), "statistic"]) < 0.05
         and ols_moran > 2

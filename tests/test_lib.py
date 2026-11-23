@@ -1,22 +1,20 @@
-import itertools
 import inspect
+import itertools
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 from scipy.stats import norm, spearmanr
-from statsmodels.stats.inter_rater import fleiss_kappa as sm_fleiss_kappa
 from statsmodels.multivariate.factor import Factor
-from statsmodels.tools.numdiff import approx_fprime, approx_hess
 from statsmodels.stats.inter_rater import aggregate_raters
+from statsmodels.stats.inter_rater import fleiss_kappa as sm_fleiss_kappa
+from statsmodels.tools.numdiff import approx_fprime, approx_hess
 
 import apatools.lib as lib_package
 import apatools.lib.cronbach as cronbach_module
 import apatools.lib.mcdonald as mcdonald_module
 from apatools.calc import ci_from_r, p_from_r
-from apatools.lib.cronbach import _alpha_from_covariance, _alpha_standard_error
-from apatools.lib.mcdonald import _omega_delta_se, _omega_from_theta, _one_factor_ml
 from apatools.lib import (
     average_correlations,
     bootstrap,
@@ -34,6 +32,8 @@ from apatools.lib import (
     rz_ci,
     z_transform,
 )
+from apatools.lib.cronbach import _alpha_from_covariance, _alpha_standard_error
+from apatools.lib.mcdonald import _omega_delta_se, _omega_from_theta, _one_factor_ml
 
 
 def s(x):
@@ -420,7 +420,7 @@ def test_krippendorffs_alpha_input_types_and_per_item_agreement():
     base = alpha_only(frame)
     assert alpha_only(KRIPPENDORFF_EXAMPLE.T) == pytest.approx(base)
     assert alpha_only(KRIPPENDORFF_EXAMPLE.T.tolist()) == pytest.approx(base)
-    alpha, z, p, per_item = krippendorffs_alpha(frame, return_per_item_agreement=True)
+    alpha, _z, _p, per_item = krippendorffs_alpha(frame, return_per_item_agreement=True)
     assert alpha == pytest.approx(base) and list(per_item.index) == list(frame.index)
     assert per_item.name == "per_item_agreement"
     # share of the ratings that equal the most frequent one, worked out by hand from the example
@@ -1222,7 +1222,7 @@ def test_cronbachs_alpha_drops_incomplete_rows():
 def test_cronbachs_alpha_warns_when_it_is_negative():
     items = exact_items(np.array([[1.0, -0.5], [-0.5, 1.0]]))  # alpha = 2 * (1 - 2 / 1) = -2
     with pytest.warns(UserWarning, match="negative"):
-        alpha, low, high = cronbachs_alpha(items)
+        alpha, _low, _high = cronbachs_alpha(items)
     assert alpha == pytest.approx(-2.0, abs=1e-9)
     # two of four items reverse-keyed and not recoded: the covariances cancel and alpha is below zero
     df = normal_items(compound_symmetry(4, 0.5), 300, seed=6)

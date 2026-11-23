@@ -284,7 +284,7 @@ def cross_section():
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        results, metrics = slm(
+        results, _metrics = slm(
             df,
             "y",
             ["x1", "x2"],
@@ -396,7 +396,7 @@ def panel_fits():
 
 
 def test_plm_effects_use_the_weights_of_the_panel(panel_fits):
-    df, w, fits = panel_fits
+    _df, w, fits = panel_fits
     r = fits["slm_fe"]
     table = plm_effects([r], inference="analytic").set_index(["variable", "effect"])
     same = plm_effects([r], w=w, inference="analytic").set_index(["variable", "effect"])
@@ -415,7 +415,7 @@ def test_plm_effects_use_the_weights_of_the_panel(panel_fits):
 
 
 def test_plm_effects_of_random_effects_period_effects_and_the_durbin_model(panel_fits):
-    df, w, fits = panel_fits
+    _df, w, fits = panel_fits
     random = plm_effects([fits["slm_re"]], inference="analytic")
     assert list(random["variable"].unique()) == ["x1", "x2"]  # no constant, no phi
     twoway = plm_effects([fits["twoway"]], inference="analytic")
@@ -439,7 +439,7 @@ def test_plm_effects_of_random_effects_period_effects_and_the_durbin_model(panel
 
 
 def test_plm_effects_skip_models_without_a_spatial_lag(panel_fits):
-    df, w, fits = panel_fits
+    _df, _w, fits = panel_fits
     with pytest.warns(UserWarning) as caught:
         table = plm_effects(
             [fits["fe"], fits["sem_fe"], fits["slm_fe"], fits["slm_fe"]],
@@ -454,7 +454,7 @@ def test_plm_effects_skip_models_without_a_spatial_lag(panel_fits):
 
 
 def test_plm_effects_need_weights_when_the_results_do_not_carry_them(panel_fits):
-    df, w, fits = panel_fits
+    _df, w, fits = panel_fits
     r = fits["slm_fe"]
     plm_panel = r.plm_panel
     try:

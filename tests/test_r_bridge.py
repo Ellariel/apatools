@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import apatools.r.bridge as bridge
 import apatools.r.lavaan as lavaan_module
+from apatools.r import bridge
 from apatools.r.bridge import find_rscript, r_literal
 from apatools.r.lavaan import LAVAAN_ESTIMATORS, convert_lavaan, lavaan_estimator
 
@@ -288,7 +288,7 @@ def test_splm_backend_reports_unsupported_requests_before_starting_r():
 
     rows = [(e, t, e + t + (e * t) % 3, e - t) for t in range(3) for e in range(4)]
     df = pd.DataFrame(rows, columns=["e", "t", "y", "x1"]).astype(float)
-    kwargs = dict(entity="e", time="t", backend="splm", verbose=False)
+    kwargs = {"entity": "e", "time": "t", "backend": "splm", "verbose": False}
     with pytest.raises(NotImplementedError, match="GMM"):
         plm(df, "y", ["x1"], model="sem_pooled_gm", **kwargs)
     with pytest.raises(NotImplementedError, match="slx_lags"):

@@ -8,11 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import apatools.r.bridge as bridge
+from apatools.r import bridge
 from apatools.r.bridge import run_r
 
 from .r_reference import installed, rscript
-
 
 _RSCRIPT, _PACKAGES = rscript(), installed("lavaan", "semPlot")
 if not _PACKAGES.get("lavaan"):

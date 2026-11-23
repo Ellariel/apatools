@@ -82,7 +82,7 @@ het <- data.frame(test = c("bp", "kb", "white"), stat = c(bp$statistic, kb$stati
     "position, kind, spatial", [(1, "lag", "rho"), (2, "err", "lambda")]
 )
 def test_ml_models_match_spatialreg(data, reference, position, kind, spatial):
-    *_, results, metrics = data
+    *_, results, _metrics = data
     table = slm_report([results[position]], decimal=None, add_stars=False)[0]
     table.index = ["Intercept", "x1", "x2", spatial]
     ref = reference["coefs"].query("model == @kind").set_index("term")
@@ -95,7 +95,7 @@ def test_ml_models_match_spatialreg(data, reference, position, kind, spatial):
 def test_log_likelihood_and_information_criteria_match_r(
     data, reference, position, name
 ):
-    *_, results, metrics = data
+    *_, _results, metrics = data
     m = metrics[position]
     ref = reference["fit"].set_index("model").loc[name]
     n = m["n_obs"]

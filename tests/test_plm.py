@@ -450,15 +450,15 @@ def two_way_reference(df, w, kind, effects):
     y, x = p.y.to_numpy(), p.x.to_numpy()
     dt = (p.tim[:, None] == np.arange(1, T)[None, :]).astype(float)
     de = (p.ent[:, None] == np.arange(N)[None, :]).astype(float)
-    ln_det = lambda r: T * np.linalg.slogdet(np.eye(N) - r * w.sparse.toarray())[1]  # noqa: E731
+    ln_det = lambda r: T * np.linalg.slogdet(np.eye(N) - r * w.sparse.toarray())[1]
 
     def ols(v, z):
         b = np.linalg.lstsq(z, v, rcond=None)[0]
         return b, float(np.sum((v - z @ b) ** 2))
 
     if kind == "lag":
-        z, yy, filt = np.column_stack([x, de, dt]), y, (lambda r, a: a - r * wb @ a)  # noqa: E731
-        z_filtered = lambda r: z  # noqa: E731
+        z, yy, filt = np.column_stack([x, de, dt]), y, (lambda r, a: a - r * wb @ a)
+        z_filtered = lambda r: z
     else:
         z, yy = np.column_stack([x, dt]), y
         if effects == "twoway":
@@ -471,8 +471,8 @@ def two_way_reference(df, w, kind, effects):
             z, yy = demean(z), demean(y[:, None])[:, 0]
         else:
             z = np.column_stack([np.ones(n), z])
-        filt = lambda r, a: a - r * wb @ a  # noqa: E731
-        z_filtered = lambda r: filt(r, z)  # noqa: E731
+        filt = lambda r, a: a - r * wb @ a
+        z_filtered = lambda r: filt(r, z)
 
     def nll(r):
         return n / 2 * np.log(ols(filt(r, yy), z_filtered(r))[1] / n) - ln_det(r)
@@ -879,7 +879,7 @@ def test_mundlak_needs_plm_results_and_time_varying_x(sim):
     # predictors that do not vary over time cannot be tested: x2 constant within entity
     d = df.assign(x2=df["county"] / N)
     (re2,), _ = fit(d, w, "re")
-    stat, k, p = mundlak(re2)
+    stat, k, _p = mundlak(re2)
     assert k == 1 and np.isfinite(stat)  # only x1 is tested
     d = d.assign(x1=(df["county"] % 5) / 5)  # now no predictor varies over time
     (re3,), _ = fit(d, w, "re")
