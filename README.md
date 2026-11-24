@@ -1,9 +1,13 @@
 # apatools: a toolbox for statistical analysis and APA-compliant reporting
 
-Wrappers around established engines (statsmodels, spreg, linearmodels, semopy, psmpy and, optionally, the R packages
-lavaan, plm and splm) that return tidy tables with the statistics a manuscript needs, together with the specification
-tests, effect conversions and reliability coefficients that go with them. Where a number depends on a convention, the
-documentation says which one and how it differs from R.
+One convenient interface to the most common tools: apatools wraps statsmodels, spreg, linearmodels, semopy and psmpy
+and, optionally, the R packages lavaan, plm, splm and spdep, and returns tidy tables with the statistics a manuscript
+needs, together with the specification tests, effect conversions and reliability coefficients that go with them.
+
+**What sets it apart:** no method is just linked to an engine and trusted. Methods are benchmarked against independent
+references (mostly R packages, otherwise the definition itself), and the documentation discloses the design decisions
+behind every module, its caveats, and where and why the numbers differ from R; the few methods without a benchmark are
+marked as such.
 
 ## Install
 
