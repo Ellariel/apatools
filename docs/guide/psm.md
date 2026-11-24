@@ -31,7 +31,6 @@ print(psm_effect_size(model))
   value for any difference.
 * **Covariates must be numeric**: they are cast to float, so dummy-code categorical variables first.
 * **Reproducibility.** `seed` is passed on to psmpy's own sampling (used with `balance=True` and unequal groups).
-  Before 0.2.0 the seed did not reach psmpy; psmpy versions without a seed argument are still supported.
 * **What it is not.** A propensity score method removes the imbalance of the *observed* covariates in the matched
   sample; it says nothing about unobserved confounding.
 

@@ -101,7 +101,7 @@ dev = [
 packages = ["apatools"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/apatools", "/tests", "/README.md", "/LICENSE", "/CHANGELOG.md", "/pyproject.toml"]
+include = ["/apatools", "/tests", "/README.md", "/LICENSE", "/CHANGELOG.md", "/CITATION.cff", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

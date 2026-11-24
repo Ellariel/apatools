@@ -468,3 +468,29 @@ def test_r_timeout_stops_the_run(sim):
     df, w = sim
     with pytest.raises(RuntimeError, match="did not finish within 0.001 seconds"):
         fit(df, w, "fe", backend="splm", r_timeout=0.001)
+
+
+def test_missing_values_are_removed_before_r_and_agree_with_spreg(sim):
+    """NaN rows never reach R: the incomplete entities are dropped as for spreg (and the panel stays aligned)."""
+    df, w = sim
+    d = df.copy()
+    rng = np.random.default_rng(1)
+    rows = rng.choice(len(d), 6, replace=False)
+    d.loc[rows[:3], "x1"] = np.nan
+    d.loc[rows[3:], "y"] = np.nan
+    n_dropped = d.loc[d[["y", "x1", "x2"]].isna().any(axis=1), "county"].nunique()
+    results = {}
+    for backend in ("spreg", "splm"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            results[backend] = fit(d, w, "fe", backend=backend, balance="drop")
+    (_, (m_spreg,)), (_, (m_splm,)) = results["spreg"], results["splm"]
+    assert m_splm["n_entities"] == m_spreg["n_entities"] == N - n_dropped
+    assert m_splm["n_obs"] == m_spreg["n_obs"] == (N - n_dropped) * T
+    np.testing.assert_allclose(
+        slopes(results["splm"])["coef"], slopes(results["spreg"])["coef"], rtol=1e-6
+    )
+    with pytest.raises(
+        ValueError, match="not balanced"
+    ):  # the default: say it, do not guess
+        fit(d, w, "fe", backend="splm")

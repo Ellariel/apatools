@@ -309,3 +309,58 @@ def test_splm_backend_reports_unsupported_requests_before_starting_r():
     with pytest.warns(UserWarning, match="backend='splm'"):
         out = pred_metrics([object()], _panel(), backend="splm")
     assert np.isnan(out[0]["pred_loo_r_sq"])
+
+
+###########################
+# missing and infinite values
+###########################
+
+
+def test_lavaan_infinite_values_in_the_model_variables_are_rejected_before_r_starts():
+    from apatools.r.lavaan import _check_infinite
+
+    frame = pd.DataFrame(
+        {
+            "x": [1.0, np.inf, 3.0],
+            "x2": [1.0, 2.0, 3.0],
+            "y": [1.0, np.nan, 3.0],
+            "unused": [np.inf] * 3,
+        }
+    )
+    _check_infinite(
+        frame, "y ~ x2"
+    )  # NaN is fine (it is written as NA); x and unused are not in the model
+    with pytest.raises(ValueError, match=r"\['x'\] have infinite values"):
+        _check_infinite(frame, "y ~ x + x2")
+    with pytest.raises(ValueError, match="infinite"):
+        _check_infinite(
+            frame.astype({"x": "Float64"}), "f =~ x"
+        )  # nullable dtypes as well
+
+
+def test_plm_stops_on_missing_or_infinite_values_before_any_backend_is_called():
+    from apatools.plm import plm
+
+    rows = [(e, t, e + t + (e * t) % 3, e - t) for t in range(3) for e in range(4)]
+    df = pd.DataFrame(rows, columns=["e", "t", "y", "x1"]).astype(float)
+    kwargs = {"entity": "e", "time": "t", "verbose": False}
+    for backend in (
+        "spreg",
+        "splm",
+    ):  # the backend would fail (spreg) or silently drop the rows (R)
+        missing = df.copy()
+        missing.loc[2, "x1"] = np.nan
+        with pytest.raises(ValueError, match=r"missing values in \['x1'\]"):
+            plm(
+                missing,
+                "y",
+                ["x1"],
+                model="fe",
+                backend=backend,
+                dropna=False,
+                **kwargs,
+            )
+        infinite = df.copy()
+        infinite.loc[2, "y"] = np.inf
+        with pytest.raises(ValueError, match=r"infinite values in \['y'\]"):
+            plm(infinite, "y", ["x1"], model="fe", backend=backend, **kwargs)

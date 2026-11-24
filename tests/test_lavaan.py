@@ -246,3 +246,53 @@ def test_sem_plot_with_semplot(need_semplot, both_fits, tmp_path):
         stats_s, engine="lavaan", std_ests=False, format_pval=False
     ).data.startswith(b"\x89PNG")
     assert sem_plot(stats_l, engine="lavaan", return_fig=False) is None
+
+
+def test_missing_values_are_passed_to_lavaan_as_missing(democracy):
+    """Listwise deletion (the default of lavaan) is reported; FIML keeps all cases; both give the right numbers."""
+    from apatools.sem import sem
+
+    data, formula = democracy
+    d = data.copy()
+    rng = np.random.default_rng(0)
+    rows = rng.choice(len(d), 8, replace=False)
+    d.loc[rows[:4], "y1"] = np.nan
+    d.loc[rows[4:], "x2"] = np.nan
+    complete = d.dropna()
+    assert len(complete) == 67
+    with pytest.warns(UserWarning, match="lavaan used 67 of 75 cases"):
+        stats, metrics = sem(d, formula, engine="lavaan")
+    by_hand_stats, by_hand_metrics = sem(
+        complete, formula, engine="lavaan"
+    )  # no warning: nothing is missing
+    assert metrics.loc["N", "value"] == 67 == by_hand_metrics.loc["N", "value"]
+    np.testing.assert_allclose(
+        stats["estimate"].to_numpy(float),
+        by_hand_stats["estimate"].to_numpy(float),
+        rtol=1e-8,
+    )
+    # FIML uses every case, and says nothing about deleted ones
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _, fiml = sem(d, formula, engine="lavaan", method="FIML")
+    assert fiml.loc["N", "value"] == 75
+    # a model variable without any value, and a column outside the model that has none
+    nothing = data.copy()
+    nothing["y1"] = np.nan
+    with pytest.raises(RuntimeError, match="missing"):
+        sem(nothing, formula, engine="lavaan")
+    outside = data.copy()
+    outside["unused"] = np.nan
+    assert sem(outside, formula, engine="lavaan")[1].loc["N", "value"] == 75
+
+
+def test_infinite_values_are_rejected_with_a_clear_message(democracy):
+    from apatools.sem import sem
+
+    data, formula = democracy
+    d = data.copy()
+    d.loc[3, "y1"] = np.inf
+    with pytest.raises(ValueError, match=r"\['y1'\] have infinite values"):
+        sem(d, formula, engine="lavaan")

@@ -8,11 +8,13 @@ import statsmodels.api as sm
 from apatools.lm import lm, lm_report, lm_tests
 
 results, metrics = lm(
-    data, y, x,
+    data,
+    y,
+    x,
     model=["ols", "rlm", "glm"],
     vif=True,
     pred_r_sq=True,
-    ols_fit_cov_type="HC1",                      # <model>_<stage>_<argument>
+    ols_fit_cov_type="HC1",  # <model>_<stage>_<argument>
     rlm_model_M=sm.robust.norms.RamsayE(),
     glm_model_family=sm.families.Gaussian(),
 )
@@ -28,9 +30,7 @@ Arguments of the model constructor and of `.fit()` are passed as `<model>_<stage
 
 **The coefficient table.**
 
-* It is built from the fitted results at full precision. (Before 0.3.0 it was read from the rounded text of the
-  statsmodels summary: a coefficient of 0.000254 showed as 0.0003 with an interval of 0.000 to 0.000, and p-values below
-  the display rounding became 0.)
+* It is built from the fitted results at full precision. 
 * The confidence level is 95 % (the statsmodels default), and the statistic column is called `t` or `z` as in the
   statsmodels summary (t for OLS, z for RLM and GLM). For mixed models the table also contains the
   variance parameters as rows.
@@ -73,7 +73,7 @@ rejects: look at the size of the departure, not only at the p-value.
   `mlm_r_sq` use the same random-effects variance, including the variance components of `vc_formula`.
 
 **Formulas and groups.** `lm(formula=..., model="mlm", mlm_model_groups=...)` aligns the groups with the rows that
-patsy kept when the data have missing values (it used to fail or use the wrong groups).
+patsy kept when the data have missing values.
 
 ## Where it differs from R
 
