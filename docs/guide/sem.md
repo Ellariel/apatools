@@ -7,13 +7,14 @@ with a table of estimates and fit statistics, an APA-style report and path diagr
 from apatools.sem import sem, sem_report, sem_plot
 
 stats, metrics, model = sem(
-    data, formula,                      # formula in lavaan syntax
-    method="MLW",                       # MLW ULS GLS FIML DWLS WLS (semopy); engine="lavaan" for R
+    data,
+    formula,  # formula in lavaan syntax
+    method="MLW",  # MLW ULS GLS FIML DWLS WLS (semopy); engine="lavaan" for R
     return_model=True,
 )
 print(sem_report(stats, metrics))
-fig = sem_plot(stats, save_to_file="fig.png", return_fig=True)           # semopy + Graphviz
-fig = sem_plot(stats, engine="networkx", save_to_file="fig.svg")         # Python only
+fig = sem_plot(stats, save_to_file="fig.png", return_fig=True)  # semopy + Graphviz
+fig = sem_plot(stats, engine="networkx", save_to_file="fig.svg")  # Python only
 ```
 
 ## Design choices and caveats
@@ -68,7 +69,12 @@ version and warnings). `method` accepts the names of semopy (`"MLW"` and `"FIML"
 `lavaan::sem` goes into `lavaan_args`:
 
 ```python
-stats, metrics = sem(data, formula, engine="lavaan", lavaan_args={"std.lv": True, "ordered": ["x1", "x2"]})
+stats, metrics = sem(
+    data,
+    formula,
+    engine="lavaan",
+    lavaan_args={"std.lv": True, "ordered": ["x1", "x2"]},
+)
 fig = sem_plot(stats, engine="lavaan", save_to_file="fig.png", dpi=300)
 ```
 
@@ -85,8 +91,8 @@ On the political-democracy data (the example of the semopy tutorial) semopy and 
 
 They differ in:
 
-* **what they call GFI, AIC, BIC and the log-likelihood**: lavaan reports the usual ML values;
-* **the standardized residual covariances**: lavaan reports the correlation of the residuals.
+* what they call GFI, AIC, BIC and the log-likelihood: lavaan reports the usual ML values;
+* the standardized residual covariances: lavaan reports the correlation of the residuals.
 
 ## Checked against
 

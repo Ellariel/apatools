@@ -10,16 +10,21 @@ packages *plm* and *splm* (`backend="splm"`).
 from apatools.plm import plm, plm_report, plm_tests, plm_effects
 
 results, metrics = plm(
-    data, "y", ["x1", "x2"],
-    w=w, entity="county", time="year",          # a long data frame; w: libpysal weights of the entities
+    data,
+    "y",
+    ["x1", "x2"],
+    w=w,
+    entity="county",
+    time="year",  # a long data frame; w: libpysal weights of the entities
     model=["pooled", "fe", "re", "slm_fe"],
-    effects="twoway",                           # entity (default), time or twoway: the fixed-effects models
-    backend="spreg",                            # or "linearmodels", or "splm" (R)
-    pred_metrics=True, pred_group="time",
+    effects="twoway",  # entity (default), time or twoway: the fixed-effects models
+    backend="spreg",  # or "linearmodels", or "splm" (R)
+    pred_metrics=True,
+    pred_group="time",
 )
 print(plm_report(results, metrics))
-print(plm_tests(results))                       # Hausman, Mundlak, F and LM tests ...
-print(plm_effects(results))                     # direct, indirect, total effects of the spatial lag models
+print(plm_tests(results))  # Hausman, Mundlak, F and LM tests ...
+print(plm_effects(results))  # direct, indirect, total effects of the spatial lag models
 ```
 
 ## Models, effects and backends
@@ -68,11 +73,11 @@ may contain anything.
   summary line.
 * spreg's `PanelFE` reports residuals and a pseudo R² that ignore the fixed effects, so apatools recomputes the within
   R², the residuals and the F test from the within model; they agree with linearmodels and R.
-* **spreg's fixed-effects standard errors use `N·T − N` degrees of freedom** instead of `N·T − N − k`, so they are
+* spreg's fixed-effects standard errors use `N·T − N` degrees of freedom instead of `N·T − N − k`, so they are
   slightly too small (about 2 % in an example with 36 entities and 6 periods; with two-way effects the period dummies
   make the gap a little larger). This is spreg's convention, kept and documented; linearmodels and R use the correct
   value.
-* **The adjusted R² is `1 − (1 − R²)(N·T − A)/(N·T − A − k)`** with `A` the number of effects estimated away (entity,
+* The adjusted R² is `1 − (1 − R²)(N·T − A)/(N·T − A − k)` with `A` the number of effects estimated away (entity,
   period, the constant), like linearmodels. R's `plm` uses `(N·T − 1)` in the numerator.
 * AIC and BIC of spreg do not count the fixed effects.
 
@@ -134,12 +139,12 @@ Not available: the GMM models, `slx_lags` and the prediction metrics.
 
 Conventions of splm that apatools adapts or keeps:
 
-* **splm calls the spatial lag coefficient `lambda` and the spatial error coefficient `rho`**; apatools (and spreg) use
+* splm calls the spatial lag coefficient `lambda` and the spatial error coefficient `rho`; apatools (and spreg) use
   the other way round, so the results are renamed.
-* **R² of random effects** is the pseudo R², not the R² of the transformed model that R reports.
-* **AIC/BIC** are `2k − 2·logLik` (and `k·log n − 2·logLik`) with `k` the coefficients, the spatial parameter and, for
+* R² of random effects is the pseudo R², not the R² of the transformed model that R reports.
+* AIC/BIC are `2k − 2·logLik` (and `k·log n − 2·logLik`) with `k` the coefficients, the spatial parameter and, for
   random effects, `φ`; the error variance is not counted.
-* **splm's covariance matrix treats the spatial parameter and `φ` as uncorrelated with the coefficients.**
+* splm's covariance matrix treats the spatial parameter and `φ` as uncorrelated with the coefficients.
 * In the spatial error model with random effects, splm's `φ` is the ratio of the variance of the entity effects to that
   of the remainder, `σ²_μ/σ²_ε` (the parameterization of Baltagi, Song and Koh, 2003).
 * The ML optimizer of splm is less tight than spreg's: the spatial parameter agrees within 0.001, the slopes within

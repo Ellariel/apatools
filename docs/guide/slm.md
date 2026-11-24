@@ -8,10 +8,14 @@ spatial lag model.
 from apatools.slm import slm, slm_report, slm_tests, slm_effects
 
 results, metrics = slm(
-    data, "y", ["x1", "x2"], w,                 # w: libpysal weights, rows in the order of the data
+    data,
+    "y",
+    ["x1", "x2"],
+    w,  # w: libpysal weights, rows in the order of the data
     model=["ols", "slm", "sem"],
     ols_model_spat_diag=True,
-    pred_metrics=True, pred_exclude_neighbors=True,
+    pred_metrics=True,
+    pred_exclude_neighbors=True,
 )
 print(slm_report(results, metrics))
 print(slm_tests(results, w, format_pval=True, add_stars=True, decimal=3))
@@ -28,12 +32,11 @@ missing values are removed from `w` automatically.
 
 * R² of the ML models is spreg's *pseudo R²* (the squared correlation of observed and predicted y); OLS has its usual
   R².
-* **AIC and BIC count the spatial parameter in both spatial models.** spreg's own criteria of the spatial lag model
+* AIC and BIC count the spatial parameter in both spatial models. spreg's own criteria of the spatial lag model
   count `rho`, those of the spatial error model leave `lambda` out of the parameter count, which flatters the error
   model in comparisons. apatools adds it (2 to the AIC and `log n` to the BIC), so that OLS, SLM and SEM are
   comparable. Like spreg, none of them counts the error variance (see the table below for R).
-
-**Leave-one-out prediction metrics** (`pred_metrics`): every observation is held out in turn, the model and the weights
+* Leave-one-out prediction metrics (`pred_metrics`): every observation is held out in turn, the model and the weights
 are refitted without it and the held-out value is predicted: `x·β` for OLS and SEM, `ρ·(Wy)ᵢ + x·β` for SLM (the
 observed neighbour values enter through the weights, so SLM is not strictly comparable with the other two). One fit per
 observation and model.
@@ -52,7 +55,7 @@ fit.
   customary reading (Anselin and Rey, 2014): if both LM tests are insignificant, OLS is fine; otherwise fit the model of
   the more significant one, and if both are significant, decide by the robust versions. The function does not make
   that decision.
-* **Breusch–Pagan and Koenker–Bassett regress on the regressors of the model**, as R's `bptest` and statsmodels do.
+* Breusch–Pagan and Koenker–Bassett regress on the regressors of the model, as R's `bptest` and statsmodels do.
   spreg's default is to use their *squares*; apatools overrides that default (and says so here), so that the numbers
   equal the ones of the other software. White's test is spreg's.
 * *SLM and SEM:* the z test and the likelihood-ratio test (against the OLS model among the results) of `rho` /
@@ -70,15 +73,15 @@ regressor in *all* locations) and the **indirect** effect, the spillover (total 
 * The averages are series in the traces of the powers of `W`, so no inverse of `I - ρW` is needed; `traces="exact"`
   takes them from the eigenvalues (cost n³, the default up to 2000 units), `traces="mc"` estimates them with random
   vectors (Hutchinson) for large `n`.
-* **Two ways to the standard errors.** `inference="simulation"` (default) draws `n_draws` times from the estimated joint
+* Two ways to the standard errors. `inference="simulation"` (default) draws `n_draws` times from the estimated joint
   normal distribution of the coefficients and `ρ` (LeSage and Pace) and takes the standard deviation and the
   percentiles of the effects of the draws (the interval can be asymmetric); `inference="analytic"` is the delta method
   with the gradient of the same series (the interval is estimate ± z · se).
-* **When the two disagree.** The delta method treats the effects as linear in the estimates. That holds when `ρ` is
+* When the two disagree. The delta method treats the effects as linear in the estimates. That holds when `ρ` is
   estimated precisely; with few units and a large `ρ` it can understate the standard errors of the indirect and total
   effects badly (in a 64-unit example with ρ = 0.6: 0.44 against 1.48 by simulation with 100,000 draws and 1.43 in
   R's `impacts`). The direct effect is much less sensitive. Prefer the simulation then.
-* **The simulation is noisy in the same situation**, because a few draws of `ρ` near its bound give huge effects: the
+* The simulation is noisy in the same situation, because a few draws of `ρ` near its bound give huge effects: the
   standard error of that indirect effect was 1.03 with 5000 draws and 1.48 with 100,000 (R's own simulation behaves the
   same way: 1.18 and 1.43). Raise `n_draws` and check that the result is stable with another `seed`. Draws with `|ρ|`
   at or above the bound given by the spectral radius of `W` are replaced.

@@ -6,14 +6,26 @@ ratio and the Gini coefficient. Everything is imported from `apatools.lib`.
 
 ```python
 import numpy as np
-from apatools.lib import bootstrap, cronbachs_alpha, mcdonald_omega, mcdonald_omega_bifactor, fleiss_kappa
+from apatools.lib import (
+    bootstrap,
+    cronbachs_alpha,
+    mcdonald_omega,
+    mcdonald_omega_bifactor,
+    fleiss_kappa,
+)
 
-cil, m, cir = bootstrap([1, 2, 3, 4, 5, 6, 7, 8, 9], func=np.mean, n_rep=1000, conf_level=0.95)
+cil, m, cir = bootstrap(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9], func=np.mean, n_rep=1000, conf_level=0.95
+)
 
-alpha, lower, upper = cronbachs_alpha(items)                       # analytic interval
-omega, lower, upper = mcdonald_omega(items)                        # delta method, on the logit scale
-omega, lower, upper = mcdonald_omega(items, robust=True)           # robust to outlying respondents
-table = mcdonald_omega_bifactor(items, {"A": ["x1", "x2", "x3"], "B": ["x4", "x5", "x6"], "C": ["x7", "x8", "x9"]})
+alpha, lower, upper = cronbachs_alpha(items)  # analytic interval
+omega, lower, upper = mcdonald_omega(items)  # delta method, on the logit scale
+omega, lower, upper = mcdonald_omega(
+    items, robust=True
+)  # robust to outlying respondents
+table = mcdonald_omega_bifactor(
+    items, {"A": ["x1", "x2", "x3"], "B": ["x4", "x5", "x6"], "C": ["x7", "x8", "x9"]}
+)
 ```
 
 ## Design choices and caveats
@@ -32,7 +44,7 @@ Items must be keyed in the same direction (a warning is given otherwise).
 **McDonald's omega.**
 
 * *Model.* A one-factor model with unequal loadings (congeneric items), estimated by maximum likelihood *by apatools*
-  with numpy and scipy (no scikit-learn or factor-analyzer needed).
+  with numpy and scipy.
 * *Standardized by default.* Omega of the standardized items does not change when items are rescaled or shifted.
   `standardized=False` gives the reliability of the raw sum score, the definition of lavaan/semTools and of Zhang and
   Yuan (2016); the two differ when the items have different variances.
@@ -56,14 +68,11 @@ Items must be keyed in the same direction (a warning is given otherwise).
 null variance of Fleiss, Nee and Landis (1979), as in R's `irr::kappam.fleiss`. A missing rating is not a category: items
 with a missing rating are left out (NaN in the per-item agreement). The one-tailed p-value uses the signed z. The
 interpretation bands of Landis and Koch (1977) are conventions; the test tells whether the agreement exceeds chance,
-not how large it is. (Before 0.2.0 the standard error was 2–3 times too small, with about 30 % false positives at the
-5 % level.)
+not how large it is.
 
 **Krippendorff's alpha.** `1 − D_o/D_e` for any number of raters, with missing ratings (excluded, not counted as a
 category; units with fewer than two ratings are ignored) and four levels of measurement (nominal, ordinal, interval,
-ratio: the *values* are used, not the position of a category). A permutation z-score and p-value are added. It is
-implemented in apatools (the `krippendorff` package, GPL, is no longer a dependency); **the layout is one row per unit
-and one column per rater**, the transpose of that package. Krippendorff recommends alpha ≥ .80 for firm conclusions
+ratio: the *values* are used, not the position of a category). A permutation z-score and p-value are added.  Krippendorff recommends alpha ≥ .80 for firm conclusions
 and ≥ .667 for tentative ones.
 
 **Comparing and pooling correlations.**
