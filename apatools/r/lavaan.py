@@ -9,6 +9,7 @@ Private: the public functions are :func:`apatools.sem.sem` and :func:`apatools.s
 
 import json
 import os
+import re
 import tempfile
 import warnings
 from dataclasses import dataclass, field
@@ -60,6 +61,7 @@ fm <- lavaan::fitMeasures(fit)
 out(data.frame(name = names(fm), value = as.numeric(fm)), "fit.csv")
 out(data.frame(version = as.character(utils::packageVersion("lavaan")),
                nobs = lavaan::lavInspect(fit, "nobs"),
+               norig = lavaan::lavInspect(fit, "norig"),
                converged = lavaan::lavInspect(fit, "converged"),
                estimator = lavaan::lavInspect(fit, "options")$estimator,
                se = lavaan::lavInspect(fit, "options")$se), "info.csv")
@@ -93,6 +95,23 @@ def lavaan_estimator(method, missing_lavaan_args):
     return estimator, extra
 
 
+def _check_infinite(frame, formula):
+    """Raise a ``ValueError`` if a column that the model mentions has infinite values (lavaan fails with a message
+    about variances): missing values are fine, they are written as NA."""
+    text = str(formula)
+    mentioned = [c for c in frame.columns if re.search(rf"(?<![\w.]){re.escape(str(c))}(?![\w.])", text)]
+    infinite = [
+        str(c)
+        for c in mentioned
+        if np.isinf(pd.to_numeric(frame[c], errors="coerce").to_numpy(dtype=float, na_value=np.nan)).any()
+    ]
+    if infinite:
+        raise ValueError(
+            f"The variables {infinite} have infinite values, which lavaan cannot use: replace them with NaN "
+            "(missing) or remove those rows."
+        )
+
+
 def fit_lavaan(
     data,
     formula,
@@ -120,6 +139,7 @@ def fit_lavaan(
         extra["bootstrap"] = int(bootstrap)
     with tempfile.TemporaryDirectory(prefix="apatools_lavaan_") as tmp:
         frame = data.copy()
+        _check_infinite(frame, formula)
         for (
             column
         ) in frame.columns:  # R reads True / False as logical, but integers are safer
@@ -148,7 +168,15 @@ def fit_lavaan(
         ]
     for text in messages:
         warnings.warn(f"lavaan: {text}", UserWarning, stacklevel=3)
-    stats, metrics = convert_lavaan(pe, ss, measures, int(info["nobs"]), latent)
+    n_used, n_all = int(info["nobs"]), int(info["norig"]) if "norig" in info else int(info["nobs"])
+    if n_all > n_used:
+        warnings.warn(
+            f"lavaan used {n_used} of {n_all} cases: cases with missing values in the variables of the model were "
+            'deleted (listwise deletion); use method="FIML" to keep them.',
+            UserWarning,
+            stacklevel=3,
+        )
+    stats, metrics = convert_lavaan(pe, ss, measures, n_used, latent)
     fit = LavaanFit(
         parameters=pe.merge(
             ss, on=["lhs", "op", "rhs"], how="left", suffixes=("", "_std")

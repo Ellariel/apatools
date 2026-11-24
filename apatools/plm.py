@@ -185,6 +185,27 @@ class PanelData:
         )
 
 
+def _check_finite(panel):
+    """
+    Raise a ``ValueError`` if the dependent variable or a predictor has missing or infinite values.
+
+    ``dropna=True`` (the default) removes the rows with missing values in :func:`make_panel`, so they get here only
+    with ``dropna=False``; infinite values are never removed. The backends would fail with unclear messages (spreg:
+    a generic exception; R: it drops the rows itself and the result no longer matches the panel).
+    """
+    names = [panel.y.name] + list(panel.x.columns)
+    values = np.column_stack([panel.y.to_numpy(dtype=float), panel.x.to_numpy(dtype=float)])
+    missing = [n for n, bad in zip(names, np.isnan(values).any(axis=0)) if bad]
+    infinite = [n for n, bad in zip(names, np.isinf(values).any(axis=0)) if bad]
+    if missing or infinite:
+        problems = []
+        if missing:
+            problems.append(f"missing values in {missing} (dropna=True, the default, removes the rows)")
+        if infinite:
+            problems.append(f"infinite values in {infinite} (remove or recode them first)")
+        raise ValueError("The panel has " + " and ".join(problems) + ".")
+
+
 def _column(data, key):
     """Values of a column or of an index level."""
     if key in data.columns:
@@ -1199,6 +1220,7 @@ def plm(
         balance=kwargs.pop("balance", "error"),
         w_ids=kwargs.pop("w_ids", None),
     )
+    _check_finite(panel)
     if verbose:
         print(f"N={panel.N} entities, T={panel.T} periods, N*T={len(panel.y)}")
         print(f"Formula: {panel.y.name} ~ " + " + ".join(panel.x.columns))

@@ -29,6 +29,20 @@ RMSEA (Steiger and Lind, 1980; Browne and Cudeck, 1993). Hu and Bentler's (1999)
 higher, RMSEA of about .06 or lower) are rules of thumb, not tests. Robust standard errors follow the sandwich
 estimator of White (1980).
 
+**Missing data: the engines do not treat NaN alike.**
+
+* *lavaan* (R): `NaN` is passed on as missing (`NA`). By default lavaan deletes the cases that have a missing value in a
+  variable *of the model* (listwise deletion); `N` in the fit summary is the number of cases used and a warning says how
+  many were deleted. `method="FIML"` (full-information maximum likelihood) keeps all cases and adds the intercepts
+  (`~ 1` rows) to the table. Columns that the model does not use are ignored, whatever they contain. Infinite values in
+  a model variable raise a `ValueError` that names the variables (lavaan's own message talks about variances); a model
+  variable without any value raises lavaan's error.
+* *semopy*: this wrapper does not delete incomplete cases, and `N` in the fit summary is the number of rows of the data
+  whatever is missing. In an example with 8 of 75 rows incomplete the default estimator reported N = 75 and estimates
+  that differ from those of listwise deletion (1.28 instead of 1.34 for one loading), and semopy's FIML gave an
+  implausible CFI (−0.26). We have not traced how semopy uses incomplete rows. For results you can rely on, drop the
+  incomplete rows yourself (and report it) or use the lavaan engine with FIML.
+
 **`method=None` means the default of the engine** (`"MLW"` and 100 bootstrap resamples for semopy, `"ML"` and none for
 lavaan). `sem_report` formats `p_std` like `p-value`; because the fit summary sits in the first row of `stats`, the
 reported table is for display or export, not for further numerical work.

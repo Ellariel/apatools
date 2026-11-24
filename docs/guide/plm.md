@@ -52,6 +52,14 @@ Panels must be *balanced*: with `balance="drop"` entities that are not observed 
 warning), otherwise an error is raised. The entities are aligned with the rows of the weights by `w.id_order` (or
 `w_ids`), and the rows are sorted into period blocks of entities, so the row order of your data does not matter.
 
+**Missing data.** Rows with a missing value in the dependent variable, a predictor, the entity or the period are
+removed (`dropna=True`, the default; with a formula, patsy always removes them). A panel must be balanced, so entities
+that then lack a period raise an error or, with `balance="drop"`, are dropped with a warning; this is the same for every
+backend and the rows never reach R. `dropna=False` with missing values, and infinite values in any case, raise a
+`ValueError` that names the variables (before this was checked, spreg failed with a generic exception and R dropped the
+rows itself, so that its result no longer matched the panel). Columns of the data frame that the model does not use
+may contain anything.
+
 **Fit statistics.**
 
 * R² is *within* R² for fixed effects (after removing all the effects the model has), *overall* R² for the random

@@ -261,7 +261,7 @@ def sem(
     metrics = pd.concat([pd.Series({"N": data.shape[0]}, name="value"), metrics])
     stats = model.inspect(std_est=True, se_robust=se_robust)
     stats.columns = [i.lower().replace(". ", "_") for i in stats.columns]
-    stats = stats.replace("-", np.nan).infer_objects().copy()
+    stats = stats.where(stats != "-", np.nan).infer_objects().copy()  # not replace(): its downcasting is deprecated
     se_std, z_std, p_std = _standardized_inference(model, se_robust)
     stats["se_std"], stats["z_std"], stats["p_std"] = se_std, z_std, p_std
     # semopy reports measurement paths ("=~") as "~" rows, so keep the latent

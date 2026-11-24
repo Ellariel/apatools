@@ -22,6 +22,16 @@
 - `plm_tests`: the Baltagi-Song-Koh LM tests are computed by apatools (they equal spreg's `BSK_tests`, R's `plmtest`
   and `slmtest`; the p-values of LM1 and LMJ no longer underflow to 0), so they also work for splm results.
 
+### Fixed
+- Missing and infinite values and the R engines: `plm` raises a `ValueError` that names the variables when the data have
+  missing values with `dropna=False` or infinite values (spreg failed with a generic exception, and R dropped the rows
+  itself, so that the result of `backend="splm"` no longer matched the panel and failed with an obscure R error).
+  `sem(engine="lavaan")` raises a clear `ValueError` for infinite values in the variables of the model (lavaan's message
+  talked about variances) and warns when lavaan deleted cases with missing values (listwise deletion; the `N` of the fit
+  summary was the only hint). The `sem` page documents that the semopy engine handles missing data differently (it
+  reports all rows as `N`), and the `plm` page the handling of missing data.
+- `sem` (semopy engine): no pandas `FutureWarning` about the downcasting of `replace`.
+
 ### Removed
 - `apatools.citation` and `cite()`: the literature behind every method and engine is collected in the
   documentation (the page of each module and the software page) instead.
