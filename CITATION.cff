@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use apatools in your work, please cite it as below, and cite the engines that produced your results (see the software page of the documentation)."
+type: software
+title: "apatools: a toolbox for statistical analysis and APA-compliant reporting"
+abstract: >-
+  Wrappers around established Python and R tools (statsmodels, spreg, linearmodels, semopy, psmpy, lavaan,
+  plm, splm) that return tidy tables with the statistics a manuscript needs, together with specification tests,
+  effect conversions and reliability coefficients. The methods are benchmarked against independent references,
+  and the documentation discloses design decisions, caveats and differences from R.
+authors:
+  - family-names: Valko
+    given-names: Danila
+version: 0.3.0
+license: MIT
+url: "https://ellariel.github.io/apatools/"
+repository-code: "https://github.com/Ellariel/apatools"
+repository-artifact: "https://pypi.org/project/apatools/"
+keywords:
+  - APA reporting
+  - meta-analysis
+  - effect size
+  - regression
+  - spatial regression
+  - panel data
+  - structural equation modeling
+  - propensity score matching

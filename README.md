@@ -79,6 +79,13 @@ the main branch). Its source is in [`docs/`](docs/) (Sphinx; build it locally wi
 * the [software](docs/software.md) page (what to cite for each engine), and the literature at the end of each module page;
 * the API reference, generated from the docstrings, and the [changelog](CHANGELOG.md).
 
+## Citing
+
+If you use apatools, please cite it (see [`CITATION.cff`](CITATION.cff); GitHub offers the formatted citation under
+"Cite this repository"; the package is on [PyPI](https://pypi.org/project/apatools/)) and, as the numbers come from the
+engines, also the software that produced them: the [software page](docs/software.md) of the documentation says what to
+cite for each engine. Report the version you used (`apatools.__version__`).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

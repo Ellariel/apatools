@@ -4,6 +4,14 @@ apatools wraps other software: the numbers in a table come from an *engine*, and
 about (and what you should cite) next to apatools itself. The references below were checked against Crossref; check the
 year and the version of the software you used. The literature behind the *methods* is at the end of the page of each module.
 
+## Citing apatools itself
+
+Please cite apatools itself next to the engines. The repository has a `CITATION.cff` file (the Citation File Format):
+GitHub shows the formatted citation (APA or BibTeX) under *Cite this repository*, and reference managers such as Zotero
+read the file. The package is published on PyPI, <https://pypi.org/project/apatools/>, which is the address given in
+`CITATION.cff` as the artifact to cite. State the version you used (`apatools.__version__`), because conventions and
+fixes change from version to version, see the [changelog](changelog.md).
+
 ## What to cite for which engine
 
 | module | engine | cite |
